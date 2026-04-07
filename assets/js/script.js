@@ -1054,13 +1054,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (document.getElementById('cartItems')) renderCart();
 
-  if (window.location.pathname.includes('admin.html')) {
+  const path = window.location.pathname;
+
+  if (path.includes('admin.html') || path.endsWith('/admin')) {
     checkAdminAccess();
     await renderAdminDashboard();
     await renderAdminUsers();
   }
 
-  if (window.location.pathname.includes('admin-add.html')) {
+  if (path.includes('admin-add')) {
     checkAdminAccess();
     if (document.getElementById('adminForm')) {
       document.getElementById('adminForm').addEventListener('submit', handleAddProduct);
@@ -1071,7 +1073,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  if (window.location.pathname.includes('admin-products.html')) {
+  if (path.includes('admin-products')) {
     checkAdminAccess();
     
     const editForm = document.getElementById('editProductForm');
@@ -1083,7 +1085,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await renderAdminList();
   }
 
-  if (window.location.pathname.includes('admin-orders.html')) {
+  if (path.includes('admin-orders')) {
     checkAdminAccess();
     await renderAdminOrders();
   }
