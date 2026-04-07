@@ -441,6 +441,9 @@ button {
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
   }
+  .nav-links a {
+    white-space: nowrap;
+  }
   .nav-links::-webkit-scrollbar { display: none; }
   .mobile-menu-btn { display: none; }
   .section-title { font-size: 2rem; }
@@ -1198,3 +1201,17 @@ input:checked + .theme-slider:before {
 [data-theme="light"] .theme-slider:not(:checked) {
   background-color: #ccc;
 }
+
+.product-detail-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 60px;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .product-detail-layout {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+}
+

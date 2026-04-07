@@ -748,7 +748,7 @@ async function renderAdminOrders() {
   container.innerHTML = dbOrders.map(o => {
     const statusClass = `status-${o.status.toLowerCase()}`;
     return `
-      <div style="background: white; margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
+      <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
         <div style="display:flex; justify-content:space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
           <div>
             <strong style="font-size: 1.1rem;">${o.id}</strong><br>
@@ -1102,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
       detailContainer.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 60px; align-items: start;">
+        <div class="product-detail-layout">
           <div class="product-detail-img-card">
             <img src="${product.img}" alt="${product.name}" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
           </div>
@@ -1121,8 +1121,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                })()}
             </div>
             
-            <div style="background: #fdfafc; border-left: 4px solid #802a7e; padding: 16px; margin-bottom: 32px; border-radius: 4px;">
-              <p style="font-weight: 600; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <div style="background: rgba(128, 42, 126, 0.1); border-left: 4px solid #802a7e; padding: 16px; margin-bottom: 32px; border-radius: 8px;">
+              <p style="font-weight: 600; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--text-main);">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#802a7e" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                 Delivered in 3-5 Days
               </p>
@@ -1130,8 +1130,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
 
             <div style="margin-bottom: 40px;">
-              <h3 style="font-size: 1.2rem; margin-bottom: 12px;">Book Description</h3>
-              <p style="color: #444; font-size: 1.05rem; line-height: 1.7;">${pDesc}</p>
+              <h3 style="font-size: 1.5rem; margin-bottom: 16px;">Book Description</h3>
+              <p style="color: var(--text-muted); font-size: 1.1rem; line-height: 1.8;">${pDesc}</p>
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 40px;">
@@ -1163,18 +1163,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
 
             <!-- Reviews Section -->
-            <div id="reviewsSection" style="margin-top: 60px; border-top: 1px solid #eee; padding-top: 40px;">
+            <div id="reviewsSection" style="margin-top: 60px; border-top: 1px solid var(--border-color); padding-top: 40px;">
               <h3 style="font-size: 1.5rem; margin-bottom: 24px; color: var(--text-main);">Customer Reviews</h3>
               <div id="existingReviews" style="margin-bottom: 40px;"></div>
               <h4 style="font-size: 1.2rem; margin-bottom: 16px;">Write a Review</h4>
               <form id="reviewForm" style="display: flex; flex-direction: column; gap: 16px;">
                 <div>
-                  <label for="rating" style="font-weight: 600; margin-bottom: 8px; display: block;">Rating (1-5 stars):</label>
-                  <input type="number" id="rating" min="1" max="5" required style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100px;">
+                  <label for="rating" style="font-weight: 600; margin-bottom: 8px; display: block; color: var(--text-main);">Rating (1-5 stars):</label>
+                  <input type="number" id="rating" min="1" max="5" required style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 4px; width: 100px;">
                 </div>
                 <div>
-                  <label for="reviewText" style="font-weight: 600; margin-bottom: 8px; display: block;">Your Review:</label>
-                  <textarea id="reviewText" placeholder="Share your experience with this book..." required style="padding: 12px; border: 1px solid #ddd; border-radius: 4px; width: 100%; min-height: 100px; resize: vertical;"></textarea>
+                  <label for="reviewText" style="font-weight: 600; margin-bottom: 8px; display: block; color: var(--text-main);">Your Review:</label>
+                  <textarea id="reviewText" placeholder="Share your experience with this book..." required style="padding: 12px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 4px; width: 100%; min-height: 100px; resize: vertical;"></textarea>
                 </div>
                 <button type="submit" class="btn btn-purple" style="align-self: flex-start;">Submit Review</button>
               </form>
@@ -1182,6 +1182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           </div>
         </div>
       `;
+
+       // Initialize reviews right away on page load
+       await renderReviews(productId);
 
        document.getElementById('reviewForm').addEventListener('submit', async (e) => {
         e.preventDefault();
