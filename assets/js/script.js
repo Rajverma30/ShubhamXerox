@@ -109,6 +109,7 @@ function updateNavForUser() {
   if (navContainers.length === 0) return;
 
   navContainers.forEach(navContainer => {
+    if (navContainer.id === 'adminNavLinks') return;
     let authLink = navContainer.querySelector('.dynamic-auth-link');
     if (!authLink) {
       if (document.getElementById('authLink')) authLink = document.getElementById('authLink');
@@ -127,6 +128,14 @@ function updateNavForUser() {
         authLink.style.color = "var(--primary)";
         authLink.onclick = null;
       } else {
+        let myOrdersLink = navContainer.querySelector('.my-orders-link');
+        if (!myOrdersLink) {
+          myOrdersLink = document.createElement('a');
+          myOrdersLink.className = 'my-orders-link';
+          myOrdersLink.href = "my-orders.html";
+          myOrdersLink.textContent = "My Orders";
+          navContainer.insertBefore(myOrdersLink, authLink);
+        }
         authLink.href = "#";
         authLink.textContent = "Logout";
         authLink.style.color = "#ff3b30";
@@ -791,6 +800,62 @@ window.updateOrderStatus = async function(orderId, newStatus) {
   await renderAdminOrders();
 };
 
+async function renderMyOrders() {
+  const container = document.getElementById('myOrdersList');
+  if (!container) return;
+
+  if (!currentUser) {
+     window.location.href = "login.html";
+     return;
+  }
+
+  let dbOrders = [];
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data } = await supabase.from('orders').select('*').eq('customerphone', currentUser.phone).order('date', { ascending: false });
+    dbOrders = data || [];
+  }
+
+  if (dbOrders.length === 0) {
+    container.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted);">You have not placed any orders yet.</div>`;
+    return;
+  }
+
+  container.innerHTML = dbOrders.map(o => {
+    const statusClass = `status-${o.status.toLowerCase()}`;
+    return `
+      <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+          <div>
+            <strong style="font-size: 1.1rem;">${o.id}</strong><br>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date}</span>
+          </div>
+          <div style="text-align: right;">
+            <span style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;" class="${statusClass}">${o.status}</span>
+          </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+          <div>
+            <strong>Delivery Address</strong>
+            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">${o.address}</p>
+          </div>
+          <div>
+            <strong>Payment Info</strong>
+            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">Method: ${o.method}</p>
+            <p style="font-size: 0.9rem; font-weight: 700;">Total: ${formatPrice(o.total)}</p>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px;">
+          <strong style="display:block; margin-bottom: 8px;">Order Items</strong>
+          ${o.items.map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between; color: var(--text-main);"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderCheckoutSummary() {
   const container = document.getElementById('checkoutSummaryItems');
   if(!container) return;
@@ -1088,6 +1153,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('admin-orders')) {
     checkAdminAccess();
     await renderAdminOrders();
+  }
+
+  if (path.includes('my-orders')) {
+    if (!currentUser) {
+      window.location.href = "login.html";
+      return;
+    }
+    await renderMyOrders();
   }
 
   const detailContainer = document.getElementById('productDetailContainer');
