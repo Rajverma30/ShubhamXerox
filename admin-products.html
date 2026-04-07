@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <svg width="45" height="45" viewBox="0 0 100 100" fill="none" stroke="url(#logoGrad)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#df2020" />
+              <stop offset="100%" stop-color="#14143a" />
+            </linearGradient>
+          </defs>
+          <path d="M 10 65 L 30 25 L 50 75 L 70 25 L 90 65 L 50 90 Z" />
+          <path d="M 30 25 L 50 5 L 70 25" />
+        </svg>
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-products.html" style="color: var(--primary);">Manage Books</a>
+        <a href="admin-orders.html">Orders</a>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons">
+        <!-- Theme Switch Injected by JS -->
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+      
+      <div style="margin-bottom: 30px;">
+        <h2 style="font-size: 1.5rem;">Manage Products</h2>
+        <p style="color: var(--text-muted);">View, search, and delete books.</p>
+      </div>
+
+        <!-- Product List -->
+        <div>
+          <div class="admin-list" id="adminProductsList">
+            <!-- Injected via JS -->
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  </main>
+
+  <!-- Edit Product Modal -->
+  <div class="modal-overlay" id="editProductModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px);">
+    <div class="admin-card" style="width: 100%; max-width: 500px; margin: 0; position: relative; max-height: 90vh; overflow-y: auto;">
+      <button type="button" onclick="closeEditModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-main);">&times;</button>
+      <h2 style="margin-bottom: 24px; font-size: 1.25rem;">Edit Product</h2>
+      <form id="editProductForm">
+        <input type="hidden" id="editProductId">
+        <div class="form-group">
+          <label for="editName">Product Name</label>
+          <input type="text" id="editName" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label for="editPrice">Selling Price (₹)</label>
+          <input type="number" id="editPrice" class="form-control" required min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label for="editOriginalPrice">Actual MRP (₹) <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional)</span></label>
+          <input type="number" id="editOriginalPrice" class="form-control" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label for="editCategory">Category</label>
+          <input type="text" id="editCategory" list="categoryOptions" class="form-control" required>
+          <datalist id="categoryOptions">
+            <!-- Injected via JS -->
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label for="editImgUpload">Upload New Image <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Leave blank to keep current)</span></label>
+          <input type="file" id="editImgUpload" class="form-control" accept="image/*">
+        </div>
+        <div style="text-align: center; margin: 12px 0; color: var(--text-muted); font-size: 0.9rem;">OR</div>
+        <div class="form-group">
+          <label for="editImg">Image URL</label>
+          <input type="url" id="editImg" class="form-control">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px;">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/script.js"></script>
+</body>
+</html>

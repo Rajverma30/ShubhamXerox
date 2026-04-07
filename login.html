@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <svg width="45" height="45" viewBox="0 0 100 100" fill="none" stroke="url(#logoGrad)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#df2020" />
+              <stop offset="100%" stop-color="#14143a" />
+            </linearGradient>
+          </defs>
+          <path d="M 10 65 L 30 25 L 50 75 L 70 25 L 90 65 L 50 90 Z" />
+          <path d="M 30 25 L 50 5 L 70 25" />
+        </svg>
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+    </div>
+  </nav>
+
+  <main style="min-height: 80vh; padding: 20px;">
+    <div class="auth-container">
+      <h2>Welcome Back</h2>
+      <p>Log in to access your notes and orders</p>
+
+      <form id="loginForm">
+        <div id="step1">
+          <div class="form-group" style="text-align: left;">
+            <label for="phone">Phone Number</label>
+            <input type="tel" id="phone" class="form-control" placeholder="10-digit number" required pattern="[0-9]{10}">
+          </div>
+          <button type="button" class="btn btn-primary" style="width: 100%;" onclick="requestOTP()">Get OTP</button>
+        </div>
+
+        <div id="step2" style="display: none;">
+          <p style="color: var(--primary); font-weight: 500; font-size: 0.9rem; margin-bottom: 16px;">Test OTP is 1234</p>
+          <div class="form-group" style="text-align: left;">
+            <label for="otp">Enter OTP</label>
+            <input type="text" id="otp" class="form-control" placeholder="4-digit OTP" pattern="[0-9]{4}">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Verify & Login</button>
+        </div>
+      </form>
+
+      <a href="register.html" class="auth-link">Don't have an account? Sign up here</a>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer style="background-color: #1d1d1f; color: #86868b; padding: 40px 0 20px; margin-top: auto;">
+    <div class="container" style="text-align: center; font-size: 0.8rem;">
+      <p>&copy; 2026 Shubham Xerox. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/script.js"></script>
+</body>
+</html>
