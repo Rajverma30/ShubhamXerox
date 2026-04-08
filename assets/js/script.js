@@ -1323,3 +1323,513 @@ async function renderReviews(productId) {
     </div>
   `).join('') || '<p style="color: #888;">No reviews yet. Be the first to review!</p>';
 }
+
+// ==========================================
+// --- Real-time Chat System ---
+// ==========================================
+
+function checkChatLogin() {
+  if (!currentUser) {
+    showToast("Login required to start chat");
+    setTimeout(() => { window.location.href = "login.html"; }, 1500);
+  } else {
+    window.location.href = "chat.html";
+  }
+}
+
+// User Chat Init
+let chatSubscription = null;
+let currentChatUserId = null;
+
+async function initUserChat() {
+  if (!currentUser) return;
+  currentChatUserId = currentUser.phone;
+  await loadMessages(currentChatUserId, 'chatMessagesArea');
+  subscribeToMessages(currentChatUserId, 'chatMessagesArea');
+}
+
+// Admin Chat Center Init
+async function initAdminChatCenter() {
+  await fetchAdminChatUsers();
+  // Listen for new messages globally to update sidebar
+  const supabase = getSupabase();
+  if(supabase) {
+    supabase.channel('admin_global_msgs')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+         // Refresh user list to bubble up active chats
+         fetchAdminChatUsers();
+         // If we are currently viewing this user's chat, append message
+         if (currentChatUserId && (payload.new.sender === currentChatUserId || payload.new.receiver === currentChatUserId)) {
+            appendMessageToUI(payload.new, 'adminMessagesContainer', true);
+         }
+      })
+      .subscribe();
+  }
+}
+
+async function fetchAdminChatUsers() {
+  const container = document.getElementById('adminChatUsersList');
+  if(!container) return;
+  
+  const supabase = getSupabase();
+  if(!supabase) return;
+  
+  // Fetch messages to get unique users who have chatted
+  const { data: messages } = await supabase.from('messages').select('sender, receiver, created_at').order('created_at', {ascending: false});
+  if(!messages) {
+    container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No messages yet.</div>';
+    return;
+  }
+  
+  const userPhones = new Set();
+  messages.forEach(m => {
+    if(m.sender !== ADMIN_PHONE) userPhones.add(m.sender);
+    if(m.receiver !== ADMIN_PHONE) userPhones.add(m.receiver);
+  });
+  
+  if(userPhones.size === 0) {
+    container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No active chats.</div>';
+    return;
+  }
+
+  // Fetch user details
+  const { data: users } = await supabase.from('users').select('name, phone').in('phone', Array.from(userPhones));
+  const { data: orders } = await supabase.from('orders').select('customerphone');
+  
+  const usersMap = {};
+  users?.forEach(u => usersMap[u.phone] = u.name);
+  
+  const orderCount = {};
+  orders?.forEach(o => {
+    if(!orderCount[o.customerphone]) orderCount[o.customerphone] = 0;
+    orderCount[o.customerphone]++;
+  });
+
+  // Array from Set is not naturally ordered by recent message without extra logic, 
+  // but keeping it simple for now or sorting by messages.
+  const phoneArray = Array.from(userPhones);
+
+  container.innerHTML = phoneArray.map(phone => {
+    const name = usersMap[phone] || 'Unknown User';
+    const ordersItem = orderCount[phone] || 0;
+    const isActive = phone === currentChatUserId ? 'active' : '';
+    return `
+      <div class="admin-user-item ${isActive}" onclick="openAdminChatForUser('${phone}')">
+        <div class="admin-user-item-avatar">${name.charAt(0).toUpperCase()}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600; color:var(--text-main);">${name}</div>
+          <div style="font-size:0.8rem; color:var(--text-muted);">${phone}</div>
+        </div>
+        <div style="font-size:0.75rem; background:var(--primary); color:#fff; padding:2px 6px; border-radius:12px;">${ordersItem} orders</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function openAdminChatForUser(phone) {
+  currentChatUserId = phone;
+  // Update sidebar active state visually
+  fetchAdminChatUsers();
+  
+  const mainArea = document.getElementById('adminChatMainArea');
+  const user = await getUserNameByPhone(phone);
+  
+  // Render chat frame
+  mainArea.innerHTML = `
+    <header class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-avatar">
+           <img src="images/logo.png" alt="Avatar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; background:#fff; border: 1px solid var(--border-color);">
+        </div>
+        <div>
+          <h2 style="font-size: 1.1rem; margin: 0; color: #fff;">${user} <span style="font-size:0.8rem; font-weight:400; opacity:0.8;">(${phone})</span></h2>
+        </div>
+      </div>
+      <button onclick="deleteEntireChat('${phone}')" style="color:#ff3b30; background:rgba(255,59,48,0.1); padding:6px 12px; border-radius:4px; font-size:0.8rem; font-weight:600;">Delete Chat</button>
+    </header>
+    <main class="chat-messages" id="adminMessagesContainer" style="flex:1; overflow-y:auto; padding:20px;"></main>
+    <footer class="chat-input-container">
+      <input type="file" id="adminChatFileInput" accept="application/pdf" style="display: none;">
+      <button class="chat-attach-btn" onclick="document.getElementById('adminChatFileInput').click();" aria-label="Attach File">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+      </button>
+      <div class="chat-input-wrapper">
+        <div id="adminChatFilePreview" class="chat-file-preview" style="display:none;">
+          <span id="adminChatFileName" style="font-size:0.8rem; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></span>
+          <button onclick="clearAdminChatFilePreview()" style="color:#ff3b30; background:transparent; border:none; cursor:pointer; font-size:1.2rem;">&times;</button>
+        </div>
+        <input type="text" id="adminChatInputMessage" class="chat-input" placeholder="Type a reply..." autocomplete="off">
+      </div>
+      <button class="chat-send-btn" onclick="handleSendChatMessage('admin')" aria-label="Send Message">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+      </button>
+    </footer>
+  `;
+  
+  await loadMessages(phone, 'adminMessagesContainer', true);
+}
+
+async function getUserNameByPhone(phone) {
+   const supabase = getSupabase();
+   if(!supabase) return "User";
+   const { data } = await supabase.from('users').select('name').eq('phone', phone).single();
+   return data ? data.name : "User";
+}
+
+// Shared Message Loading & Rendering
+async function loadMessages(chatPhoneId, containerId, isAdminPanel = false) {
+  const supabase = getSupabase();
+  if(!supabase) return;
+  
+  const { data: messages } = await supabase.from('messages')
+    .select('*')
+    .or(`and(sender.eq.${chatPhoneId},receiver.eq.${ADMIN_PHONE}),and(sender.eq.${ADMIN_PHONE},receiver.eq.${chatPhoneId})`)
+    .eq('is_deleted', false)
+    .order('created_at', {ascending: true});
+
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  
+  if (messages && messages.length > 0) {
+    container.innerHTML = '';
+    messages.forEach(msg => appendMessageToUI(msg, containerId, isAdminPanel));
+  } else {
+    // Keep empty state if user, clear if admin
+    if (!isAdminPanel && document.getElementById('chatEmptyState')) {
+      document.getElementById('chatEmptyState').style.display = 'flex';
+      container.innerHTML = ''; 
+      container.appendChild(document.getElementById('chatEmptyState'));
+    } else {
+      container.innerHTML = '<div style="text-align:center; color:var(--text-muted); margin-top:20px;" class="chat-placeholder-empty">No messages. Send a message to start!</div>';
+    }
+  }
+}
+
+function subscribeToMessages(chatPhoneId, containerId) {
+  const supabase = getSupabase();
+  if(!supabase) return;
+  
+  if(chatSubscription) supabase.removeChannel(chatSubscription);
+  
+  chatSubscription = supabase.channel('user_chat_updates')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+      const msg = payload.new;
+      if (!msg.is_deleted && ((msg.sender === chatPhoneId && msg.receiver === ADMIN_PHONE) || (msg.sender === ADMIN_PHONE && msg.receiver === chatPhoneId))) {
+        appendMessageToUI(msg, containerId, false);
+      }
+    })
+    .subscribe();
+}
+
+function appendMessageToUI(msg, containerId, isAdminPanel) {
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  
+  if (msg.id && document.getElementById(`msg-${msg.id}`)) return;
+  const emptyState = container.querySelector('.chat-empty-state');
+  if(emptyState) emptyState.style.display = 'none';
+
+  const placeholderInfo = container.querySelector('.chat-placeholder-empty');
+  if(placeholderInfo) placeholderInfo.remove();
+
+  const isMe = isAdminPanel ? (msg.sender === ADMIN_PHONE) : (msg.sender !== ADMIN_PHONE);
+  const bubbleClass = isMe ? 'chat-bubble-me' : 'chat-bubble-other';
+  
+  // Safe date parsing 
+  const d = new Date(msg.created_at);
+  const timeInfo = isNaN(d) ? 'Now' : d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  
+  let contentHtml = '';
+  if (msg.message) {
+    contentHtml += `<div class="chat-text">${msg.message}</div>`;
+  }
+  if (msg.file_url) {
+    const fileName = msg.file_url.split('/').pop().split('?')[0] || "document.pdf";
+    contentHtml += `
+      <div class="chat-file-attachment">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <span class="file-name">${fileName}</span>
+        <a href="${msg.file_url}" target="_blank" download class="file-download-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>
+      </div>
+    `;
+  }
+
+  const msgDiv = document.createElement('div');
+  msgDiv.id = `msg-${msg.id || Date.now()}`;
+  msgDiv.className = `chat-bubble-wrapper ${bubbleClass}`;
+  msgDiv.innerHTML = `
+    <div class="chat-bubble">
+      ${contentHtml}
+      <div class="chat-meta">
+        ${timeInfo}
+        ${isMe ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="read-receipt" style="color:var(--primary); margin-left:4px;"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+      </div>
+    </div>
+  `;
+  container.appendChild(msgDiv);
+  container.scrollTop = container.scrollHeight;
+}
+
+// Sending Logic
+async function handleSendChatMessage(mode) {
+  const isUser = mode === 'user';
+  const fileInputId = isUser ? 'chatFileInput' : 'adminChatFileInput';
+  const textInputId = isUser ? 'chatInputMessage' : 'adminChatInputMessage';
+  const previewClearFunc = isUser ? window.clearChatFilePreview : window.clearAdminChatFilePreview;
+  
+  const textInput = document.getElementById(textInputId);
+  const fileInput = document.getElementById(fileInputId);
+  
+  if(!textInput) return; // defensive
+
+  const msgText = textInput.value.trim();
+  const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+  
+  if (!msgText && !file) return; // Nothing to send
+  
+  const senderId = isUser ? currentUser.phone : ADMIN_PHONE;
+  const receiverId = isUser ? ADMIN_PHONE : currentChatUserId;
+  
+  // Disable parsing while sending
+  textInput.disabled = true;
+  if(fileInput) fileInput.disabled = true;
+  
+  let uploadedFileUrl = null;
+  
+  if (file) {
+    uploadedFileUrl = await uploadPdfToSupabase(file);
+    if (!uploadedFileUrl) {
+      showToast("File upload failed.");
+      textInput.disabled = false;
+      if(fileInput) fileInput.disabled = false;
+      return;
+    }
+  }
+  
+  const supabase = getSupabase();
+  if (supabase) {
+    const { error } = await supabase.from('messages').insert({
+      sender: senderId,
+      receiver: receiverId,
+      message: msgText || null,
+      file_url: uploadedFileUrl
+    });
+    if (error) {
+       console.error("Failed to send message:", error);
+       showToast("Failed to send message.");
+    } else {
+        // If it's admin, and the local real-time listener is slow, we can forcibly append it visually now or wait for the subscription. 
+        // Admin already has real-time listner active that covers this, wait! For Admin, the listener triggers on 'admin_global_msgs', which adds it to 'adminMessagesContainer'. 
+        // Same for user: user listener 'user_chat_updates' adds to 'chatMessagesArea'. 
+        // Local state update makes it feel completely instant
+        const containerId = isUser ? 'chatMessagesArea' : 'adminMessagesContainer';
+        const fallbackMsg = {
+          id: Date.now().toString(),
+          sender: senderId, receiver: receiverId,
+          message: msgText || null, file_url: uploadedFileUrl,
+          created_at: new Date().toISOString()
+        };
+        appendMessageToUI(fallbackMsg, containerId, !isUser);
+    }
+  }
+  
+  // Cleanup
+  textInput.value = '';
+  textInput.disabled = false;
+  if(fileInput) {
+      fileInput.value = '';
+      fileInput.disabled = false;
+  }
+  if(previewClearFunc) previewClearFunc();
+  textInput.focus();
+}
+
+async function uploadPdfToSupabase(file) {
+  const supabase = getSupabase();
+  if(!supabase) return null;
+  
+  const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+  const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, { cacheControl: '3600', upsert: false });
+  
+  if(error) {
+    console.error("Storage upload error:", error);
+    showToast("Storage Error: " + error.message);
+    return null;
+  }
+  
+  const { data: pubData } = supabase.storage.from('chat-files').getPublicUrl(fileName);
+  return pubData.publicUrl;
+}
+
+// Delete Chat (Admin)
+async function deleteEntireChat(phone) {
+  if(!confirm("Are you sure you want to delete all messages for this user? This cannot be undone.")) return;
+  const supabase = getSupabase();
+  if(supabase) {
+    // Soft delete
+    await supabase.from('messages')
+       .update({is_deleted: true})
+       .or(`and(sender.eq.${phone},receiver.eq.${ADMIN_PHONE}),and(sender.eq.${ADMIN_PHONE},receiver.eq.${phone})`);
+    
+    showToast("Chat deleted.");
+    document.getElementById('adminChatMainArea').innerHTML = `
+      <div class="admin-chat-placeholder">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        <h3 style="margin-top: 16px; font-size: 1.2rem;">Select a chat to view</h3>
+      </div>
+    `;
+    fetchAdminChatUsers(); // refresh list
+  }
+}
+
+// ==========================================
+// --- Free Notes System ---
+// ==========================================
+
+let freeNotesData = [];
+
+// Index Page loading
+async function loadFreeNotes() {
+  const container = document.getElementById('freeNotesContainer');
+  if(!container) return; // not index page
+
+  const supabase = getSupabase();
+  if(!supabase) {
+    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted);">Database connection failed.</div>';
+    return;
+  }
+
+  const { data: notes } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
+  freeNotesData = notes || [];
+  
+  renderFreeNotesGrid(freeNotesData);
+}
+
+function renderFreeNotesGrid(notesToDisplay) {
+  const container = document.getElementById('freeNotesContainer');
+  if(!container) return;
+
+  if (notesToDisplay.length === 0) {
+    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No free notes available yet. Check back soon!</div>';
+    return;
+  }
+
+  container.innerHTML = notesToDisplay.map(note => `
+    <div class="note-card">
+      <div class="note-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+      </div>
+      <div class="note-details">
+        <h3 class="note-title">${note.title}</h3>
+        <p class="note-meta">${new Date(note.created_at).toLocaleDateString()}</p>
+      </div>
+      <a href="${note.file_url}" target="_blank" download class="btn note-download-btn" aria-label="Download ${note.title}">
+        Download PDF <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      </a>
+    </div>
+  `).join('');
+}
+
+window.filterFreeNotes = function() {
+  const q = document.getElementById('freeNotesSearch').value.toLowerCase();
+  const filtered = freeNotesData.filter(note => note.title.toLowerCase().includes(q));
+  renderFreeNotesGrid(filtered);
+};
+
+// Admin Page logic
+async function loadAdminFreeNotes() {
+  const container = document.getElementById('adminFreeNotesList');
+  if(!container) return;
+
+  const supabase = getSupabase();
+  if(!supabase) return;
+
+  const { data: notes } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
+  
+  if (!notes || notes.length === 0) {
+    container.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">No free notes uploaded yet.</div>';
+    return;
+  }
+
+  container.innerHTML = notes.map(note => `
+    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-color); padding:16px; border-radius:8px; border:1px solid var(--border-color);">
+      <div>
+        <div style="font-weight:600; color:var(--text-main); margin-bottom:4px;">${note.title}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted);"><a href="${note.file_url}" target="_blank" style="color:var(--primary); text-decoration:underline;">View PDF</a> • Added: ${new Date(note.created_at).toLocaleDateString()}</div>
+      </div>
+      <button class="remove-btn" onclick="deleteFreeNote('${note.id}')" style="padding:8px 16px;">Delete</button>
+    </div>
+  `).join('');
+}
+
+// Add note submit handler
+const addFreeNoteForm = document.getElementById('addFreeNoteForm');
+if (addFreeNoteForm) {
+  addFreeNoteForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const titleInput = document.getElementById('newNoteTitle');
+    const fileInput = document.getElementById('newNoteFile');
+    const btn = document.getElementById('btnUploadNote');
+    const btnText = document.getElementById('btnUploadNoteText');
+
+    if(!titleInput.value || !fileInput.files.length) return;
+
+    btn.disabled = true;
+    btnText.textContent = 'Uploading...';
+
+    const supabase = getSupabase();
+    if(supabase) {
+      const file = fileInput.files[0];
+      const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      
+      const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, file, { cacheControl: '3600', upsert: false });
+      
+      if(uploadError) {
+        showToast("Storage Error: " + uploadError.message);
+      } else {
+        const { data: pubData } = supabase.storage.from('free-notes').getPublicUrl(fileName);
+        
+        const { error: dbError } = await supabase.from('free_notes').insert({
+          title: titleInput.value,
+          file_url: pubData.publicUrl
+        });
+
+        if(dbError) {
+          showToast("DB Error: " + dbError.message);
+        } else {
+          showToast("Free Note published!");
+          addFreeNoteForm.reset();
+          loadAdminFreeNotes(); // Refresh list automatically
+        }
+      }
+    }
+    
+    btn.disabled = false;
+    btnText.textContent = 'Upload Note';
+  });
+}
+
+window.deleteFreeNote = async function(id) {
+  if(!confirm("Are you sure you want to delete this Note?")) return;
+  const supabase = getSupabase();
+  if(supabase) {
+    const {error} = await supabase.from('free_notes').delete().eq('id', id);
+    if(error) showToast("Error deleting note.");
+    else {
+      showToast("Note deleted.");
+      loadAdminFreeNotes();
+    }
+  }
+}
+
+// Hook them into DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if(document.getElementById('freeNotesContainer')) {
+      loadFreeNotes();
+    }
+    if(document.getElementById('adminFreeNotesList') && currentUser && currentUser.phone === ADMIN_PHONE) {
+      loadAdminFreeNotes();
+    }
+  }, 1000); // Give supabase a second to boot up
+});

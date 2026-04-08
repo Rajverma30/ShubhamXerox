@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" type="image/png" href="images/logo.png">
 </head>
 <body style="background-color: var(--bg-color);">
 
@@ -15,22 +16,13 @@
   <nav class="navbar">
     <div class="container">
       <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
-        <svg width="45" height="45" viewBox="0 0 100 100" fill="none" stroke="url(#logoGrad)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
-          <defs>
-            <linearGradient id="logoGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#df2020" />
-              <stop offset="100%" stop-color="#14143a" />
-            </linearGradient>
-          </defs>
-          <path d="M 10 65 L 30 25 L 50 75 L 70 25 L 90 65 L 50 90 Z" />
-          <path d="M 30 25 L 50 5 L 70 25" />
-        </svg>
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
         <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
       </a>
       <div class="nav-links" id="adminNavLinks" style="display: none;">
         <a href="admin.html">Dashboard</a>
         <a href="admin-add.html">Add Books</a>
-        <a href="admin-products.html" style="color: var(--primary);">Manage Books</a>
+        <a href="admin-products.html" style="color: var(--primary);">Manage Books & Notes</a>
         <a href="admin-orders.html">Orders</a>
         <a href="#" onclick="logout()">Logout</a>
       </div>
@@ -43,17 +35,43 @@
   <main class="section" style="padding-top: 40px; min-height: 80vh;">
     <div class="container">
       
+      <!-- Free Notes Section -->
+      <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 40px; margin-bottom: 40px;">
+        <h2 style="font-size: 1.5rem; margin-bottom: 24px;">Manage Free Notes</h2>
+        <div class="admin-card" style="margin-bottom: 30px;">
+          <h3 style="margin-bottom: 16px; font-size:1.1rem;">Upload New Free Note (PDF)</h3>
+          <form id="addFreeNoteForm" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="form-group" style="flex: 1; min-width:200px; margin:0;">
+              <label for="newNoteTitle">Note Title</label>
+              <input type="text" id="newNoteTitle" class="form-control" required placeholder="e.g. MPPSC Mains Unit 1 PDF">
+            </div>
+            <div class="form-group" style="flex: 1; min-width:200px; margin:0;">
+              <label for="newNoteFile">Select PDF</label>
+              <input type="file" id="newNoteFile" class="form-control" required accept="application/pdf">
+            </div>
+            <button type="submit" class="btn btn-primary" id="btnUploadNote" style="padding:12px 24px;">
+              <span id="btnUploadNoteText">Upload Note</span>
+            </button>
+          </form>
+        </div>
+
+        <div class="admin-list" id="adminFreeNotesList" style="display:grid; gap:16px;">
+           <!-- Injected via JS -->
+        </div>
+      </div>
+
       <div style="margin-bottom: 30px;">
-        <h2 style="font-size: 1.5rem;">Manage Products</h2>
+        <h2 style="font-size: 1.5rem;">Manage Paid Books</h2>
         <p style="color: var(--text-muted);">View, search, and delete books.</p>
       </div>
 
-        <!-- Product List -->
-        <div>
-          <div class="admin-list" id="adminProductsList">
-            <!-- Injected via JS -->
-          </div>
+      <!-- Product List -->
+      <div style="margin-bottom: 60px;">
+        <div class="admin-list" id="adminProductsList">
+          <!-- Injected via JS -->
         </div>
+      </div>
+
       </div>
       
     </div>
