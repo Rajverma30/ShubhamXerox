@@ -1608,12 +1608,12 @@ async function handleSendChatMessage(mode) {
   
   const supabase = getSupabase();
   if (supabase) {
-    const { error } = await supabase.from('messages').insert({
+    const { error, data: insertedMsg } = await supabase.from('messages').insert({
       sender: senderId,
       receiver: receiverId,
       message: msgText || null,
       file_url: uploadedFileUrl
-    });
+    }).select().single();
     if (error) {
        console.error("Failed to send message:", error);
        showToast("Failed to send message.");
@@ -1623,13 +1623,9 @@ async function handleSendChatMessage(mode) {
         // Same for user: user listener 'user_chat_updates' adds to 'chatMessagesArea'. 
         // Local state update makes it feel completely instant
         const containerId = isUser ? 'chatMessagesArea' : 'adminMessagesContainer';
-        const fallbackMsg = {
-          id: Date.now().toString(),
-          sender: senderId, receiver: receiverId,
-          message: msgText || null, file_url: uploadedFileUrl,
-          created_at: new Date().toISOString()
-        };
-        appendMessageToUI(fallbackMsg, containerId, !isUser);
+        if(insertedMsg) {
+          appendMessageToUI(insertedMsg, containerId, !isUser);
+        }
     }
   }
   
