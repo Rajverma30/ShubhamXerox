@@ -1710,20 +1710,74 @@ function renderFreeNotesGrid(notesToDisplay) {
     return;
   }
 
-  container.innerHTML = notesToDisplay.map(note => `
-    <div class="note-card">
-      <div class="note-icon">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+  const colors = [
+    'var(--primary)',
+    '#0f5866', 
+    '#1b4b6b', 
+    '#5b0f5b', 
+    '#e67e22'
+  ];
+
+  container.innerHTML = notesToDisplay.map((note, index) => {
+    const bg = colors[index % colors.length];
+    return `
+    <div class="note-card" style="border: none; background: transparent; box-shadow: none; padding: 10px; display: flex; flex-direction: column; align-items: center;">
+      <div class="note-icon" id="pdf-icon-${note.id}" style="width: 160px; height: 160px; margin: 0 auto 20px; background: ${bg}; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; border: 4px solid var(--card-bg); box-shadow: var(--shadow-md); position: relative; overflow: hidden;">
+        <div class="fallback-ui" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; transition: opacity 0.3s; z-index: 1;">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          <span style="font-size: 0.85rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">FREE PDF</span>
+        </div>
+        <canvas id="pdf-canvas-${note.id}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.5s; z-index: 2; pointer-events: none;"></canvas>
       </div>
-      <div class="note-details">
-        <h3 class="note-title">${note.title}</h3>
-        <p class="note-meta">${new Date(note.created_at).toLocaleDateString()}</p>
+      <div class="note-details" style="text-align: center; width: 100%;">
+        <h3 class="note-title" style="font-size: 1.1rem; line-height: 1.4; margin-bottom: 4px;">${note.title}</h3>
+        <p class="note-meta" style="margin-bottom: 16px;">${new Date(note.created_at).toLocaleDateString()}</p>
       </div>
-      <a href="${note.file_url}" target="_blank" download class="btn note-download-btn" aria-label="Download ${note.title}">
-        Download PDF <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      <a href="${note.file_url}" target="_blank" download class="btn note-download-btn" aria-label="Download ${note.title}" style="border-radius: var(--radius-full); width: auto; padding: 10px 20px; font-size: 0.95rem;">
+        View & Download PDF <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
       </a>
     </div>
-  `).join('');
+  `}).join('');
+
+  setTimeout(() => loadPdfThumbnails(notesToDisplay), 100);
+}
+
+async function loadPdfThumbnails(notes) {
+  if (!window.pdfjsLib) return;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  
+  for (const note of notes) {
+    if (!note.file_url) continue;
+    try {
+      const canvas = document.getElementById(`pdf-canvas-${note.id}`);
+      const iconContainer = document.getElementById(`pdf-icon-${note.id}`);
+      if (!canvas || !iconContainer) continue;
+
+      const loadingTask = pdfjsLib.getDocument(note.file_url);
+      const pdf = await loadingTask.promise;
+      const page = await pdf.getPage(1);
+      
+      const viewport = page.getViewport({ scale: 1 });
+      const scale = 160 / viewport.width;
+      const scaledViewport = page.getViewport({ scale });
+      
+      const context = canvas.getContext('2d');
+      canvas.width = scaledViewport.width;
+      canvas.height = scaledViewport.height;
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: scaledViewport
+      };
+      
+      await page.render(renderContext).promise;
+      canvas.style.opacity = '1';
+      const fallback = iconContainer.querySelector('.fallback-ui');
+      if (fallback) fallback.style.opacity = '0';
+    } catch(err) {
+      console.warn("Failed to load PDF thumbnail for note:", note.id, err);
+    }
+  }
 }
 
 window.filterFreeNotes = function() {
