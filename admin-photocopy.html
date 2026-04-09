@@ -1,0 +1,97 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photocopy Orders | Admin | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-products.html">Manage Books &amp; Notes</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger" style="color: var(--primary);">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html" class="nav-dropdown-current">Photocopy orders</a>
+          </div>
+        </div>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons">
+        <!-- Theme Switch Injected by JS -->
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+
+      <!-- Header row -->
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; margin-bottom:32px;">
+        <div>
+          <h1 style="font-size:1.75rem; font-weight:800; color:var(--text-main); margin:0;">Photocopy Orders</h1>
+          <p id="adminPhotocopyCountLabel" style="color:var(--text-muted); margin-top:6px; font-size:0.9rem;">Total: —</p>
+          <p style="color:var(--text-muted); margin-top:2px; font-size:0.85rem;">Manage photocopy &amp; printing orders from customers</p>
+        </div>
+        <button class="btn btn-secondary" onclick="renderAdminPhotocopyOrders()" style="gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <!-- Pricing info banner -->
+      <div style="background:linear-gradient(135deg,rgba(106,17,203,0.12),rgba(37,117,252,0.12)); border:1px solid rgba(106,17,203,0.25); border-radius:12px; padding:14px 20px; margin-bottom:28px; display:flex; gap:24px; flex-wrap:wrap; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:0.75rem; font-weight:800; color:var(--primary); text-transform:uppercase; letter-spacing:0.06em;">B&amp;W</span>
+          <div>
+            <div style="font-weight:700; color:var(--text-main);">B&amp;W Printing</div>
+            <div style="color:var(--text-muted); font-size:0.85rem;">&#8377;1 per page</div>
+          </div>
+        </div>
+        <div style="width:1px; height:40px; background:var(--border-color);"></div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:0.75rem; font-weight:800; color:var(--primary); text-transform:uppercase; letter-spacing:0.06em;">CLR</span>
+          <div>
+            <div style="font-weight:700; color:var(--text-main);">Colour Printing</div>
+            <div style="color:var(--text-muted); font-size:0.85rem;">&#8377;5 per page</div>
+          </div>
+        </div>
+        <div style="margin-left:auto; font-size:0.82rem; color:var(--text-muted);">
+          Supabase table: <code style="background:var(--card-bg); padding:2px 6px; border-radius:4px; font-family:monospace;">photocopy_orders</code>
+        </div>
+      </div>
+
+      <!-- Orders List -->
+      <div id="adminPhotocopyOrdersList">
+        <div style="padding:40px; text-align:center; color:var(--text-muted);">Loading orders&hellip;</div>
+      </div>
+
+    </div>
+  </main>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script defer src="assets/js/script.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        checkAdminAccess();
+        renderAdminPhotocopyOrders();
+      }, 800);
+    });
+  </script>
+</body>
+</html>

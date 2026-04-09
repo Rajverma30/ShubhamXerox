@@ -13,12 +13,14 @@ let _supabaseInstance = null;
 
 function getSupabase() {
   if (_supabaseInstance) return _supabaseInstance;
-  if (window.supabase) {
+  const sb = window.supabase || window.supabaseJs;
+  if (sb && sb.createClient) {
     try {
-      _supabaseInstance = window.supabase.createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-      });
-    } catch(e) { console.error("Supabase init error:", e); }
+      _supabaseInstance = sb.createClient(supabaseUrl, supabaseKey);
+      console.log('? Supabase connected');
+    } catch(e) {
+      console.error("Supabase init error:", e);
+    }
   }
   return _supabaseInstance;
 }
@@ -26,7 +28,7 @@ function getSupabase() {
 const defaultProducts = [
   { name: "MPPSC Prelims Unit 03: Geography of India", category: "AKAR IAS HINDI MEDIUM PRE", price: 176, img: "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80", desc: "Comprehensive notes covering the complete geography syllabus for MPPSC Prelims Unit 03." },
   { name: "Satyamev Jayate Institute - MPPSC Mains Short Notes", category: "Satyamev Jayate institute", price: 700, img: "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=400&q=80", desc: "Highly condensed and easy-to-revise short notes for MPPSC Mains by Satyamev Jayate Institute." },
-  { name: "आधुनिक भारतीय इतिहास | Latest 2026", category: "NIRMAN IAS", price: 150, img: "https://images.unsplash.com/photo-1589998059171-988d887df646?auto=format&fit=crop&w=400&q=80", desc: "Modern Indian History textbook customized for 2026 exams in Hindi Medium." },
+  { name: "आध�?निक भारतीय इतिहास | Latest 2026", category: "NIRMAN IAS", price: 150, img: "https://images.unsplash.com/photo-1589998059171-988d887df646?auto=format&fit=crop&w=400&q=80", desc: "Modern Indian History textbook customized for 2026 exams in Hindi Medium." },
   { name: "Modern Indian History | Latest 2026", category: "Champion Square English Medium", price: 140, img: "https://images.unsplash.com/photo-1532012197267-da84d127e765?auto=format&fit=crop&w=400&q=80", desc: "Modern Indian History textbook customized for 2026 exams in English Medium." },
   { name: "UPSC Blank Practice Answer Sheet (Pack of 3)", category: "Stationery", price: 300, img: "https://images.unsplash.com/photo-1589330694653-efa6573635ce?auto=format&fit=crop&w=400&q=80", desc: "Standard UPSC format blank answer sheets for Mains answer writing practice." },
   { name: "Unit-10 Chart (Tribes of MP)", category: "DEVANAGARI", price: 40, img: "https://images.unsplash.com/photo-1503694978374-8a2fa686963a?auto=format&fit=crop&w=400&q=80", desc: "A detailed wall chart covering the tribes of Madhya Pradesh as per Unit-10 syllabus." },
@@ -281,6 +283,126 @@ function getCartTotal() {
   return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 }
 
+const SAVED_ADDR_PREFIX = 'shubham_delivery_addr_';
+
+function getSavedDeliveryDetails() {
+  if (!currentUser || !currentUser.phone) return {};
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_ADDR_PREFIX + currentUser.phone) || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveSavedDeliveryDetails(partial) {
+  if (!currentUser || !currentUser.phone || !partial || typeof partial !== 'object') return;
+  const cur = getSavedDeliveryDetails();
+  const next = { ...cur };
+  Object.keys(partial).forEach((k) => {
+    const v = partial[k];
+    if (v != null && String(v).trim() !== '') next[k] = String(v).trim();
+  });
+  localStorage.setItem(SAVED_ADDR_PREFIX + currentUser.phone, JSON.stringify(next));
+}
+
+function normalizeOrderItems(items) {
+  if (Array.isArray(items)) return items;
+  if (typeof items === 'string') {
+    try {
+      const p = JSON.parse(items);
+      return Array.isArray(p) ? p : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
+const ORDER_TRACKING_DURATION_MS = 48 * 60 * 60 * 1000;
+const ORDER_TRACK_LABELS = ['Order placed', 'Printing', 'Ready', 'Out for delivery', 'Delivered'];
+
+function getBookOrderPlacedAtMs(o) {
+  if (o.created_at) {
+    const t = new Date(o.created_at).getTime();
+    if (!isNaN(t)) return t;
+  }
+  const d = new Date(o.date);
+  if (!isNaN(d.getTime())) return d.getTime();
+  const m = String(o.id || '').match(/ORD(\d{10,})/);
+  if (m) return parseInt(m[1], 10);
+  return Date.now();
+}
+
+function computeBookTrackingCompletedSteps(o) {
+  const placed = getBookOrderPlacedAtMs(o);
+  const elapsed = Math.max(0, Date.now() - placed);
+  const phaseMs = ORDER_TRACKING_DURATION_MS / 4;
+  let completed = 1 + Math.floor(elapsed / phaseMs);
+  completed = Math.min(5, Math.max(1, completed));
+  const st = String(o.status || 'Pending').trim();
+  if (st === 'Delivered') completed = 5;
+  else if (st === 'Shipped') completed = Math.max(completed, 4);
+  return completed;
+}
+
+function getPhotocopyPlacedAtMs(o) {
+  if (o.created_at) {
+    const t = new Date(o.created_at).getTime();
+    if (!isNaN(t)) return t;
+  }
+  const m = String(o.id || '').match(/COPY(\d{10,})/);
+  if (m) return parseInt(m[1], 10);
+  return Date.now();
+}
+
+function computePhotocopyTrackingCompletedSteps(o) {
+  const st = String(o.status || 'Pending').trim();
+  if (st === 'Cancelled') return -1;
+  const placed = getPhotocopyPlacedAtMs(o);
+  const elapsed = Math.max(0, Date.now() - placed);
+  const phaseMs = ORDER_TRACKING_DURATION_MS / 4;
+  let completed = 1 + Math.floor(elapsed / phaseMs);
+  completed = Math.min(5, Math.max(1, completed));
+  if (st === 'Completed') completed = 5;
+  else if (st === 'Ready') completed = Math.max(completed, 3);
+  else if (st === 'Processing') completed = Math.max(completed, 2);
+  return completed;
+}
+
+function buildOrderTrackingTimelineHTML(completedSteps, opts) {
+  const hint = (opts && opts.hint) || 'Status moves forward automatically over about 48 hours. We also update when your order ships.';
+  if (completedSteps < 0) {
+    return `
+      <div class="order-tracking order-tracking--cancelled">
+        <div class="order-tracking-title">Order status</div>
+        <p class="order-tracking-cancel-msg">This order was cancelled.</p>
+      </div>`;
+  }
+  const items = ORDER_TRACK_LABELS.map((label, i) => {
+    const done = i < completedSteps;
+    const current = i === completedSteps && completedSteps < 5;
+    const pending = i > completedSteps;
+    let cls = 'order-tracking-step';
+    if (done) cls += ' is-done';
+    if (current) cls += ' is-current';
+    if (pending) cls += ' is-pending';
+    return `
+      <li class="${cls}">
+        <span class="order-tracking-dot" aria-hidden="true"></span>
+        <div class="order-tracking-step-body">
+          <span class="order-tracking-label">${label}</span>
+          ${current ? '<span class="order-tracking-badge">In progress</span>' : ''}
+        </div>
+      </li>`;
+  }).join('');
+  return `
+    <div class="order-tracking">
+      <div class="order-tracking-title">Track your order</div>
+      <p class="order-tracking-hint">${hint}</p>
+      <ol class="order-tracking-steps" aria-label="Order progress">${items}</ol>
+    </div>`;
+}
+
 // --- Checkout Logic ---
 async function handleCheckout(e) {
   e.preventDefault();
@@ -310,7 +432,8 @@ async function handleCheckout(e) {
     total: getCartTotal() + DELIVERY_FEE,
     method: paymentMethod,
     status: "Pending",
-    date: new Date().toLocaleString()
+    date: new Date().toLocaleString(),
+    created_at: new Date().toISOString()
   };
 
   if (paymentMethod === "Online") {
@@ -330,9 +453,22 @@ async function completeOrder(orderData) {
   const supabase = getSupabase();
   if (supabase) {
     try {
-      await supabase.from('orders').insert(orderData);
+      let { error } = await supabase.from('orders').insert(orderData);
+      if (error && error.message && /created_at|column/i.test(error.message)) {
+        const slim = { ...orderData };
+        delete slim.created_at;
+        const r2 = await supabase.from('orders').insert(slim);
+        error = r2.error;
+      }
     } catch(e) {}
   }
+  const cityEl = document.getElementById('city');
+  const pinEl = document.getElementById('pincode');
+  saveSavedDeliveryDetails({
+    street: orderData.address,
+    city: cityEl ? cityEl.value.trim() : '',
+    pincode: pinEl ? pinEl.value.trim() : ''
+  });
   cart = [];
   saveCart();
   showToast("Order Placed Successfully!");
@@ -741,11 +877,16 @@ async function renderAdminOrders() {
   const container = document.getElementById('adminOrdersList');
   if (!container) return;
 
+  const countLabel = document.getElementById('adminOrdersCountLabel');
   let dbOrders = [];
   const supabase = getSupabase();
   if (supabase) {
     const { data } = await supabase.from('orders').select('*').order('date', { ascending: false });
     dbOrders = data || [];
+  }
+
+  if (countLabel) {
+    countLabel.textContent = 'Total book orders: ' + dbOrders.length;
   }
 
   if (dbOrders.length === 0) {
@@ -758,17 +899,17 @@ async function renderAdminOrders() {
     const statusClass = `status-${o.status.toLowerCase()}`;
     return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
-        <div style="display:flex; justify-content:space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
           <div>
             <strong style="font-size: 1.1rem;">${o.id}</strong><br>
             <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date}</span>
           </div>
-          <div style="text-align: right;">
-            <select class="status-select ${statusClass}" onchange="updateOrderStatus('${o.id}', this.value)">
-              <option value="Pending" ${o.status === 'Pending' ? 'selected' : ''}>Pending</option>
-              <option value="Shipped" ${o.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
-              <option value="Delivered" ${o.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
-            </select>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:var(--bg-color); color:var(--text-main); border:1px solid var(--border-color); padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
+            
+            ${(o.status !== 'Delivered' && o.status !== 'Cancelled') ? `<button onclick="updateOrderStatus('${o.id}', 'Delivered')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Delivered</button>` : ''}
+            
+            <button onclick="deleteOrder('${o.id}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
           </div>
         </div>
         
@@ -787,17 +928,46 @@ async function renderAdminOrders() {
 
         <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px;">
           <strong style="display:block; margin-bottom: 8px;">Order Items</strong>
-          ${o.items.map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between;"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
+          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between;"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
         </div>
       </div>
     `;
   }).join('');
 }
 
+window.deleteOrder = async function(orderId) {
+  if (!confirm('Delete this order? This cannot be undone.')) return;
+  const supabase = getSupabase();
+  if (supabase) {
+    await supabase.from('orders').delete().eq('id', orderId);
+  }
+  showToast('Order deleted.');
+  await renderAdminOrders();
+};
+
 window.updateOrderStatus = async function(orderId, newStatus) {
   const supabase = getSupabase();
   if (supabase) await supabase.from('orders').update({status: newStatus}).eq('id', orderId);
   await renderAdminOrders();
+};
+
+window.cancelUserOrder = async function(orderId, type) {
+  if (!confirm("Are you sure you want to cancel this order?")) return;
+  const table = type === 'book' ? 'orders' : 'photocopy_orders';
+  const supabase = getSupabase();
+  if (supabase) {
+    try {
+      await supabase.from(table).update({ status: 'Cancelled' }).eq('id', orderId);
+    } catch(e) { console.error('Cancel error:', e); }
+  } else {
+    try {
+      let local = JSON.parse(localStorage.getItem(table) || '[]');
+      local = local.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
+      localStorage.setItem(table, JSON.stringify(local));
+    } catch(e) {}
+  }
+  showToast("Order Cancelled");
+  await renderMyOrders();
 };
 
 async function renderMyOrders() {
@@ -810,49 +980,110 @@ async function renderMyOrders() {
   }
 
   let dbOrders = [];
+  let photoOrders = [];
   const supabase = getSupabase();
   if (supabase) {
-    const { data } = await supabase.from('orders').select('*').eq('customerphone', currentUser.phone).order('date', { ascending: false });
-    dbOrders = data || [];
+    const { data: books } = await supabase.from('orders').select('*').eq('customerphone', currentUser.phone).order('date', { ascending: false });
+    dbOrders = books || [];
+    const { data: copies } = await supabase
+      .from('photocopy_orders')
+      .select('*')
+      .eq('customer_phone', currentUser.phone)
+      .order('created_at', { ascending: false });
+    photoOrders = copies || [];
+  } else {
+    try {
+      dbOrders = JSON.parse(localStorage.getItem('orders') || '[]').filter(o => o.customerphone === currentUser.phone);
+      photoOrders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]').filter(o => o.customer_phone === currentUser.phone);
+    } catch(e) {}
   }
 
-  if (dbOrders.length === 0) {
+  const merged = [
+    ...dbOrders.map((o) => ({ kind: 'book', o, t: getBookOrderPlacedAtMs(o) })),
+    ...photoOrders.map((o) => ({ kind: 'photocopy', o, t: getPhotocopyPlacedAtMs(o) }))
+  ].sort((a, b) => b.t - a.t);
+
+  if (merged.length === 0) {
     container.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted);">You have not placed any orders yet.</div>`;
     return;
   }
 
-  container.innerHTML = dbOrders.map(o => {
-    const statusClass = `status-${o.status.toLowerCase()}`;
-    return `
-      <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
-        <div style="display:flex; justify-content:space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+  container.innerHTML = merged.map(({ kind, o }) => {
+    if (kind === 'book') {
+      const steps = computeBookTrackingCompletedSteps(o);
+      const statusClass = `status-${String(o.status || 'pending').toLowerCase()}`;
+      const timeline = buildOrderTrackingTimelineHTML(steps, {
+        hint: 'Progress updates about every 12 hours over 2 days. When we ship, status jumps ahead automatically.'
+      });
+      return `
+      <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 24px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
+        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
           <div>
-            <strong style="font-size: 1.1rem;">${o.id}</strong><br>
-            <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date}</span>
+            <span style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--primary);">Books</span>
+            <strong style="font-size: 1.1rem; display:block; margin-top:4px;">${o.id}</strong>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date || ''}</span>
           </div>
           <div style="text-align: right;">
-            <span style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;" class="${statusClass}">${o.status}</span>
+            ${String(o.status || 'Pending').trim() === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>` 
+            : (computeBookTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'book')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+
+        ${timeline}
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; margin-bottom: 20px;">
           <div>
             <strong>Delivery Address</strong>
-            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">${o.address}</p>
+            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">${o.address || ''}</p>
           </div>
           <div>
             <strong>Payment Info</strong>
-            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">Method: ${o.method}</p>
+            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">Method: ${o.method || ''}</p>
             <p style="font-size: 0.9rem; font-weight: 700;">Total: ${formatPrice(o.total)}</p>
           </div>
         </div>
 
         <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px;">
           <strong style="display:block; margin-bottom: 8px;">Order Items</strong>
-          ${o.items.map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between; color: var(--text-main);"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
+          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between; color: var(--text-main);"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
         </div>
-      </div>
-    `;
+      </div>`;
+    }
+
+    const steps = computePhotocopyTrackingCompletedSteps(o);
+    const st = o.status || 'Pending';
+    const timeline = buildOrderTrackingTimelineHTML(steps, {
+      hint: 'Photocopy progress updates over about 48 hours. Shop status (Processing / Ready) can move you forward faster.'
+    });
+    const when = o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '';
+    return `
+      <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 24px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
+        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+          <div>
+            <span style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--primary);">Photocopy</span>
+            <strong style="font-size: 1.1rem; display:block; margin-top:4px;">${o.id}</strong>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">${when}</span>
+          </div>
+          <div style="text-align: right;">
+            ${st === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>` 
+            : (computePhotocopyTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'photocopy_orders')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+          </div>
+        </div>
+
+        ${timeline}
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+          <div>
+            <strong>Address</strong>
+            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">${o.address || ''}</p>
+          </div>
+          <div>
+            <strong>Total</strong>
+            <p style="font-size: 0.9rem; font-weight: 700; margin-top: 4px;">${formatPrice(Number(o.total_cost))}</p>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">${o.pages || 0} pages × ${o.copies || 1} copy</p>
+          </div>
+        </div>
+      </div>`;
   }).join('');
 }
 
@@ -875,6 +1106,46 @@ function renderCheckoutSummary() {
   document.getElementById('checkoutTotal').textContent = formatPrice(rawSubtotal + DELIVERY_FEE);
 }
 
+async function renderTopSellingBooks() {
+  const container = document.getElementById('topSellingBooks');
+  if (!container) return;
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    container.innerHTML = '<p style="padding:20px;color:var(--text-muted);margin:0;">Connect Supabase to see bestselling books.</p>';
+    return;
+  }
+
+  const { data: orders, error } = await supabase.from('orders').select('items');
+  if (error) {
+    container.innerHTML = '<p style="padding:20px;color:var(--text-muted);margin:0;">Could not load sales data.</p>';
+    return;
+  }
+
+  const qtyByKey = new Map();
+  (orders || []).forEach((o) => {
+    normalizeOrderItems(o.items).forEach((i) => {
+      const name = (i.name || 'Book').trim() || 'Book';
+      const key = i.id != null && i.id !== '' ? String(i.id) : name;
+      const q = Number(i.quantity) || 0;
+      const prev = qtyByKey.get(key) || { name, qty: 0 };
+      prev.qty += q;
+      prev.name = name;
+      qtyByKey.set(key, prev);
+    });
+  });
+
+  const ranked = [...qtyByKey.values()].sort((a, b) => b.qty - a.qty).slice(0, 3);
+  if (!ranked.length) {
+    container.innerHTML = '<p style="padding:20px;color:var(--text-muted);margin:0;">No book orders yet — stats will appear after customers buy books.</p>';
+    return;
+  }
+
+  container.innerHTML = `<ol style="margin:0;padding-left:22px;line-height:1.75;color:var(--text-main);">
+    ${ranked.map((r, idx) => `<li style="margin-bottom:10px;"><strong>${idx + 1}. ${r.name}</strong> <span style="color:var(--text-muted);font-weight:500;">— ${r.qty} units sold</span></li>`).join('')}
+  </ol>`;
+}
+
 async function renderAdminDashboard() {
   const statBooks = document.getElementById('statBooks');
   if (statBooks) {
@@ -883,11 +1154,23 @@ async function renderAdminDashboard() {
   }
 
   const supabase = getSupabase();
-  if (supabase && document.getElementById('statOrders')) {
-    supabase.from('orders').select('id', { count: 'exact' }).then(({data, count}) => {
-      document.getElementById('statOrders').innerText = count !== null ? count : (data ? data.length : "0");
-    });
+  const statOrdersEl = document.getElementById('statOrders');
+  if (supabase && statOrdersEl) {
+    try {
+      let total = 0;
+      const r1 = await supabase.from('orders').select('id', { count: 'exact', head: true });
+      if (!r1.error) total += r1.count ?? 0;
+      const r2 = await supabase.from('photocopy_orders').select('id', { count: 'exact', head: true });
+      if (!r2.error) total += r2.count ?? 0;
+      statOrdersEl.innerText = String(total);
+    } catch (e) {
+      statOrdersEl.innerText = '0';
+    }
+  } else if (statOrdersEl) {
+    statOrdersEl.innerText = '0';
   }
+
+  await renderTopSellingBooks();
 
   const ctx = document.getElementById('visitsChart');
   if (ctx && window.Chart) {
@@ -1083,7 +1366,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('checkoutForm')) {
     if(!currentUser) { showToast("Please login first."); setTimeout(()=> window.location.href="login.html", 1500); }
     renderCheckoutSummary();
-    if(currentUser) { document.getElementById('fullName').value = currentUser.name || ""; }
+    if (currentUser) {
+      document.getElementById('fullName').value = currentUser.name || "";
+      const d = getSavedDeliveryDetails();
+      const ad = document.getElementById('address');
+      const ct = document.getElementById('city');
+      const pc = document.getElementById('pincode');
+      if (ad && d.street) ad.value = d.street;
+      if (ct && d.city) ct.value = d.city;
+      if (pc && d.pincode) pc.value = d.pincode;
+    }
     document.getElementById('checkoutForm').addEventListener('submit', handleCheckout);
   }
 
@@ -1883,3 +2175,511 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 1000); // Give supabase a second to boot up
 });
+
+// ==========================================
+//  COST ESTIMATOR
+// ==========================================
+let ceState = {
+  pages: 0,
+  printType: 'bw',    // 'bw' | 'color'
+  copies: 1,
+  sides: 'single',    // 'single' | 'double'
+  paperSize: 'a4',
+  payment: 'COD',
+  totalCost: 0,
+  fileName: ''
+};
+
+const CE_RATES = { bw: 1, color: 5 };
+
+window.openCostEstimatorModal = function() {
+  const modal = document.getElementById('costEstimatorModal');
+  if (!modal) return;
+  // Reset state
+  ceResetState();
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+};
+
+window.closeCostEstimatorModal = function() {
+  const modal = document.getElementById('costEstimatorModal');
+  if (!modal) return;
+  modal.style.display = 'none';
+  document.body.style.overflow = '';
+  ceResetState();
+};
+
+function ceResetState() {
+  ceState = { pages: 0, printType: 'bw', copies: 1, sides: 'single', paperSize: 'a4', payment: 'COD', totalCost: 0, fileName: '', pdfFile: null };
+  // Reset UI
+  const steps = ['ceStepEstimate','ceStepOrder','ceStepSuccess'];
+  steps.forEach(s => { const el = document.getElementById(s); if(el) el.style.display = 'none'; });
+  const est = document.getElementById('ceStepEstimate');
+  if(est) est.style.display = 'block';
+
+  const uploadZone = document.getElementById('ceUploadZone');
+  if(uploadZone) uploadZone.classList.remove('has-file');
+  const uploadText = document.getElementById('ceUploadText');
+  if(uploadText) uploadText.textContent = 'Click to upload PDF';
+  const pageInfo = document.getElementById('cePageInfo');
+  if(pageInfo) pageInfo.style.display = 'none';
+  const pdfInput = document.getElementById('cePdfInput');
+  if(pdfInput) pdfInput.value = '';
+  const copies = document.getElementById('ceCopiesVal');
+  if(copies) copies.textContent = '1';
+  const paperSize = document.getElementById('cePaperSize');
+  if(paperSize) paperSize.value = 'a4';
+  // Reset toggles
+  ['ceBwBtn','ceColorBtn','ceSingleBtn','ceDoubleBtn','ceCodBtn','ceOnlineBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if(btn) btn.classList.remove('active');
+  });
+  const bwBtn = document.getElementById('ceBwBtn');
+  if(bwBtn) bwBtn.classList.add('active');
+  const singleBtn = document.getElementById('ceSingleBtn');
+  if(singleBtn) singleBtn.classList.add('active');
+  const codBtn = document.getElementById('ceCodBtn');
+  if(codBtn) codBtn.classList.add('active');
+  // Reset estimate display
+  ['ceResPages','ceResCopies','ceResRate'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.textContent = '\u2013';
+  });
+  const total = document.getElementById('ceResTotal');
+  if(total) total.textContent = 'Upload PDF first';
+  const ceHint = document.getElementById('ceLoggedInHint');
+  if (ceHint) {
+    ceHint.style.display = 'none';
+    ceHint.textContent = '';
+  }
+  // Reset form
+  const form = document.getElementById('ceOrderForm');
+  if(form) form.reset();
+}
+
+window.handleCePdfUpload = async function(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  ceState.fileName = file.name;
+  ceState.pdfFile = file; // store for upload on order
+
+  const uploadZone = document.getElementById('ceUploadZone');
+  const uploadText = document.getElementById('ceUploadText');
+  const pageInfo = document.getElementById('cePageInfo');
+
+  uploadText.textContent = 'Counting pages...';
+  uploadZone.classList.add('has-file');
+
+  try {
+    if (!window.pdfjsLib) {
+      // Fallback if pdf.js not loaded yet
+      showToast('PDF reader loading, try again in a moment.');
+      uploadText.textContent = file.name;
+      return;
+    }
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    ceState.pages = pdfDoc.numPages;
+
+    uploadText.textContent = `\u2705 ${file.name}`;
+    document.getElementById('cePageCount').textContent = ceState.pages;
+    document.getElementById('ceFileName').textContent = file.name.length > 28 ? file.name.substring(0, 28) + '\u2026' : file.name;
+    pageInfo.style.display = 'flex';
+    recalcEstimate();
+  } catch (err) {
+    console.error('PDF error:', err);
+    showToast('Could not read PDF. Try again.');
+    uploadText.textContent = 'Click to upload PDF';
+    uploadZone.classList.remove('has-file');
+    ceState.pages = 0;
+    ceState.fileName = '';
+  }
+};
+
+window.setCePrintType = function(type) {
+  ceState.printType = type;
+  document.getElementById('ceBwBtn').classList.toggle('active', type === 'bw');
+  document.getElementById('ceColorBtn').classList.toggle('active', type === 'color');
+  recalcEstimate();
+};
+
+window.setCeSides = function(side) {
+  ceState.sides = side;
+  document.getElementById('ceSingleBtn').classList.toggle('active', side === 'single');
+  document.getElementById('ceDoubleBtn').classList.toggle('active', side === 'double');
+  recalcEstimate();
+};
+
+window.changeCopies = function(delta) {
+  ceState.copies = Math.max(1, ceState.copies + delta);
+  document.getElementById('ceCopiesVal').textContent = ceState.copies;
+  recalcEstimate();
+};
+
+window.setCePayment = function(method) {
+  ceState.payment = method;
+  document.getElementById('ceCodBtn').classList.toggle('active', method === 'COD');
+  document.getElementById('ceOnlineBtn').classList.toggle('active', method === 'Online');
+};
+
+window.recalcEstimate = function() {
+  if (!ceState.pages) return;
+  const paperSizeEl = document.getElementById('cePaperSize');
+  if (paperSizeEl) ceState.paperSize = paperSizeEl.value;
+
+  const rate = CE_RATES[ceState.printType];
+  // Double-sided: pages needed = ceil(original/2) sheets but charged per side
+  const billablePages = ceState.sides === 'double'
+    ? Math.ceil(ceState.pages / 2) * 2  // charge both sides but only ceil sheets
+    : ceState.pages;
+  const perCopyCost = billablePages * rate;
+  ceState.totalCost = perCopyCost * ceState.copies;
+
+  document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ` (${Math.ceil(ceState.pages/2)} sheets, double-sided)` : ' pages');
+  document.getElementById('ceResCopies').textContent = ceState.copies;
+  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'})`;
+  document.getElementById('ceResTotal').textContent = `\u20B9${ceState.totalCost.toFixed(2)}`;
+};
+
+window.proceedToPayment = function() {
+  if (!ceState.pages) {
+    showToast('Please upload a PDF first!');
+    return;
+  }
+  if (!currentUser) {
+    showToast('Please log in to place a photocopy order.');
+    window.location.href = 'login.html';
+    return;
+  }
+  const hint = document.getElementById('ceLoggedInHint');
+  if (hint) {
+    hint.style.display = 'block';
+    const ph = (currentUser.phone || '').trim();
+    const nm = (currentUser.name || '').trim() || 'Account';
+    hint.textContent = ph ? `Ordering as: ${nm} (${ph})` : `Ordering as: ${nm}`;
+  }
+
+  // Update order summary
+  const summaryEl = document.getElementById('ceOrderSummaryText');
+  if (summaryEl) {
+    const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
+    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies>1?'ies':'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
+  }
+
+  const ta = document.getElementById('ceCustomerAddress');
+  if (ta && !ta.value.trim()) {
+    const d = getSavedDeliveryDetails();
+    const line2 = [d.city, d.pincode].filter(Boolean).join(' ');
+    const parts = [d.street, line2].filter(Boolean);
+    if (parts.length) ta.value = parts.join('\n');
+  }
+
+  document.getElementById('ceStepEstimate').style.display = 'none';
+  document.getElementById('ceStepOrder').style.display = 'block';
+};
+
+window.ceGoBack = function() {
+  document.getElementById('ceStepOrder').style.display = 'none';
+  document.getElementById('ceStepEstimate').style.display = 'block';
+};
+
+window.placeCopyOrder = async function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('cePlaceOrderBtn');
+  if (!currentUser) {
+    showToast('Please log in to place an order.');
+    window.location.href = 'login.html';
+    return;
+  }
+  const name = (currentUser.name || '').trim() || 'Customer';
+  const phone = (currentUser.phone || '').trim();
+  if (!phone) {
+    showToast('Your account has no phone number. Update your profile after login.');
+    return;
+  }
+  const address = document.getElementById('ceCustomerAddress').value.trim();
+  if (!address) {
+    showToast('Please enter pickup or delivery address.');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Uploading doc & placing order...';
+  const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
+  const orderId = 'COPY' + Date.now();
+
+  // --- Upload PDF to Supabase storage ---
+  let docUrl = null;
+  let storagePath = null;
+  const supabase = getSupabase();
+  if (supabase && ceState.pdfFile) {
+    try {
+      const safeName = ceState.pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      storagePath = `${orderId}_${safeName}`;
+      const file = ceState.pdfFile;
+      const { error: upErr } = await supabase.storage
+        .from('photocopy-docs')
+        .upload(storagePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type || 'application/pdf'
+        });
+      if (!upErr) {
+        const { data: pubData } = supabase.storage.from('photocopy-docs').getPublicUrl(storagePath);
+        docUrl = pubData.publicUrl;
+      } else {
+        console.warn('Doc upload failed:', upErr.message);
+        showToast('PDF upload failed: ' + upErr.message + ' (order will save without file if DB allows)');
+      }
+    } catch(err) {
+      console.error('Storage error:', err);
+      showToast('PDF upload error — check Storage bucket "photocopy-docs" and policies.');
+    }
+  } else if (supabase && !ceState.pdfFile && ceState.pages) {
+    showToast('PDF file missing — go back and upload the PDF again.');
+  }
+
+  const orderData = {
+    id: orderId,
+    customer_name: name,
+    customer_phone: phone,
+    address: address,
+    pages: ceState.pages,
+    copies: ceState.copies,
+    print_type: ceState.printType === 'bw' ? 'B&W' : 'Colour',
+    paper_size: sizeLabel[ceState.paperSize] || ceState.paperSize,
+    sides: ceState.sides === 'double' ? 'Double-sided' : 'Single-sided',
+    total_cost: ceState.totalCost,
+    payment_method: ceState.payment,
+    doc_url: docUrl,
+    doc_path: storagePath,
+    status: 'Pending',
+    created_at: new Date().toISOString()
+  };
+
+  let success = false;
+  if (supabase) {
+    try {
+      let { error } = await supabase.from('photocopy_orders').insert(orderData);
+      if (error && error.message && /doc_url|doc_path|column/i.test(error.message)) {
+        const slim = { ...orderData };
+        delete slim.doc_url;
+        delete slim.doc_path;
+        const retry = await supabase.from('photocopy_orders').insert(slim);
+        error = retry.error;
+        if (!error) {
+          showToast('Order saved. Add text columns doc_url and doc_path to photocopy_orders in Supabase for PDF links.');
+        }
+      }
+      if (error) {
+        console.error('Supabase error:', error);
+        showToast('DB Error: ' + error.message);
+      } else {
+        success = true;
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  }
+
+  // Fallback: save locally
+  if (!success) {
+    try {
+      const local = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
+      local.unshift(orderData);
+      localStorage.setItem('photocopy_orders', JSON.stringify(local));
+      success = true;
+    } catch(e) {}
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Place Photocopy Order';
+
+  if (success) {
+    saveSavedDeliveryDetails({ street: address });
+    document.getElementById('ceStepOrder').style.display = 'none';
+    document.getElementById('ceStepSuccess').style.display = 'block';
+  }
+};
+
+// ---- Admin Photocopy Orders ----
+function normalizePhotocopyOrderRow(o) {
+  if (!o) return o;
+  const doc_path = o.doc_path != null && o.doc_path !== '' ? o.doc_path : (o.docPath || null);
+  const doc_url = o.doc_url != null && o.doc_url !== '' ? o.doc_url : (o.docUrl || null);
+  return { ...o, doc_path, doc_url };
+}
+
+async function resolvePhotocopyPdfHref(supabase, o) {
+  const path = o.doc_path;
+  const fallbackPublic = o.doc_url;
+  if (!path) return fallbackPublic || null;
+  if (!supabase) return fallbackPublic || null;
+  try {
+    const { data, error } = await supabase.storage
+      .from('photocopy-docs')
+      .createSignedUrl(path, 60 * 60 * 24 * 7);
+    if (!error && data && data.signedUrl) return data.signedUrl;
+  } catch (e) {
+    console.warn('Photocopy signed URL:', e);
+  }
+  return fallbackPublic || null;
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+async function renderAdminPhotocopyOrders() {
+  const container = document.getElementById('adminPhotocopyOrdersList');
+  if (!container) return;
+
+  container.innerHTML = `<div style="padding:24px; color:var(--text-muted); text-align:center;">Loading photocopy orders...</div>`;
+
+  let orders = [];
+  const supabase = getSupabase();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('photocopy_orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data) orders = data;
+    } catch(e) {}
+  }
+
+  // Fallback local
+  if (!orders.length) {
+    try {
+      orders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
+    } catch(e) {}
+  }
+
+  const copyCountEl = document.getElementById('adminPhotocopyCountLabel');
+  if (copyCountEl) copyCountEl.textContent = 'Total photocopy orders: ' + orders.length;
+
+  if (!orders.length) {
+    container.innerHTML = `<div style="padding:32px; text-align:center; color:var(--text-muted);">No photocopy orders yet.</div>`;
+    return;
+  }
+
+  const rows = await Promise.all(
+    orders.map(async (raw) => {
+      const o = normalizePhotocopyOrderRow(raw);
+      const pdfHref = await resolvePhotocopyPdfHref(supabase, o);
+      return { ...o, _pdfHref: pdfHref };
+    })
+  );
+
+  container.innerHTML = rows.map(o => {
+    const date = o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '\u2013';
+    const statusColor = { Pending: '#f59e0b', Processing: '#3b82f6', Ready: '#8b5cf6', Completed: '#10b981', Cancelled: '#ef4444' };
+    const sc = statusColor[o.status] || '#888';
+    const docPathForDel = o.doc_path || '';
+    const docPathEncoded = docPathForDel ? encodeURIComponent(docPathForDel) : '';
+    const hasStoredFile = !!(o.doc_path && String(o.doc_path).trim());
+    const pdfLink = o._pdfHref;
+    const pdfBlock = pdfLink ? `
+        <div style="background:linear-gradient(90deg,rgba(37,117,252,0.08),rgba(106,17,203,0.08)); border:1px solid rgba(37,117,252,0.2); border-radius:10px; padding:10px 14px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2575fc" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">Customer PDF attached</span>
+          </div>
+          <a href="${escAttr(pdfLink)}" target="_blank" rel="noopener noreferrer" style="background:#2575fc; color:#fff; padding:5px 14px; border-radius:6px; font-size:0.8rem; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            View / Download PDF
+          </a>
+        </div>` : (hasStoredFile ? `
+        <div style="background:var(--card-bg); border:1px dashed var(--border-color); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);">
+          PDF path in storage: <code style="font-size:0.75rem;">${escAttr(o.doc_path)}</code> — link could not be created. In Supabase: Storage → photocopy-docs → allow <strong>read</strong> for your role, or use a signed-URL policy.
+        </div>` : `
+        <div style="background:var(--card-bg); border:1px dashed var(--border-color); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);">
+          No PDF attached to this order (upload may have failed or doc_path was not saved — add columns doc_path, doc_url to table photocopy_orders if missing).
+        </div>`);
+    return `
+      <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:20px; margin-bottom:18px; box-shadow:var(--shadow-sm);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:14px;">
+          <div>
+            <div style="font-weight:700; font-size:1rem; color:var(--text-main);">${o.id}</div>
+            <div style="font-size:0.82rem; color:var(--text-muted); margin-top:2px;">${date}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; border:1px solid #ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:${sc}20; color:${sc}; border:1px solid ${sc}; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
+            
+            ${(o.status !== 'Completed' && o.status !== 'Cancelled') ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>` : ''}
+            
+            <button onclick="deletePhotocopyOrder('${o.id}', '${docPathEncoded}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
+          </div>
+        </div>
+
+        ${pdfBlock}
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
+          <div>
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Customer</div>
+            <div style="font-weight:600; color:var(--text-main);">${o.customer_name}</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">${o.customer_phone}</div>
+          </div>
+          <div>
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Print Details</div>
+            <div style="font-weight:600; color:var(--text-main);">${o.pages} pages \u00D7 ${o.copies} cop${o.copies>1?'ies':'y'}</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">${o.print_type} | ${o.paper_size} | ${o.sides}</div>
+          </div>
+          <div>
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Address</div>
+            <div style="font-size:0.85rem; color:var(--text-main);">${o.address}</div>
+          </div>
+          <div>
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Payment</div>
+            <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">\u20B9${Number(o.total_cost).toFixed(2)}</div>
+            <div style="font-size:0.82rem; color:var(--text-muted);">${o.payment_method}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.deletePhotocopyOrder = async function(orderId, docPathEncoded) {
+  if (!confirm('Delete this photocopy order and its attached PDF? This cannot be undone.')) return;
+
+  const supabase = getSupabase();
+  if (supabase) {
+    // 1. Delete PDF from storage (if exists)
+    if (docPathEncoded) {
+      try {
+        const docPath = decodeURIComponent(docPathEncoded);
+        await supabase.storage.from('photocopy-docs').remove([docPath]);
+      } catch(e) { console.warn('Storage delete failed:', e); }
+    }
+    // 2. Delete DB record
+    await supabase.from('photocopy_orders').delete().eq('id', orderId);
+  } else {
+    // Fallback: local storage
+    try {
+      let orders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
+      orders = orders.filter(o => o.id !== orderId);
+      localStorage.setItem('photocopy_orders', JSON.stringify(orders));
+    } catch(e) {}
+  }
+  showToast('Order and PDF deleted successfully.');
+  await renderAdminPhotocopyOrders();
+};
+
+window.updatePhotocopyStatus = async function(orderId, newStatus) {
+  const supabase = getSupabase();
+  if (supabase) {
+    await supabase.from('photocopy_orders').update({ status: newStatus }).eq('id', orderId);
+  } else {
+    // Update local
+    try {
+      let orders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
+      orders = orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
+      localStorage.setItem('photocopy_orders', JSON.stringify(orders));
+    } catch(e) {}
+  }
+  showToast('Status updated!');
+};
+
+

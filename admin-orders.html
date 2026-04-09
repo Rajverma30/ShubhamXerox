@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -22,7 +22,13 @@
         <a href="admin.html">Dashboard</a>
         <a href="admin-add.html">Add Books</a>
         <a href="admin-products.html">Manage Books & Notes</a>
-        <a href="admin-orders.html" style="color: var(--primary);">Orders</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger" style="color: var(--primary);">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html" class="nav-dropdown-current">Book orders</a>
+            <a href="admin-photocopy.html">Photocopy orders</a>
+          </div>
+        </div>
         <a href="#" onclick="logout()">Logout</a>
       </div>
       <div class="nav-icons">
@@ -33,7 +39,8 @@
 
   <main class="section" style="padding-top: 40px; min-height: 80vh;">
     <div class="container">
-      <h1 class="section-title" style="text-align: left; margin-bottom: 40px;">Customer Orders</h1>
+      <h1 class="section-title" style="text-align: left; margin-bottom: 8px;">Customer Orders</h1>
+      <p id="adminOrdersCountLabel" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 28px;">Total book orders: —</p>
 
       <div class="admin-list" id="adminOrdersList">
         <!-- Injected via JS -->
@@ -41,7 +48,7 @@
     </div>
   </main>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <script defer src="assets/js/script.js"></script>
 </body>
 </html>

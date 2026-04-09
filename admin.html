@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -24,7 +24,13 @@
         <a href="admin.html" style="color: var(--primary);">Dashboard</a>
         <a href="admin-add.html">Add Books</a>
         <a href="admin-products.html">Manage Books & Notes</a>
-        <a href="admin-orders.html">Orders</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html">Photocopy orders</a>
+          </div>
+        </div>
         <a href="admin-chat.html" style="color: #44bd32; font-weight: 600;">Chat</a>
         <a href="#" onclick="logout()">Logout</a>
       </div>
@@ -51,6 +57,15 @@
         <div class="admin-card" style="text-align: center; padding: 32px;">
           <h3 style="color: var(--text-muted); margin-bottom: 12px;">Total Orders</h3>
           <div id="statOrders" style="font-size: 2.5rem; font-weight: 800; color: var(--primary);">--</div>
+          <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 10px; margin-bottom: 0;">Book + photocopy orders</p>
+        </div>
+      </div>
+
+      <div class="admin-card" style="margin-bottom: 48px;">
+        <h2 style="margin-bottom: 20px; font-size: 1.5rem; color: var(--text-main);">Top 3 selling books</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin: -8px 0 16px 0;">By total quantity sold across all book orders</p>
+        <div id="topSellingBooks">
+          <div style="padding: 20px; color: var(--text-muted);">Loading...</div>
         </div>
       </div>
 
@@ -71,7 +86,7 @@
     </div>
   </main>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <script defer src="assets/js/script.js"></script>
 </body>
 </html>
