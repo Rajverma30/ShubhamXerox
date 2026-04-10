@@ -1,5 +1,5 @@
 // Theme Initialization (Instant to prevent flash)
-(function() {
+(function () {
   const savedTheme = localStorage.getItem('shubham_theme') || 'dark';
   if (savedTheme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -18,7 +18,7 @@ function getSupabase() {
     try {
       _supabaseInstance = sb.createClient(supabaseUrl, supabaseKey);
       console.log('? Supabase connected');
-    } catch(e) {
+    } catch (e) {
       console.error("Supabase init error:", e);
     }
   }
@@ -100,7 +100,7 @@ async function fetchProducts() {
       const { data: newData } = await supabase.from('products').select('*').order('id', { ascending: true });
       products = newData || [];
     }
-  } catch(e) {
+  } catch (e) {
     products = JSON.parse(localStorage.getItem('shubham_products')) || defaultProducts;
   }
 }
@@ -178,13 +178,13 @@ async function handleLogin(e) {
         console.error(e);
       }
     }
-    
+
     if (!user && phone === ADMIN_PHONE) {
       const newUser = { phone, name: "Admin", role: "admin" };
       if (supabase) await supabase.from('users').insert(newUser);
       user = newUser;
     }
-    
+
     if (user) {
       currentUser = user;
       localStorage.setItem('shubham_current_user', JSON.stringify(user));
@@ -205,9 +205,9 @@ async function handleRegister(e) {
 
   let existing = null;
   const supabase = getSupabase();
-  if(supabase) {
-      const { data } = await supabase.from('users').select('phone').eq('phone', phone).single();
-      existing = data;
+  if (supabase) {
+    const { data } = await supabase.from('users').select('phone').eq('phone', phone).single();
+    existing = data;
   }
 
   if (existing) {
@@ -221,9 +221,9 @@ async function handleRegister(e) {
   if (supabase) {
     try {
       await supabase.from('users').insert(newUser);
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
   }
-  
+
   currentUser = newUser;
   localStorage.setItem('shubham_current_user', JSON.stringify(newUser));
   window.location.href = "index.html";
@@ -232,6 +232,88 @@ async function handleRegister(e) {
 function logout() {
   localStorage.removeItem('shubham_current_user');
   window.location.href = "index.html";
+}
+
+// --- Secure Full-Stack Razorpay Integration ---
+async function processSecureRazorpayPayment(amount, orderData, orderType, onComplete) {
+  try {
+    // 1. Create order on backend
+    const createRes = await fetch("http://localhost:8000/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: amount, currency: "INR" })
+    });
+    
+    if (!createRes.ok) {
+      const err = await createRes.json();
+      throw new Error(err.detail || "Failed to create payment order");
+    }
+    
+    const { order_id, key_id, amount: rzpAmount } = await createRes.json();
+
+    // 2. Open Razorpay Checkout Widget
+    const options = {
+      key: key_id,
+      amount: rzpAmount,
+      currency: "INR",
+      name: "Shubham Xerox",
+      description: "Secure Payment",
+      order_id: order_id,
+      handler: async function (response) {
+        // 3. Send signature to backend for verification and insertion
+        try {
+          showToast("Payment captured. Verifying securely...");
+          const verifyRes = await fetch("http://localhost:8000/verify-payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+              order_type: orderType,
+              order_data: orderData
+            })
+          });
+          
+          if (verifyRes.ok) {
+            onComplete(true, response.razorpay_payment_id);
+          } else {
+            const err = await verifyRes.json();
+            showToast("Payment Verification Failed: " + (err.detail || "Unknown error"));
+            onComplete(false);
+          }
+        } catch (e) {
+          console.error("Verification Error:", e);
+          showToast("Payment Network Error during verification");
+          onComplete(false);
+        }
+      },
+      prefill: {
+        name: orderData.customer_name || orderData.customer || "Customer",
+        contact: orderData.customer_phone || orderData.customerphone || ""
+      },
+      theme: { color: "#3399cc" },
+      modal: {
+        ondismiss: function() {
+          showToast("Payment interface closed safely.");
+          onComplete(false);
+        }
+      }
+    };
+
+    const rzp = new Razorpay(options);
+    rzp.on('payment.failed', function (response){
+        console.error("Payment failed", response.error);
+        showToast("Payment Failed: " + response.error.description);
+        onComplete(false);
+    });
+    rzp.open();
+
+  } catch (error) {
+    console.error("Payment initialization error:", error);
+    showToast("Error initializing secure payment: " + error.message);
+    onComplete(false);
+  }
 }
 
 // --- Cart Management ---
@@ -249,7 +331,7 @@ function addToCart(productId) {
   if (!product) return;
 
   const existingItem = cart.find(item => item.id === productId);
-  if (existingItem) { existingItem.quantity += 1; } 
+  if (existingItem) { existingItem.quantity += 1; }
   else { cart.push({ ...product, quantity: 1 }); }
 
   saveCart();
@@ -362,14 +444,28 @@ function computePhotocopyTrackingCompletedSteps(o) {
   const elapsed = Math.max(0, Date.now() - placed);
   const phaseMs = ORDER_TRACKING_DURATION_MS / 4;
   let completed = 1 + Math.floor(elapsed / phaseMs);
-  completed = Math.min(5, Math.max(1, completed));
-  if (st === 'Completed') completed = 5;
-  else if (st === 'Ready') completed = Math.max(completed, 3);
-  else if (st === 'Processing') completed = Math.max(completed, 2);
+
+  if (o.delivery_mode === 'collect') {
+    completed = Math.min(4, Math.max(1, completed));
+    if (st === 'Completed' || st === 'Ready') completed = 4;
+    else if (st === 'Processing') completed = Math.max(completed, 2);
+  } else {
+    completed = Math.min(5, Math.max(1, completed));
+    if (st === 'Completed') completed = 5;
+    else if (st === 'Ready' || st === 'Shipped') completed = Math.max(completed, 3);
+    else if (st === 'Processing') completed = Math.max(completed, 2);
+  }
   return completed;
 }
 
-function buildOrderTrackingTimelineHTML(completedSteps, opts) {
+function getTrackingLabelsArray(o) {
+  if (o && o.delivery_mode === 'collect') {
+    return ['Order Received', 'Printing', 'Completed', 'Collect at store'];
+  }
+  return ORDER_TRACK_LABELS;
+}
+
+function buildOrderTrackingTimelineHTML(completedSteps, opts, orderObj) {
   const hint = (opts && opts.hint) || 'Status moves forward automatically over about 48 hours. We also update when your order ships.';
   if (completedSteps < 0) {
     return `
@@ -378,9 +474,10 @@ function buildOrderTrackingTimelineHTML(completedSteps, opts) {
         <p class="order-tracking-cancel-msg">This order was cancelled.</p>
       </div>`;
   }
-  const items = ORDER_TRACK_LABELS.map((label, i) => {
+  const labels = getTrackingLabelsArray(orderObj);
+  const items = labels.map((label, i) => {
     const done = i < completedSteps;
-    const current = i === completedSteps && completedSteps < 5;
+    const current = i === completedSteps && completedSteps < labels.length;
     const pending = i > completedSteps;
     let cls = 'order-tracking-step';
     if (done) cls += ' is-done';
@@ -406,7 +503,7 @@ function buildOrderTrackingTimelineHTML(completedSteps, opts) {
 // --- Checkout Logic ---
 async function handleCheckout(e) {
   e.preventDefault();
-  
+
   if (!currentUser) {
     showToast("Please login to place an order.");
     setTimeout(() => window.location.href = "login.html", 1500);
@@ -437,15 +534,30 @@ async function handleCheckout(e) {
   };
 
   if (paymentMethod === "Online") {
-    const overlay = document.getElementById('paymentOverlay');
-    overlay.style.display = 'flex';
-    setTimeout(async () => {
-      document.getElementById('paymentStatus').textContent = "Payment Successful!";
-      document.querySelector('.loader').style.display = 'none';
-      setTimeout(() => completeOrder(orderData), 1500);
-    }, 2000);
+    const btn = document.querySelector('button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Processing Secure Payment...'; }
+
+    processSecureRazorpayPayment(orderData.total, orderData, 'books', (success, txnId) => {
+      if (success) {
+        // Clear cart since backend successfully inserted the row
+        cart = [];
+        saveCart();
+        const cityEl = document.getElementById('city');
+        const pinEl = document.getElementById('pincode');
+        saveSavedDeliveryDetails({
+          street: orderData.address,
+          city: cityEl ? cityEl.value.trim() : '',
+          pincode: pinEl ? pinEl.value.trim() : ''
+        });
+        window.location.href = "my-orders.html?payment=success";
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+      }
+    });
+
   } else {
-    completeOrder(orderData);
+    // Standard COD bypasses Python API, inserting directly via JS client
+    completeOrder(orderData, false);
   }
 }
 
@@ -460,7 +572,7 @@ async function completeOrder(orderData) {
         const r2 = await supabase.from('orders').insert(slim);
         error = r2.error;
       }
-    } catch(e) {}
+    } catch (e) { }
   }
   const cityEl = document.getElementById('city');
   const pinEl = document.getElementById('pincode');
@@ -492,16 +604,16 @@ function createProductCard(product) {
       <div class="product-footer">
         <div class="product-price">
           ${(() => {
-            if (product.original_price && product.original_price > product.price) {
-              const diff = product.original_price - product.price;
-              const disc = Math.round((diff / product.original_price) * 100);
-              return `<span class="price-selling">${formatPrice(product.price)}</span>
+      if (product.original_price && product.original_price > product.price) {
+        const diff = product.original_price - product.price;
+        const disc = Math.round((diff / product.original_price) * 100);
+        return `<span class="price-selling">${formatPrice(product.price)}</span>
                       <span class="price-original">${formatPrice(product.original_price)}</span>
                       <span class="price-discount">${disc}% Off</span>`;
-            } else {
-              return `<span class="price-selling">${formatPrice(product.price)}</span>`;
-            }
-          })()}
+      } else {
+        return `<span class="price-selling">${formatPrice(product.price)}</span>`;
+      }
+    })()}
         </div>
         <button class="add-to-cart-btn" onclick="addToCart(${product.id})" aria-label="Add to cart">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M20 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
@@ -512,12 +624,12 @@ function createProductCard(product) {
 }
 
 // --- Storefront Multi-Select Filter ---
-window.toggleMultiSelect = function() {
+window.toggleMultiSelect = function () {
   const dropdown = document.getElementById('multiSelectDropdown');
   if (dropdown) dropdown.classList.toggle('active');
 };
 
-window.filterMultiSelect = function() {
+window.filterMultiSelect = function () {
   const q = document.getElementById('multiSelectSearch').value.toLowerCase();
   const options = document.querySelectorAll('.multi-select-option');
   options.forEach(opt => {
@@ -530,7 +642,7 @@ function renderMultiSelect() {
   const container = document.getElementById('multiSelectOptionsList');
   if (!container) return;
   const allCats = [...new Set([...siteCategories, ...products.map(p => p.category)])].sort();
-  
+
   container.innerHTML = allCats.map(c => `
     <label class="multi-select-option">
       <input type="checkbox" value="${c}" onchange="handleCategoryToggle(this)">
@@ -539,7 +651,7 @@ function renderMultiSelect() {
   `).join('');
 }
 
-window.handleCategoryToggle = function(checkbox) {
+window.handleCategoryToggle = function (checkbox) {
   const val = checkbox.value;
   if (checkbox.checked) {
     if (!selectedCategories.includes(val)) selectedCategories.push(val);
@@ -550,13 +662,13 @@ window.handleCategoryToggle = function(checkbox) {
   renderProductsGrid('allProductsContainer', null, selectedCategories);
 };
 
-window.resetCategories = function() {
+window.resetCategories = function () {
   selectedCategories = [];
   const checkboxes = document.querySelectorAll('.multi-select-option input[type="checkbox"]');
   checkboxes.forEach(cb => cb.checked = false);
   updateActiveCategoryTags();
   renderProductsGrid('allProductsContainer', null, selectedCategories);
-  
+
   const dropdown = document.getElementById('multiSelectDropdown');
   if (dropdown) dropdown.classList.remove('active');
 };
@@ -569,14 +681,14 @@ function updateActiveCategoryTags() {
       ${c} <span style="cursor:pointer; margin-left:4px;" onclick="uncheckCategory('${c}')">×</span>
     </div>
   `).join('');
-  
+
   const label = document.getElementById('multiSelectLabel');
   if (label) {
     label.textContent = selectedCategories.length > 0 ? `${selectedCategories.length} Selected` : "Select Categories...";
   }
 }
 
-window.uncheckCategory = function(cat) {
+window.uncheckCategory = function (cat) {
   const checkbox = document.querySelector(`.multi-select-option input[value="${cat}"]`);
   if (checkbox) {
     checkbox.checked = false;
@@ -591,7 +703,7 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   if (filterCategories && filterCategories.length > 0) {
     filtered = products.filter(p => filterCategories.includes(p.category));
   }
-  
+
   const searchInput = document.getElementById('searchInput');
   if (searchInput && searchInput.value) {
     const q = searchInput.value.toLowerCase();
@@ -649,8 +761,8 @@ function renderAdminCategories() {
       </div>
     `).join('');
   }
-  
-  
+
+
   // Also update datalist for Add Product
   const dataList = document.getElementById('categoryOptions');
   if (dataList) {
@@ -658,7 +770,7 @@ function renderAdminCategories() {
   }
 }
 
-window.removeAdminCategory = function(cat) {
+window.removeAdminCategory = function (cat) {
   siteCategories = siteCategories.filter(c => c !== cat);
   localStorage.setItem('shubham_categories', JSON.stringify(siteCategories));
   renderAdminCategories();
@@ -669,7 +781,7 @@ async function handleAddCategory(e) {
   e.preventDefault();
   const newCat = document.getElementById('newCategoryName').value.trim();
   if (!newCat) return;
-  
+
   if (!siteCategories.includes(newCat)) {
     siteCategories.push(newCat);
     localStorage.setItem('shubham_categories', JSON.stringify(siteCategories));
@@ -677,7 +789,7 @@ async function handleAddCategory(e) {
   } else {
     showToast(`Category already exists`);
   }
-  
+
   document.getElementById('addCategoryForm').reset();
   renderAdminCategories();
 }
@@ -706,20 +818,20 @@ async function handleAddProduct(e) {
     if (supabase) {
       const payload = { name, price, category, img: finalImg };
       if (original_price) payload.original_price = original_price;
-      
+
       let { error } = await supabase.from('products').insert(payload);
-      
+
       // Fallback if the Supabase table doesn't have the original_price column yet
       if (error && error.message && error.message.includes('original_price')) {
-         delete payload.original_price;
-         const retry = await supabase.from('products').insert(payload);
-         error = retry.error;
-         if (!error) {
-           showToast("Product added! (Note: 'original_price' column missing in Supabase Settings)");
-           e.target.reset();
-           if (document.getElementById('adminProductsList')) await renderAdminList();
-           return;
-         }
+        delete payload.original_price;
+        const retry = await supabase.from('products').insert(payload);
+        error = retry.error;
+        if (!error) {
+          showToast("Product added! (Note: 'original_price' column missing in Supabase Settings)");
+          e.target.reset();
+          if (document.getElementById('adminProductsList')) await renderAdminList();
+          return;
+        }
       }
 
       if (error) {
@@ -753,7 +865,7 @@ async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
     const supabase = getSupabase();
-  if (supabase) {
+    if (supabase) {
       const { data: dbProducts } = await supabase.from('products').select('*').order('id', { ascending: true });
       if (dbProducts) products = dbProducts;
     }
@@ -798,22 +910,22 @@ async function renderAdminUsers() {
 }
 
 // Edit Modal Logic
-window.openEditModal = function(id) {
+window.openEditModal = function (id) {
   const product = products.find(p => p.id === id);
   if (!product) return;
-  
+
   document.getElementById('editProductId').value = product.id;
   document.getElementById('editName').value = product.name;
   document.getElementById('editPrice').value = product.price;
   document.getElementById('editOriginalPrice').value = product.original_price || '';
   document.getElementById('editCategory').value = product.category;
   document.getElementById('editImg').value = product.img;
-  
+
   const modal = document.getElementById('editProductModal');
   if (modal) modal.style.display = 'flex';
 };
 
-window.closeEditModal = function() {
+window.closeEditModal = function () {
   const modal = document.getElementById('editProductModal');
   if (modal) modal.style.display = 'none';
 };
@@ -838,18 +950,18 @@ async function handleEditProduct(e) {
       else payload.original_price = null; // Clear if emptied
 
       let { error } = await supabase.from('products').update(payload).eq('id', id);
-      
+
       // Fallback if the Supabase table doesn't have the original_price column yet
       if (error && error.message && error.message.includes('original_price')) {
-         delete payload.original_price;
-         const retry = await supabase.from('products').update(payload).eq('id', id);
-         error = retry.error;
-         if (!error) {
-           showToast("Updated! (Note: Add 'original_price' column in Supabase to save MRP)");
-           closeEditModal();
-           await renderAdminList();
-           return;
-         }
+        delete payload.original_price;
+        const retry = await supabase.from('products').update(payload).eq('id', id);
+        error = retry.error;
+        if (!error) {
+          showToast("Updated! (Note: Add 'original_price' column in Supabase to save MRP)");
+          closeEditModal();
+          await renderAdminList();
+          return;
+        }
       }
 
       if (error) {
@@ -895,9 +1007,14 @@ async function renderAdminOrders() {
   }
 
   window.ordersListContext = dbOrders;
-  container.innerHTML = dbOrders.map(o => {
-    const statusClass = `status-${o.status.toLowerCase()}`;
-    return `
+  const activeOrders = dbOrders.filter(o => o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return'));
+  const completedOrders = dbOrders.filter(o => o.status === 'Delivered' || o.status === 'Cancelled' || String(o.status || '').includes('Return'));
+
+  const renderList = (list) => {
+    if (!list.length) return `<div style="padding: 12px; color: var(--text-muted);">No orders in this category.</div>`;
+    return list.map(o => {
+      const statusClass = `status-${String(o.status || 'Pending').toLowerCase()}`;
+      return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
           <div>
@@ -907,7 +1024,7 @@ async function renderAdminOrders() {
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:var(--bg-color); color:var(--text-main); border:1px solid var(--border-color); padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
             
-            ${(o.status !== 'Delivered' && o.status !== 'Cancelled') ? `<button onclick="updateOrderStatus('${o.id}', 'Delivered')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Delivered</button>` : ''}
+            ${(o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button onclick="updateOrderStatus('${o.id}', 'Delivered')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Delivered</button>` : ''}
             
             <button onclick="deleteOrder('${o.id}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
           </div>
@@ -928,14 +1045,89 @@ async function renderAdminOrders() {
 
         <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px;">
           <strong style="display:block; margin-bottom: 8px;">Order Items</strong>
-          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between;"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
+          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between;"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price * i.quantity)}</span></div>`).join('')}
+        </div>
+      </div>
+      `;
+    }).join('');
+  };
+
+  container.innerHTML = `
+    <div style="background:var(--primary); color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Orders
+    </div>
+    <div style="background:rgba(0,0,0, 0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; margin-bottom:32px; box-shadow:var(--shadow-sm);">
+      ${renderList(activeOrders)}
+    </div>
+    <div style="background:#10b981; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Completed & Cancelled
+    </div>
+    <div style="background:rgba(16,185,129,0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; box-shadow:var(--shadow-sm);">
+      ${renderList(completedOrders)}
+    </div>
+  `;
+}
+
+async function renderAdminReturns() {
+  const container = document.getElementById('adminReturnsList');
+  if (!container) return;
+
+  let dbOrders = [];
+  let dbCopies = [];
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data: b } = await supabase.from('orders').select('*').eq('status', 'Return Requested').order('date', { ascending: false });
+    dbOrders = b || [];
+    const { data: c } = await supabase.from('photocopy_orders').select('*').eq('status', 'Return Requested').order('created_at', { ascending: false });
+    dbCopies = c || [];
+  }
+
+  const merged = [
+    ...dbOrders.map((o) => ({ kind: 'book', o, t: getBookOrderPlacedAtMs(o) })),
+    ...dbCopies.map((o) => ({ kind: 'photocopy', o, t: getPhotocopyPlacedAtMs(o) }))
+  ].sort((a, b) => b.t - a.t);
+
+  const countLabel = document.getElementById('adminReturnsCountLabel');
+  if (countLabel) countLabel.textContent = 'Total returned orders: ' + merged.length;
+
+  if (merged.length === 0) {
+    container.innerHTML = `<div style="padding: 24px;">No returned orders.</div>`;
+    return;
+  }
+
+  container.innerHTML = merged.map(({ kind, o }) => {
+    return `
+      <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+          <div>
+            <span style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--primary);">${kind === 'book' ? 'Books' : 'Photocopy'}</span>
+            <strong style="display:block; margin-top:4px; font-size: 1.1rem;">${o.id}</strong>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date || new Date(o.created_at).toLocaleString('en-IN')}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span style="background:#ff980020; color:#ff9800; border:1px solid #ff980040; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Return Requested</span>
+            <button onclick="handleReturnAction('${o.id}', '${kind === 'book' ? 'orders' : 'photocopy_orders'}', 'Return Accepted')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Accept</button>
+            <button onclick="handleReturnAction('${o.id}', '${kind === 'book' ? 'orders' : 'photocopy_orders'}', 'Return Rejected')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Reject</button>
+          </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+          <div>
+            <strong>Customer Details</strong>
+            <p style="font-size: 0.9rem; margin-top: 4px;">${o.customer !== undefined ? o.customer : 'User'} (${o.customerphone || o.customer_phone})</p>
+            <p style="font-size: 0.9rem; color: var(--text-muted);">${o.address || ''}</p>
+          </div>
+          <div>
+            <strong>Total Amount</strong>
+            <p style="font-size: 0.9rem; margin-top: 4px; font-weight: 700;">${formatPrice(o.total || o.total_cost || 0)}</p>
+          </div>
         </div>
       </div>
     `;
   }).join('');
 }
 
-window.deleteOrder = async function(orderId) {
+window.deleteOrder = async function (orderId) {
   if (!confirm('Delete this order? This cannot be undone.')) return;
   const supabase = getSupabase();
   if (supabase) {
@@ -945,26 +1137,63 @@ window.deleteOrder = async function(orderId) {
   await renderAdminOrders();
 };
 
-window.updateOrderStatus = async function(orderId, newStatus) {
+window.updateOrderStatus = async function (orderId, newStatus) {
   const supabase = getSupabase();
-  if (supabase) await supabase.from('orders').update({status: newStatus}).eq('id', orderId);
+  if (supabase) await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
   await renderAdminOrders();
 };
 
-window.cancelUserOrder = async function(orderId, type) {
+window.handleReturnAction = async function (orderId, table, action) {
+  if (!confirm(`Are you sure you want to ${action === 'Return Accepted' ? 'Accept' : 'Reject'} this return?`)) return;
+  const supabase = getSupabase();
+  if (supabase) {
+    try {
+      await supabase.from(table).update({ status: action }).eq('id', orderId);
+    } catch (e) { console.error('Return action error:', e); }
+  } else {
+    try {
+      let local = JSON.parse(localStorage.getItem(table) || '[]');
+      local = local.map(o => o.id === orderId ? { ...o, status: action } : o);
+      localStorage.setItem(table, JSON.stringify(local));
+    } catch (e) { }
+  }
+  showToast(action);
+  await renderAdminReturns();
+};
+
+window.returnUserOrder = async function (orderId, type) {
+  if (!confirm("Are you sure you want to return this order?")) return;
+  const table = type === 'book' ? 'orders' : 'photocopy_orders';
+  const supabase = getSupabase();
+  if (supabase) {
+    try {
+      await supabase.from(table).update({ status: 'Return Requested' }).eq('id', orderId);
+    } catch (e) { console.error('Return error:', e); }
+  } else {
+    try {
+      let local = JSON.parse(localStorage.getItem(table) || '[]');
+      local = local.map(o => o.id === orderId ? { ...o, status: 'Return Requested' } : o);
+      localStorage.setItem(table, JSON.stringify(local));
+    } catch (e) { }
+  }
+  showToast("Return Requested");
+  await renderMyOrders();
+};
+
+window.cancelUserOrder = async function (orderId, type) {
   if (!confirm("Are you sure you want to cancel this order?")) return;
   const table = type === 'book' ? 'orders' : 'photocopy_orders';
   const supabase = getSupabase();
   if (supabase) {
     try {
       await supabase.from(table).update({ status: 'Cancelled' }).eq('id', orderId);
-    } catch(e) { console.error('Cancel error:', e); }
+    } catch (e) { console.error('Cancel error:', e); }
   } else {
     try {
       let local = JSON.parse(localStorage.getItem(table) || '[]');
       local = local.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
       localStorage.setItem(table, JSON.stringify(local));
-    } catch(e) {}
+    } catch (e) { }
   }
   showToast("Order Cancelled");
   await renderMyOrders();
@@ -975,8 +1204,8 @@ async function renderMyOrders() {
   if (!container) return;
 
   if (!currentUser) {
-     window.location.href = "login.html";
-     return;
+    window.location.href = "login.html";
+    return;
   }
 
   let dbOrders = [];
@@ -995,7 +1224,7 @@ async function renderMyOrders() {
     try {
       dbOrders = JSON.parse(localStorage.getItem('orders') || '[]').filter(o => o.customerphone === currentUser.phone);
       photoOrders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]').filter(o => o.customer_phone === currentUser.phone);
-    } catch(e) {}
+    } catch (e) { }
   }
 
   const merged = [
@@ -1014,7 +1243,7 @@ async function renderMyOrders() {
       const statusClass = `status-${String(o.status || 'pending').toLowerCase()}`;
       const timeline = buildOrderTrackingTimelineHTML(steps, {
         hint: 'Progress updates about every 12 hours over 2 days. When we ship, status jumps ahead automatically.'
-      });
+      }, o);
       return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 24px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
         <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
@@ -1024,8 +1253,12 @@ async function renderMyOrders() {
             <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date || ''}</span>
           </div>
           <div style="text-align: right;">
-            ${String(o.status || 'Pending').trim() === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>` 
-            : (computeBookTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'book')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+            ${String(o.status || 'Pending').trim() === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
+          : String(o.status || 'Pending').trim() === 'Return Requested' ? `<span style="color: #ff9800; font-weight: bold; font-size: 0.9rem;">Return Requested</span>`
+            : String(o.status || 'Pending').trim() === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
+              : String(o.status || 'Pending').trim() === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
+                : String(o.status || 'Pending').trim() === 'Delivered' ? (Date.now() - getBookOrderPlacedAtMs(o) < 5 * 24 * 60 * 60 * 1000 ? `<button onclick="returnUserOrder('${o.id}', 'book')" style="background:#ff980015; color:#ff9800; border:1px solid #ff980040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Return Order</button>` : `<span style="color:var(--text-muted); font-size:0.85rem;">Return Window Expired</span>`)
+                  : (computeBookTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'book')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
 
@@ -1045,7 +1278,7 @@ async function renderMyOrders() {
 
         <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px;">
           <strong style="display:block; margin-bottom: 8px;">Order Items</strong>
-          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between; color: var(--text-main);"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price*i.quantity)}</span></div>`).join('')}
+          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between; color: var(--text-main);"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price * i.quantity)}</span></div>`).join('')}
         </div>
       </div>`;
     }
@@ -1054,7 +1287,7 @@ async function renderMyOrders() {
     const st = o.status || 'Pending';
     const timeline = buildOrderTrackingTimelineHTML(steps, {
       hint: 'Photocopy progress updates over about 48 hours. Shop status (Processing / Ready) can move you forward faster.'
-    });
+    }, o);
     const when = o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '';
     return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 24px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
@@ -1065,8 +1298,9 @@ async function renderMyOrders() {
             <span style="color: var(--text-muted); font-size: 0.9rem;">${when}</span>
           </div>
           <div style="text-align: right;">
-            ${st === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>` 
-            : (computePhotocopyTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'photocopy_orders')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+            ${st === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
+        : (st === 'Delivered' || st === 'Completed') ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">${st}</span>`
+          : (computePhotocopyTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'photocopy_orders')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
 
@@ -1089,7 +1323,7 @@ async function renderMyOrders() {
 
 function renderCheckoutSummary() {
   const container = document.getElementById('checkoutSummaryItems');
-  if(!container) return;
+  if (!container) return;
 
   container.innerHTML = cart.map(item => `
     <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:0.9rem;">
@@ -1177,16 +1411,16 @@ async function renderAdminDashboard() {
     // Generate dates for the last 7 days
     const last7Days = [];
     const labels = [];
-    for(let i=6; i>=0; i--) {
+    for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       last7Days.push(d.toISOString().split('T')[0]);
-      labels.push(d.toLocaleDateString('en-US', {weekday: 'short'}));
+      labels.push(d.toLocaleDateString('en-US', { weekday: 'short' }));
     }
-    
+
     let chartData = new Array(7).fill(0);
     let totalVisits = 0;
-    
+
     if (supabase) {
       const { data: visits } = await supabase.from('site_visits').select('created_at');
       if (visits) {
@@ -1200,7 +1434,7 @@ async function renderAdminDashboard() {
         });
       }
     }
-    
+
     if (document.getElementById('statVisitors')) {
       document.getElementById('statVisitors').innerText = totalVisits;
     }
@@ -1273,7 +1507,7 @@ async function renderReviews(productId) {
   const supabase = getSupabase();
   if (supabase) {
     const { data } = await supabase.from('reviews').select('*').eq('product_id', productId).order('created_at', { ascending: false });
-    if(data) revs = data;
+    if (data) revs = data;
   }
   if (!revs || revs.length === 0) {
     container.innerHTML = '<p style="color:var(--text-muted);">No reviews yet. Be the first to review!</p>';
@@ -1283,7 +1517,7 @@ async function renderReviews(productId) {
     <div style="background:var(--bg-color); padding:16px; border-radius:8px; margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
         <strong style="color:var(--primary);">${r.user_name}</strong>
-        <span style="color:#ffc107;">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
+        <span style="color:#ffc107;">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span>
       </div>
       <p style="margin:0; font-size:0.95rem; color:#444;">${r.review_text}</p>
     </div>
@@ -1298,10 +1532,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
     const supabase = getSupabase();
     if (supabase) {
-      supabase.from('site_visits').insert({}).then(({error}) => {
-         if (!error) {
-           localStorage.setItem('shubham_last_visit', todayDate);
-         }
+      supabase.from('site_visits').insert({}).then(({ error }) => {
+        if (!error) {
+          localStorage.setItem('shubham_last_visit', todayDate);
+        }
       });
     }
   }
@@ -1311,7 +1545,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (navIcons) {
     const themeSwitchWrapper = document.createElement('div');
     themeSwitchWrapper.className = 'theme-switch-wrapper';
-    
+
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
 
     themeSwitchWrapper.innerHTML = `
@@ -1325,12 +1559,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const checkbox = themeSwitchWrapper.querySelector('#themeToggleCheckbox');
     const label = themeSwitchWrapper.querySelector('#themeLabel');
-    
+
     checkbox.addEventListener('change', (e) => {
       const root = document.documentElement;
       let textColor = '#e0e0e0';
       let gridColor = '#333';
-      
+
       if (e.target.checked) {
         root.setAttribute('data-theme', 'light');
         localStorage.setItem('shubham_theme', 'light');
@@ -1342,7 +1576,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         localStorage.setItem('shubham_theme', 'dark');
         label.innerText = 'DARK';
       }
-      
+
       // Update Chart Colors if present
       if (window.adminChartObj) {
         window.adminChartObj.options.plugins.legend.labels.color = textColor;
@@ -1364,7 +1598,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('registerForm')) document.getElementById('registerForm').addEventListener('submit', handleRegister);
 
   if (document.getElementById('checkoutForm')) {
-    if(!currentUser) { showToast("Please login first."); setTimeout(()=> window.location.href="login.html", 1500); }
+    if (!currentUser) { showToast("Please login first."); setTimeout(() => window.location.href = "login.html", 1500); }
     renderCheckoutSummary();
     if (currentUser) {
       document.getElementById('fullName').value = currentUser.name || "";
@@ -1384,21 +1618,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   try {
     await fetchProducts();
-  } catch(e) { console.error("fetchProducts error", e); }
+  } catch (e) { console.error("fetchProducts error", e); }
 
   if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
 
   if (document.getElementById('allProductsContainer')) {
     renderMultiSelect();
     renderProductsGrid('allProductsContainer', null, selectedCategories);
-    
+
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
       searchInput.addEventListener('input', () => {
         renderProductsGrid('allProductsContainer', null, selectedCategories);
       });
     }
-    
+
     // Close multi-select when clicking outside
     document.addEventListener('click', (e) => {
       const container = document.getElementById('categoryMultiSelect');
@@ -1432,7 +1666,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (path.includes('admin-products')) {
     checkAdminAccess();
-    
+
     const editForm = document.getElementById('editProductForm');
     if (editForm) {
       editForm.addEventListener('submit', handleEditProduct);
@@ -1445,6 +1679,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('admin-orders')) {
     checkAdminAccess();
     await renderAdminOrders();
+  }
+
+  if (path.includes('admin-photocopy')) {
+    checkAdminAccess();
+    const pricingForm = document.getElementById('pricingForm');
+    if (pricingForm) {
+      const currentRates = getCeRates();
+      document.getElementById('bwRateInput').value = currentRates.bw;
+      document.getElementById('colorRateInput').value = currentRates.color;
+      pricingForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const bw = parseFloat(document.getElementById('bwRateInput').value);
+        const color = parseFloat(document.getElementById('colorRateInput').value);
+        localStorage.setItem('shubham_ce_rates', JSON.stringify({ bw, color }));
+        showToast('Pricing settings saved!');
+      });
+    }
+  }
+
+  if (path.includes('admin-returns')) {
+    checkAdminAccess();
+    await renderAdminReturns();
   }
 
   if (path.includes('my-orders')) {
@@ -1462,7 +1718,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const product = products.find(p => p.id === productId);
 
     if (product) {
-      window.buyNow = function(pid) { addToCart(pid); window.location.href = "checkout.html"; };
+      window.buyNow = function (pid) { addToCart(pid); window.location.href = "checkout.html"; };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
@@ -1476,14 +1732,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             <h1 style="font-size: 2.2rem; margin-bottom: 12px; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main);">${product.name}</h1>
             <div style="margin-bottom: 24px;">
                ${(() => {
-                 if (product.original_price && product.original_price > product.price) {
-                   const disc = Math.round(((product.original_price - product.price) / product.original_price) * 100);
-                   return `<span style="font-size: 2.2rem; font-weight: 700; color: var(--text-main);">${formatPrice(product.price)}</span>
+          if (product.original_price && product.original_price > product.price) {
+            const disc = Math.round(((product.original_price - product.price) / product.original_price) * 100);
+            return `<span style="font-size: 2.2rem; font-weight: 700; color: var(--text-main);">${formatPrice(product.price)}</span>
                            <span style="font-size: 1.4rem; color: var(--text-muted); text-decoration: line-through; margin-left: 12px; font-weight: 500;">${formatPrice(product.original_price)}</span>
                            <span style="font-size: 1.2rem; color: #00a676; margin-left: 12px; font-weight: 700;">${disc}% Off</span>`;
-                 }
-                 return `<span style="font-size: 2.2rem; font-weight: 700; color: var(--text-main);">${formatPrice(product.price)}</span>`;
-               })()}
+          }
+          return `<span style="font-size: 2.2rem; font-weight: 700; color: var(--text-main);">${formatPrice(product.price)}</span>`;
+        })()}
             </div>
             
             <div style="background: rgba(128, 42, 126, 0.1); border-left: 4px solid #802a7e; padding: 16px; margin-bottom: 32px; border-radius: 8px;">
@@ -1548,16 +1804,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       `;
 
-       // Initialize reviews right away on page load
-       await renderReviews(productId);
+      // Initialize reviews right away on page load
+      await renderReviews(productId);
 
-       document.getElementById('reviewForm').addEventListener('submit', async (e) => {
+      document.getElementById('reviewForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        if(!currentUser) { showToast("Login required to review"); setTimeout(()=> window.location.href="login.html", 1500); return; }
+        if (!currentUser) { showToast("Login required to review"); setTimeout(() => window.location.href = "login.html", 1500); return; }
         const rVal = document.getElementById('rating').value;
         const tVal = document.getElementById('reviewText').value;
         const supabase = getSupabase();
-        if(supabase) {
+        if (supabase) {
           const { error } = await supabase.from('reviews').insert({
             product_id: productId,
             user_name: currentUser.name || "Anonymous",
@@ -1645,15 +1901,15 @@ async function initAdminChatCenter() {
   await fetchAdminChatUsers();
   // Listen for new messages globally to update sidebar
   const supabase = getSupabase();
-  if(supabase) {
+  if (supabase) {
     supabase.channel('admin_global_msgs')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-         // Refresh user list to bubble up active chats
-         fetchAdminChatUsers();
-         // If we are currently viewing this user's chat, append message
-         if (currentChatUserId && (payload.new.sender === currentChatUserId || payload.new.receiver === currentChatUserId)) {
-            appendMessageToUI(payload.new, 'adminMessagesContainer', true);
-         }
+        // Refresh user list to bubble up active chats
+        fetchAdminChatUsers();
+        // If we are currently viewing this user's chat, append message
+        if (currentChatUserId && (payload.new.sender === currentChatUserId || payload.new.receiver === currentChatUserId)) {
+          appendMessageToUI(payload.new, 'adminMessagesContainer', true);
+        }
       })
       .subscribe();
   }
@@ -1661,25 +1917,25 @@ async function initAdminChatCenter() {
 
 async function fetchAdminChatUsers() {
   const container = document.getElementById('adminChatUsersList');
-  if(!container) return;
-  
+  if (!container) return;
+
   const supabase = getSupabase();
-  if(!supabase) return;
-  
+  if (!supabase) return;
+
   // Fetch messages to get unique users who have chatted
-  const { data: messages } = await supabase.from('messages').select('sender, receiver, created_at').order('created_at', {ascending: false});
-  if(!messages) {
+  const { data: messages } = await supabase.from('messages').select('sender, receiver, created_at').order('created_at', { ascending: false });
+  if (!messages) {
     container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No messages yet.</div>';
     return;
   }
-  
+
   const userPhones = new Set();
   messages.forEach(m => {
-    if(m.sender !== ADMIN_PHONE) userPhones.add(m.sender);
-    if(m.receiver !== ADMIN_PHONE) userPhones.add(m.receiver);
+    if (m.sender !== ADMIN_PHONE) userPhones.add(m.sender);
+    if (m.receiver !== ADMIN_PHONE) userPhones.add(m.receiver);
   });
-  
-  if(userPhones.size === 0) {
+
+  if (userPhones.size === 0) {
     container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No active chats.</div>';
     return;
   }
@@ -1687,13 +1943,13 @@ async function fetchAdminChatUsers() {
   // Fetch user details
   const { data: users } = await supabase.from('users').select('name, phone').in('phone', Array.from(userPhones));
   const { data: orders } = await supabase.from('orders').select('customerphone');
-  
+
   const usersMap = {};
   users?.forEach(u => usersMap[u.phone] = u.name);
-  
+
   const orderCount = {};
   orders?.forEach(o => {
-    if(!orderCount[o.customerphone]) orderCount[o.customerphone] = 0;
+    if (!orderCount[o.customerphone]) orderCount[o.customerphone] = 0;
     orderCount[o.customerphone]++;
   });
 
@@ -1722,10 +1978,10 @@ async function openAdminChatForUser(phone) {
   currentChatUserId = phone;
   // Update sidebar active state visually
   fetchAdminChatUsers();
-  
+
   const mainArea = document.getElementById('adminChatMainArea');
   const user = await getUserNameByPhone(phone);
-  
+
   // Render chat frame
   mainArea.innerHTML = `
     <header class="chat-header">
@@ -1757,31 +2013,31 @@ async function openAdminChatForUser(phone) {
       </button>
     </footer>
   `;
-  
+
   await loadMessages(phone, 'adminMessagesContainer', true);
 }
 
 async function getUserNameByPhone(phone) {
-   const supabase = getSupabase();
-   if(!supabase) return "User";
-   const { data } = await supabase.from('users').select('name').eq('phone', phone).single();
-   return data ? data.name : "User";
+  const supabase = getSupabase();
+  if (!supabase) return "User";
+  const { data } = await supabase.from('users').select('name').eq('phone', phone).single();
+  return data ? data.name : "User";
 }
 
 // Shared Message Loading & Rendering
 async function loadMessages(chatPhoneId, containerId, isAdminPanel = false) {
   const supabase = getSupabase();
-  if(!supabase) return;
-  
+  if (!supabase) return;
+
   const { data: messages } = await supabase.from('messages')
     .select('*')
     .or(`and(sender.eq.${chatPhoneId},receiver.eq.${ADMIN_PHONE}),and(sender.eq.${ADMIN_PHONE},receiver.eq.${chatPhoneId})`)
     .eq('is_deleted', false)
-    .order('created_at', {ascending: true});
+    .order('created_at', { ascending: true });
 
   const container = document.getElementById(containerId);
-  if(!container) return;
-  
+  if (!container) return;
+
   if (messages && messages.length > 0) {
     container.innerHTML = '';
     messages.forEach(msg => appendMessageToUI(msg, containerId, isAdminPanel));
@@ -1789,7 +2045,7 @@ async function loadMessages(chatPhoneId, containerId, isAdminPanel = false) {
     // Keep empty state if user, clear if admin
     if (!isAdminPanel && document.getElementById('chatEmptyState')) {
       document.getElementById('chatEmptyState').style.display = 'flex';
-      container.innerHTML = ''; 
+      container.innerHTML = '';
       container.appendChild(document.getElementById('chatEmptyState'));
     } else {
       container.innerHTML = '<div style="text-align:center; color:var(--text-muted); margin-top:20px;" class="chat-placeholder-empty">No messages. Send a message to start!</div>';
@@ -1799,10 +2055,10 @@ async function loadMessages(chatPhoneId, containerId, isAdminPanel = false) {
 
 function subscribeToMessages(chatPhoneId, containerId) {
   const supabase = getSupabase();
-  if(!supabase) return;
-  
-  if(chatSubscription) supabase.removeChannel(chatSubscription);
-  
+  if (!supabase) return;
+
+  if (chatSubscription) supabase.removeChannel(chatSubscription);
+
   chatSubscription = supabase.channel('user_chat_updates')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
       const msg = payload.new;
@@ -1815,22 +2071,22 @@ function subscribeToMessages(chatPhoneId, containerId) {
 
 function appendMessageToUI(msg, containerId, isAdminPanel) {
   const container = document.getElementById(containerId);
-  if(!container) return;
-  
+  if (!container) return;
+
   if (msg.id && document.getElementById(`msg-${msg.id}`)) return;
   const emptyState = container.querySelector('.chat-empty-state');
-  if(emptyState) emptyState.style.display = 'none';
+  if (emptyState) emptyState.style.display = 'none';
 
   const placeholderInfo = container.querySelector('.chat-placeholder-empty');
-  if(placeholderInfo) placeholderInfo.remove();
+  if (placeholderInfo) placeholderInfo.remove();
 
   const isMe = isAdminPanel ? (msg.sender === ADMIN_PHONE) : (msg.sender !== ADMIN_PHONE);
   const bubbleClass = isMe ? 'chat-bubble-me' : 'chat-bubble-other';
-  
+
   // Safe date parsing 
   const d = new Date(msg.created_at);
-  const timeInfo = isNaN(d) ? 'Now' : d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-  
+  const timeInfo = isNaN(d) ? 'Now' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   let contentHtml = '';
   if (msg.message) {
     contentHtml += `<div class="chat-text">${msg.message}</div>`;
@@ -1868,36 +2124,36 @@ async function handleSendChatMessage(mode) {
   const fileInputId = isUser ? 'chatFileInput' : 'adminChatFileInput';
   const textInputId = isUser ? 'chatInputMessage' : 'adminChatInputMessage';
   const previewClearFunc = isUser ? window.clearChatFilePreview : window.clearAdminChatFilePreview;
-  
+
   const textInput = document.getElementById(textInputId);
   const fileInput = document.getElementById(fileInputId);
-  
-  if(!textInput) return; // defensive
+
+  if (!textInput) return; // defensive
 
   const msgText = textInput.value.trim();
   const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-  
+
   if (!msgText && !file) return; // Nothing to send
-  
+
   const senderId = isUser ? currentUser.phone : ADMIN_PHONE;
   const receiverId = isUser ? ADMIN_PHONE : currentChatUserId;
-  
+
   // Disable parsing while sending
   textInput.disabled = true;
-  if(fileInput) fileInput.disabled = true;
-  
+  if (fileInput) fileInput.disabled = true;
+
   let uploadedFileUrl = null;
-  
+
   if (file) {
     uploadedFileUrl = await uploadPdfToSupabase(file);
     if (!uploadedFileUrl) {
       showToast("File upload failed.");
       textInput.disabled = false;
-      if(fileInput) fileInput.disabled = false;
+      if (fileInput) fileInput.disabled = false;
       return;
     }
   }
-  
+
   const supabase = getSupabase();
   if (supabase) {
     const { error, data: insertedMsg } = await supabase.from('messages').insert({
@@ -1907,58 +2163,58 @@ async function handleSendChatMessage(mode) {
       file_url: uploadedFileUrl
     }).select().single();
     if (error) {
-       console.error("Failed to send message:", error);
-       showToast("Failed to send message.");
+      console.error("Failed to send message:", error);
+      showToast("Failed to send message.");
     } else {
-        // If it's admin, and the local real-time listener is slow, we can forcibly append it visually now or wait for the subscription. 
-        // Admin already has real-time listner active that covers this, wait! For Admin, the listener triggers on 'admin_global_msgs', which adds it to 'adminMessagesContainer'. 
-        // Same for user: user listener 'user_chat_updates' adds to 'chatMessagesArea'. 
-        // Local state update makes it feel completely instant
-        const containerId = isUser ? 'chatMessagesArea' : 'adminMessagesContainer';
-        if(insertedMsg) {
-          appendMessageToUI(insertedMsg, containerId, !isUser);
-        }
+      // If it's admin, and the local real-time listener is slow, we can forcibly append it visually now or wait for the subscription. 
+      // Admin already has real-time listner active that covers this, wait! For Admin, the listener triggers on 'admin_global_msgs', which adds it to 'adminMessagesContainer'. 
+      // Same for user: user listener 'user_chat_updates' adds to 'chatMessagesArea'. 
+      // Local state update makes it feel completely instant
+      const containerId = isUser ? 'chatMessagesArea' : 'adminMessagesContainer';
+      if (insertedMsg) {
+        appendMessageToUI(insertedMsg, containerId, !isUser);
+      }
     }
   }
-  
+
   // Cleanup
   textInput.value = '';
   textInput.disabled = false;
-  if(fileInput) {
-      fileInput.value = '';
-      fileInput.disabled = false;
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.disabled = false;
   }
-  if(previewClearFunc) previewClearFunc();
+  if (previewClearFunc) previewClearFunc();
   textInput.focus();
 }
 
 async function uploadPdfToSupabase(file) {
   const supabase = getSupabase();
-  if(!supabase) return null;
-  
+  if (!supabase) return null;
+
   const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
   const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, { cacheControl: '3600', upsert: false });
-  
-  if(error) {
+
+  if (error) {
     console.error("Storage upload error:", error);
     showToast("Storage Error: " + error.message);
     return null;
   }
-  
+
   const { data: pubData } = supabase.storage.from('chat-files').getPublicUrl(fileName);
   return pubData.publicUrl;
 }
 
 // Delete Chat (Admin)
 async function deleteEntireChat(phone) {
-  if(!confirm("Are you sure you want to delete all messages for this user? This cannot be undone.")) return;
+  if (!confirm("Are you sure you want to delete all messages for this user? This cannot be undone.")) return;
   const supabase = getSupabase();
-  if(supabase) {
+  if (supabase) {
     // Soft delete
     await supabase.from('messages')
-       .update({is_deleted: true})
-       .or(`and(sender.eq.${phone},receiver.eq.${ADMIN_PHONE}),and(sender.eq.${ADMIN_PHONE},receiver.eq.${phone})`);
-    
+      .update({ is_deleted: true })
+      .or(`and(sender.eq.${phone},receiver.eq.${ADMIN_PHONE}),and(sender.eq.${ADMIN_PHONE},receiver.eq.${phone})`);
+
     showToast("Chat deleted.");
     document.getElementById('adminChatMainArea').innerHTML = `
       <div class="admin-chat-placeholder">
@@ -1979,23 +2235,23 @@ let freeNotesData = [];
 // Index Page loading
 async function loadFreeNotes() {
   const container = document.getElementById('freeNotesContainer');
-  if(!container) return; // not index page
+  if (!container) return; // not index page
 
   const supabase = getSupabase();
-  if(!supabase) {
+  if (!supabase) {
     container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted);">Database connection failed.</div>';
     return;
   }
 
   const { data: notes } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
   freeNotesData = notes || [];
-  
+
   renderFreeNotesGrid(freeNotesData);
 }
 
 function renderFreeNotesGrid(notesToDisplay) {
   const container = document.getElementById('freeNotesContainer');
-  if(!container) return;
+  if (!container) return;
 
   if (notesToDisplay.length === 0) {
     container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No free notes available yet. Check back soon!</div>';
@@ -2004,9 +2260,9 @@ function renderFreeNotesGrid(notesToDisplay) {
 
   const colors = [
     'var(--primary)',
-    '#0f5866', 
-    '#1b4b6b', 
-    '#5b0f5b', 
+    '#0f5866',
+    '#1b4b6b',
+    '#5b0f5b',
     '#e67e22'
   ];
 
@@ -2037,7 +2293,7 @@ function renderFreeNotesGrid(notesToDisplay) {
 async function loadPdfThumbnails(notes) {
   if (!window.pdfjsLib) return;
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-  
+
   for (const note of notes) {
     if (!note.file_url) continue;
     try {
@@ -2048,11 +2304,11 @@ async function loadPdfThumbnails(notes) {
       const loadingTask = pdfjsLib.getDocument(note.file_url);
       const pdf = await loadingTask.promise;
       const page = await pdf.getPage(1);
-      
+
       const viewport = page.getViewport({ scale: 1 });
       const scale = 160 / viewport.width;
       const scaledViewport = page.getViewport({ scale });
-      
+
       const context = canvas.getContext('2d');
       canvas.width = scaledViewport.width;
       canvas.height = scaledViewport.height;
@@ -2061,18 +2317,18 @@ async function loadPdfThumbnails(notes) {
         canvasContext: context,
         viewport: scaledViewport
       };
-      
+
       await page.render(renderContext).promise;
       canvas.style.opacity = '1';
       const fallback = iconContainer.querySelector('.fallback-ui');
       if (fallback) fallback.style.opacity = '0';
-    } catch(err) {
+    } catch (err) {
       console.warn("Failed to load PDF thumbnail for note:", note.id, err);
     }
   }
 }
 
-window.filterFreeNotes = function() {
+window.filterFreeNotes = function () {
   const q = document.getElementById('freeNotesSearch').value.toLowerCase();
   const filtered = freeNotesData.filter(note => note.title.toLowerCase().includes(q));
   renderFreeNotesGrid(filtered);
@@ -2081,13 +2337,13 @@ window.filterFreeNotes = function() {
 // Admin Page logic
 async function loadAdminFreeNotes() {
   const container = document.getElementById('adminFreeNotesList');
-  if(!container) return;
+  if (!container) return;
 
   const supabase = getSupabase();
-  if(!supabase) return;
+  if (!supabase) return;
 
   const { data: notes } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
-  
+
   if (!notes || notes.length === 0) {
     container.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">No free notes uploaded yet.</div>';
     return;
@@ -2114,29 +2370,29 @@ if (addFreeNoteForm) {
     const btn = document.getElementById('btnUploadNote');
     const btnText = document.getElementById('btnUploadNoteText');
 
-    if(!titleInput.value || !fileInput.files.length) return;
+    if (!titleInput.value || !fileInput.files.length) return;
 
     btn.disabled = true;
     btnText.textContent = 'Uploading...';
 
     const supabase = getSupabase();
-    if(supabase) {
+    if (supabase) {
       const file = fileInput.files[0];
       const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-      
+
       const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, file, { cacheControl: '3600', upsert: false });
-      
-      if(uploadError) {
+
+      if (uploadError) {
         showToast("Storage Error: " + uploadError.message);
       } else {
         const { data: pubData } = supabase.storage.from('free-notes').getPublicUrl(fileName);
-        
+
         const { error: dbError } = await supabase.from('free_notes').insert({
           title: titleInput.value,
           file_url: pubData.publicUrl
         });
 
-        if(dbError) {
+        if (dbError) {
           showToast("DB Error: " + dbError.message);
         } else {
           showToast("Free Note published!");
@@ -2145,18 +2401,18 @@ if (addFreeNoteForm) {
         }
       }
     }
-    
+
     btn.disabled = false;
     btnText.textContent = 'Upload Note';
   });
 }
 
-window.deleteFreeNote = async function(id) {
-  if(!confirm("Are you sure you want to delete this Note?")) return;
+window.deleteFreeNote = async function (id) {
+  if (!confirm("Are you sure you want to delete this Note?")) return;
   const supabase = getSupabase();
-  if(supabase) {
-    const {error} = await supabase.from('free_notes').delete().eq('id', id);
-    if(error) showToast("Error deleting note.");
+  if (supabase) {
+    const { error } = await supabase.from('free_notes').delete().eq('id', id);
+    if (error) showToast("Error deleting note.");
     else {
       showToast("Note deleted.");
       loadAdminFreeNotes();
@@ -2167,10 +2423,10 @@ window.deleteFreeNote = async function(id) {
 // Hook them into DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    if(document.getElementById('freeNotesContainer')) {
+    if (document.getElementById('freeNotesContainer')) {
       loadFreeNotes();
     }
-    if(document.getElementById('adminFreeNotesList') && currentUser && currentUser.phone === ADMIN_PHONE) {
+    if (document.getElementById('adminFreeNotesList') && currentUser && currentUser.phone === ADMIN_PHONE) {
       loadAdminFreeNotes();
     }
   }, 1000); // Give supabase a second to boot up
@@ -2186,13 +2442,20 @@ let ceState = {
   sides: 'single',    // 'single' | 'double'
   paperSize: 'a4',
   payment: 'COD',
+  deliveryMode: 'delivery',
   totalCost: 0,
   fileName: ''
 };
 
-const CE_RATES = { bw: 1, color: 5 };
+function getCeRates() {
+  try {
+    return JSON.parse(localStorage.getItem('shubham_ce_rates')) || { bw: 1, color: 5 };
+  } catch (e) {
+    return { bw: 1, color: 5 };
+  }
+}
 
-window.openCostEstimatorModal = function() {
+window.openCostEstimatorModal = function () {
   const modal = document.getElementById('costEstimatorModal');
   if (!modal) return;
   // Reset state
@@ -2201,7 +2464,7 @@ window.openCostEstimatorModal = function() {
   document.body.style.overflow = 'hidden';
 };
 
-window.closeCostEstimatorModal = function() {
+window.closeCostEstimatorModal = function () {
   const modal = document.getElementById('costEstimatorModal');
   if (!modal) return;
   modal.style.display = 'none';
@@ -2212,40 +2475,40 @@ window.closeCostEstimatorModal = function() {
 function ceResetState() {
   ceState = { pages: 0, printType: 'bw', copies: 1, sides: 'single', paperSize: 'a4', payment: 'COD', totalCost: 0, fileName: '', pdfFile: null };
   // Reset UI
-  const steps = ['ceStepEstimate','ceStepOrder','ceStepSuccess'];
-  steps.forEach(s => { const el = document.getElementById(s); if(el) el.style.display = 'none'; });
+  const steps = ['ceStepEstimate', 'ceStepOrder', 'ceStepSuccess'];
+  steps.forEach(s => { const el = document.getElementById(s); if (el) el.style.display = 'none'; });
   const est = document.getElementById('ceStepEstimate');
-  if(est) est.style.display = 'block';
+  if (est) est.style.display = 'block';
 
   const uploadZone = document.getElementById('ceUploadZone');
-  if(uploadZone) uploadZone.classList.remove('has-file');
+  if (uploadZone) uploadZone.classList.remove('has-file');
   const uploadText = document.getElementById('ceUploadText');
-  if(uploadText) uploadText.textContent = 'Click to upload PDF';
+  if (uploadText) uploadText.textContent = 'Click to upload PDF';
   const pageInfo = document.getElementById('cePageInfo');
-  if(pageInfo) pageInfo.style.display = 'none';
+  if (pageInfo) pageInfo.style.display = 'none';
   const pdfInput = document.getElementById('cePdfInput');
-  if(pdfInput) pdfInput.value = '';
+  if (pdfInput) pdfInput.value = '';
   const copies = document.getElementById('ceCopiesVal');
-  if(copies) copies.textContent = '1';
+  if (copies) copies.textContent = '1';
   const paperSize = document.getElementById('cePaperSize');
-  if(paperSize) paperSize.value = 'a4';
+  if (paperSize) paperSize.value = 'a4';
   // Reset toggles
-  ['ceBwBtn','ceColorBtn','ceSingleBtn','ceDoubleBtn','ceCodBtn','ceOnlineBtn'].forEach(id => {
+  ['ceBwBtn', 'ceColorBtn', 'ceSingleBtn', 'ceDoubleBtn', 'ceCodBtn', 'ceOnlineBtn'].forEach(id => {
     const btn = document.getElementById(id);
-    if(btn) btn.classList.remove('active');
+    if (btn) btn.classList.remove('active');
   });
   const bwBtn = document.getElementById('ceBwBtn');
-  if(bwBtn) bwBtn.classList.add('active');
+  if (bwBtn) bwBtn.classList.add('active');
   const singleBtn = document.getElementById('ceSingleBtn');
-  if(singleBtn) singleBtn.classList.add('active');
+  if (singleBtn) singleBtn.classList.add('active');
   const codBtn = document.getElementById('ceCodBtn');
-  if(codBtn) codBtn.classList.add('active');
+  if (codBtn) codBtn.classList.add('active');
   // Reset estimate display
-  ['ceResPages','ceResCopies','ceResRate'].forEach(id => {
-    const el = document.getElementById(id); if(el) el.textContent = '\u2013';
+  ['ceResPages', 'ceResCopies', 'ceResRate'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '\u2013';
   });
   const total = document.getElementById('ceResTotal');
-  if(total) total.textContent = 'Upload PDF first';
+  if (total) total.textContent = 'Upload PDF first';
   const ceHint = document.getElementById('ceLoggedInHint');
   if (ceHint) {
     ceHint.style.display = 'none';
@@ -2253,10 +2516,10 @@ function ceResetState() {
   }
   // Reset form
   const form = document.getElementById('ceOrderForm');
-  if(form) form.reset();
+  if (form) form.reset();
 }
 
-window.handleCePdfUpload = async function(input) {
+window.handleCePdfUpload = async function (input) {
   if (!input.files || !input.files[0]) return;
   const file = input.files[0];
   ceState.fileName = file.name;
@@ -2298,52 +2561,59 @@ window.handleCePdfUpload = async function(input) {
   }
 };
 
-window.setCePrintType = function(type) {
+window.setCePrintType = function (type) {
   ceState.printType = type;
   document.getElementById('ceBwBtn').classList.toggle('active', type === 'bw');
   document.getElementById('ceColorBtn').classList.toggle('active', type === 'color');
   recalcEstimate();
 };
 
-window.setCeSides = function(side) {
+window.setCeSides = function (side) {
   ceState.sides = side;
   document.getElementById('ceSingleBtn').classList.toggle('active', side === 'single');
   document.getElementById('ceDoubleBtn').classList.toggle('active', side === 'double');
   recalcEstimate();
 };
 
-window.changeCopies = function(delta) {
+window.changeCopies = function (delta) {
   ceState.copies = Math.max(1, ceState.copies + delta);
   document.getElementById('ceCopiesVal').textContent = ceState.copies;
   recalcEstimate();
 };
 
-window.setCePayment = function(method) {
+window.setCePayment = function (method) {
   ceState.payment = method;
   document.getElementById('ceCodBtn').classList.toggle('active', method === 'COD');
   document.getElementById('ceOnlineBtn').classList.toggle('active', method === 'Online');
 };
 
-window.recalcEstimate = function() {
+window.setCeDelivery = function (mode) {
+  ceState.deliveryMode = mode;
+  document.getElementById('ceDeliveryBtn').classList.toggle('active', mode === 'delivery');
+  document.getElementById('ceCollectBtn').classList.toggle('active', mode === 'collect');
+  recalcEstimate();
+};
+
+window.recalcEstimate = function () {
   if (!ceState.pages) return;
   const paperSizeEl = document.getElementById('cePaperSize');
   if (paperSizeEl) ceState.paperSize = paperSizeEl.value;
 
-  const rate = CE_RATES[ceState.printType];
-  // Double-sided: pages needed = ceil(original/2) sheets but charged per side
-  const billablePages = ceState.sides === 'double'
-    ? Math.ceil(ceState.pages / 2) * 2  // charge both sides but only ceil sheets
-    : ceState.pages;
-  const perCopyCost = billablePages * rate;
-  ceState.totalCost = perCopyCost * ceState.copies;
+  const rate = getCeRates()[ceState.printType];
+  const billablePages = ceState.pages;
+  let protoCost = billablePages * rate;
+  if (ceState.sides === 'double') {
+    protoCost = protoCost * 0.6;
+  }
+  ceState.totalCost = protoCost * ceState.copies;
 
-  document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ` (${Math.ceil(ceState.pages/2)} sheets, double-sided)` : ' pages');
+  document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ' pages (Double-Sided discounted)' : ' pages');
   document.getElementById('ceResCopies').textContent = ceState.copies;
   document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'})`;
   document.getElementById('ceResTotal').textContent = `\u20B9${ceState.totalCost.toFixed(2)}`;
 };
 
-window.proceedToPayment = function() {
+window.proceedToPayment = function () {
   if (!ceState.pages) {
     showToast('Please upload a PDF first!');
     return;
@@ -2365,7 +2635,7 @@ window.proceedToPayment = function() {
   const summaryEl = document.getElementById('ceOrderSummaryText');
   if (summaryEl) {
     const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
-    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies>1?'ies':'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
+    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies > 1 ? 'ies' : 'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
   }
 
   const ta = document.getElementById('ceCustomerAddress');
@@ -2380,12 +2650,12 @@ window.proceedToPayment = function() {
   document.getElementById('ceStepOrder').style.display = 'block';
 };
 
-window.ceGoBack = function() {
+window.ceGoBack = function () {
   document.getElementById('ceStepOrder').style.display = 'none';
   document.getElementById('ceStepEstimate').style.display = 'block';
 };
 
-window.placeCopyOrder = async function(e) {
+window.placeCopyOrder = async function (e) {
   e.preventDefault();
   const btn = document.getElementById('cePlaceOrderBtn');
   if (!currentUser) {
@@ -2405,7 +2675,7 @@ window.placeCopyOrder = async function(e) {
     return;
   }
   btn.disabled = true;
-  btn.textContent = 'Uploading doc & placing order...';
+  btn.textContent = 'Uploading doc & finalizing order...';
   const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
   const orderId = 'COPY' + Date.now();
 
@@ -2432,7 +2702,7 @@ window.placeCopyOrder = async function(e) {
         console.warn('Doc upload failed:', upErr.message);
         showToast('PDF upload failed: ' + upErr.message + ' (order will save without file if DB allows)');
       }
-    } catch(err) {
+    } catch (err) {
       console.error('Storage error:', err);
       showToast('PDF upload error — check Storage bucket "photocopy-docs" and policies.');
     }
@@ -2450,6 +2720,7 @@ window.placeCopyOrder = async function(e) {
     print_type: ceState.printType === 'bw' ? 'B&W' : 'Colour',
     paper_size: sizeLabel[ceState.paperSize] || ceState.paperSize,
     sides: ceState.sides === 'double' ? 'Double-sided' : 'Single-sided',
+    delivery_mode: ceState.deliveryMode,
     total_cost: ceState.totalCost,
     payment_method: ceState.payment,
     doc_url: docUrl,
@@ -2458,48 +2729,50 @@ window.placeCopyOrder = async function(e) {
     created_at: new Date().toISOString()
   };
 
-  let success = false;
-  if (supabase) {
-    try {
-      let { error } = await supabase.from('photocopy_orders').insert(orderData);
-      if (error && error.message && /doc_url|doc_path|column/i.test(error.message)) {
-        const slim = { ...orderData };
-        delete slim.doc_url;
-        delete slim.doc_path;
-        const retry = await supabase.from('photocopy_orders').insert(slim);
-        error = retry.error;
-        if (!error) {
-          showToast('Order saved. Add text columns doc_url and doc_path to photocopy_orders in Supabase for PDF links.');
+  if (ceState.payment === 'Online') {
+    // 1. Online flow -> delegate to backend
+    processSecureRazorpayPayment(ceState.totalCost, orderData, 'photocopy', (success, txnId) => {
+      btn.disabled = false;
+      btn.textContent = 'Place Photocopy Order';
+
+      if (success) {
+        saveSavedDeliveryDetails({ street: address });
+        window.location.href = 'my-orders.html?payment=success';
+      }
+    });
+
+  } else {
+    // 2. COD flow -> save directly from frontend
+    let success = false;
+    if (supabase) {
+      try {
+        let { error } = await supabase.from('photocopy_orders').insert(orderData);
+        if (error && error.message && /doc_url|doc_path|column/i.test(error.message)) {
+          const slim = { ...orderData };
+          delete slim.doc_url; delete slim.doc_path; delete slim.delivery_mode;
+          let retry = await supabase.from('photocopy_orders').insert(slim);
+          error = retry.error;
         }
-      }
-      if (error) {
-        console.error('Supabase error:', error);
-        showToast('DB Error: ' + error.message);
-      } else {
-        success = true;
-      }
-    } catch(err) {
-      console.error(err);
+        if (!error) success = true;
+      } catch (err) { console.error(err); }
     }
-  }
 
-  // Fallback: save locally
-  if (!success) {
-    try {
-      const local = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
-      local.unshift(orderData);
-      localStorage.setItem('photocopy_orders', JSON.stringify(local));
-      success = true;
-    } catch(e) {}
-  }
+    if (!success) {
+      try {
+        const local = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
+        local.unshift(orderData);
+        localStorage.setItem('photocopy_orders', JSON.stringify(local));
+        success = true;
+      } catch (e) { }
+    }
 
-  btn.disabled = false;
-  btn.textContent = 'Place Photocopy Order';
+    btn.disabled = false;
+    btn.textContent = 'Place Photocopy Order';
 
-  if (success) {
-    saveSavedDeliveryDetails({ street: address });
-    document.getElementById('ceStepOrder').style.display = 'none';
-    document.getElementById('ceStepSuccess').style.display = 'block';
+    if (success) {
+      saveSavedDeliveryDetails({ street: address });
+      window.location.href = 'my-orders.html?payment=cod';
+    }
   }
 };
 
@@ -2546,14 +2819,14 @@ async function renderAdminPhotocopyOrders() {
         .select('*')
         .order('created_at', { ascending: false });
       if (!error && data) orders = data;
-    } catch(e) {}
+    } catch (e) { }
   }
 
   // Fallback local
   if (!orders.length) {
     try {
       orders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
-    } catch(e) {}
+    } catch (e) { }
   }
 
   const copyCountEl = document.getElementById('adminPhotocopyCountLabel');
@@ -2572,76 +2845,97 @@ async function renderAdminPhotocopyOrders() {
     })
   );
 
-  container.innerHTML = rows.map(o => {
-    const date = o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '\u2013';
-    const statusColor = { Pending: '#f59e0b', Processing: '#3b82f6', Ready: '#8b5cf6', Completed: '#10b981', Cancelled: '#ef4444' };
-    const sc = statusColor[o.status] || '#888';
-    const docPathForDel = o.doc_path || '';
-    const docPathEncoded = docPathForDel ? encodeURIComponent(docPathForDel) : '';
-    const hasStoredFile = !!(o.doc_path && String(o.doc_path).trim());
-    const pdfLink = o._pdfHref;
-    const pdfBlock = pdfLink ? `
-        <div style="background:linear-gradient(90deg,rgba(37,117,252,0.08),rgba(106,17,203,0.08)); border:1px solid rgba(37,117,252,0.2); border-radius:10px; padding:10px 14px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2575fc" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">Customer PDF attached</span>
+  const activeOrders = rows.filter(o => o.status !== 'Completed' && o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return'));
+  const completedOrders = rows.filter(o => o.status === 'Completed' || o.status === 'Delivered' || o.status === 'Cancelled' || String(o.status || '').includes('Return'));
+
+  const renderList = (list) => {
+    if (!list.length) return `<div style="padding: 12px; color: var(--text-muted);">No orders in this category.</div>`;
+    return list.map(o => {
+      const date = o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '\u2013';
+      const statusColor = { Pending: '#f59e0b', Processing: '#3b82f6', Ready: '#8b5cf6', Completed: '#10b981', Cancelled: '#ef4444' };
+      const sc = statusColor[o.status] || '#888';
+      const docPathForDel = o.doc_path || '';
+      const docPathEncoded = docPathForDel ? encodeURIComponent(docPathForDel) : '';
+      const hasStoredFile = !!(o.doc_path && String(o.doc_path).trim());
+      const pdfLink = o._pdfHref;
+      const pdfBlock = pdfLink ? `
+          <div style="background:linear-gradient(90deg,rgba(37,117,252,0.08),rgba(106,17,203,0.08)); border:1px solid rgba(37,117,252,0.2); border-radius:10px; padding:10px 14px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2575fc" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">Customer PDF attached</span>
+            </div>
+            <a href="${escAttr(pdfLink)}" target="_blank" rel="noopener noreferrer" style="background:#2575fc; color:#fff; padding:5px 14px; border-radius:6px; font-size:0.8rem; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              View / Download PDF
+            </a>
+          </div>` : (hasStoredFile ? `
+          <div style="background:var(--card-bg); border:1px dashed var(--border-color); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);">
+            PDF path in storage: <code style="font-size:0.75rem;">${escAttr(o.doc_path)}</code> — link could not be created.
+          </div>` : `
+          <div style="background:var(--card-bg); border:1px dashed var(--border-color); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);">
+            No PDF attached to this order.
+          </div>`);
+      return `
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:20px; margin-bottom:18px; box-shadow:var(--shadow-sm);">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:14px;">
+            <div>
+              <div style="font-weight:700; font-size:1rem; color:var(--text-main);">${o.id}</div>
+              <div style="font-size:0.82rem; color:var(--text-muted); margin-top:2px;">${date}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; border:1px solid #ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:${sc}20; color:${sc}; border:1px solid ${sc}; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
+              
+              ${(o.status !== 'Completed' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>` : ''}
+              
+              <button onclick="deletePhotocopyOrder('${o.id}', '${docPathEncoded}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
+            </div>
           </div>
-          <a href="${escAttr(pdfLink)}" target="_blank" rel="noopener noreferrer" style="background:#2575fc; color:#fff; padding:5px 14px; border-radius:6px; font-size:0.8rem; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            View / Download PDF
-          </a>
-        </div>` : (hasStoredFile ? `
-        <div style="background:var(--card-bg); border:1px dashed var(--border-color); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);">
-          PDF path in storage: <code style="font-size:0.75rem;">${escAttr(o.doc_path)}</code> — link could not be created. In Supabase: Storage → photocopy-docs → allow <strong>read</strong> for your role, or use a signed-URL policy.
-        </div>` : `
-        <div style="background:var(--card-bg); border:1px dashed var(--border-color); border-radius:8px; padding:8px 14px; margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);">
-          No PDF attached to this order (upload may have failed or doc_path was not saved — add columns doc_path, doc_url to table photocopy_orders if missing).
-        </div>`);
-    return `
-      <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:20px; margin-bottom:18px; box-shadow:var(--shadow-sm);">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:14px;">
-          <div>
-            <div style="font-weight:700; font-size:1rem; color:var(--text-main);">${o.id}</div>
-            <div style="font-size:0.82rem; color:var(--text-muted); margin-top:2px;">${date}</div>
-          </div>
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; border:1px solid #ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:${sc}20; color:${sc}; border:1px solid ${sc}; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
-            
-            ${(o.status !== 'Completed' && o.status !== 'Cancelled') ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>` : ''}
-            
-            <button onclick="deletePhotocopyOrder('${o.id}', '${docPathEncoded}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
+
+          ${pdfBlock}
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Customer</div>
+              <div style="font-weight:600; color:var(--text-main);">${o.customer_name}</div>
+              <div style="font-size:0.85rem; color:var(--text-muted);">${o.customer_phone}</div>
+            </div>
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Print Details</div>
+              <div style="font-weight:600; color:var(--text-main);">${o.pages} pages \u00D7 ${o.copies} cop${o.copies > 1 ? 'ies' : 'y'}</div>
+              <div style="font-size:0.85rem; color:var(--text-muted);">${o.print_type} | ${o.paper_size} | ${o.sides}</div>
+            </div>
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Address</div>
+              <div style="font-size:0.85rem; color:var(--text-main);">${o.address}</div>
+            </div>
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Payment</div>
+              <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">\u20B9${Number(o.total_cost).toFixed(2)}</div>
+              <div style="font-size:0.82rem; color:var(--text-muted);">${o.payment_method}</div>
+            </div>
           </div>
         </div>
+      `;
+    }).join('');
+  };
 
-        ${pdfBlock}
-
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
-          <div>
-            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Customer</div>
-            <div style="font-weight:600; color:var(--text-main);">${o.customer_name}</div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">${o.customer_phone}</div>
-          </div>
-          <div>
-            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Print Details</div>
-            <div style="font-weight:600; color:var(--text-main);">${o.pages} pages \u00D7 ${o.copies} cop${o.copies>1?'ies':'y'}</div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">${o.print_type} | ${o.paper_size} | ${o.sides}</div>
-          </div>
-          <div>
-            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Address</div>
-            <div style="font-size:0.85rem; color:var(--text-main);">${o.address}</div>
-          </div>
-          <div>
-            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Payment</div>
-            <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">\u20B9${Number(o.total_cost).toFixed(2)}</div>
-            <div style="font-size:0.82rem; color:var(--text-muted);">${o.payment_method}</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  container.innerHTML = `
+    <div style="background:var(--primary); color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Orders
+    </div>
+    <div style="background:rgba(0,0,0, 0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; margin-bottom:32px; box-shadow:var(--shadow-sm);">
+      ${renderList(activeOrders)}
+    </div>
+    <div style="background:#10b981; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Completed & Cancelled
+    </div>
+    <div style="background:rgba(16,185,129,0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; box-shadow:var(--shadow-sm);">
+      ${renderList(completedOrders)}
+    </div>
+  `;
 }
 
-window.deletePhotocopyOrder = async function(orderId, docPathEncoded) {
+window.deletePhotocopyOrder = async function (orderId, docPathEncoded) {
   if (!confirm('Delete this photocopy order and its attached PDF? This cannot be undone.')) return;
 
   const supabase = getSupabase();
@@ -2651,7 +2945,7 @@ window.deletePhotocopyOrder = async function(orderId, docPathEncoded) {
       try {
         const docPath = decodeURIComponent(docPathEncoded);
         await supabase.storage.from('photocopy-docs').remove([docPath]);
-      } catch(e) { console.warn('Storage delete failed:', e); }
+      } catch (e) { console.warn('Storage delete failed:', e); }
     }
     // 2. Delete DB record
     await supabase.from('photocopy_orders').delete().eq('id', orderId);
@@ -2661,13 +2955,13 @@ window.deletePhotocopyOrder = async function(orderId, docPathEncoded) {
       let orders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
       orders = orders.filter(o => o.id !== orderId);
       localStorage.setItem('photocopy_orders', JSON.stringify(orders));
-    } catch(e) {}
+    } catch (e) { }
   }
   showToast('Order and PDF deleted successfully.');
   await renderAdminPhotocopyOrders();
 };
 
-window.updatePhotocopyStatus = async function(orderId, newStatus) {
+window.updatePhotocopyStatus = async function (orderId, newStatus) {
   const supabase = getSupabase();
   if (supabase) {
     await supabase.from('photocopy_orders').update({ status: newStatus }).eq('id', orderId);
@@ -2677,7 +2971,7 @@ window.updatePhotocopyStatus = async function(orderId, newStatus) {
       let orders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
       orders = orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
       localStorage.setItem('photocopy_orders', JSON.stringify(orders));
-    } catch(e) {}
+    } catch (e) { }
   }
   showToast('Status updated!');
 };

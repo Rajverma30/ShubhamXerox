@@ -1,5 +1,6 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,15 +9,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
-<link rel="icon" type="image/png" href="images/logo.png">
+  <link rel="icon" type="image/png" href="images/logo.png">
 </head>
+
 <body style="background-color: var(--bg-color);">
 
   <nav class="navbar">
     <div class="container">
       <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
         <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
-        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+        <span
+          style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM
+          XEROX</span>
       </a>
       <div class="nav-links">
         <a href="cart.html">Back to Cart</a>
@@ -41,7 +45,8 @@
               </div>
               <div class="form-group" style="grid-column: span 2;">
                 <label for="address">Street Address / Hostel</label>
-                <textarea id="address" class="form-control" rows="3" required placeholder="E.g., Room 102, Bhawarkua..."></textarea>
+                <textarea id="address" class="form-control" rows="3" required
+                  placeholder="E.g., Room 102, Bhawarkua..."></textarea>
               </div>
               <div class="form-group">
                 <label for="city">City</label>
@@ -57,7 +62,7 @@
           <!-- Step 2: Payment Method -->
           <div class="admin-card" style="max-width: 100%;">
             <h2 style="font-size: 1.25rem; margin-bottom: 24px;">2. Payment Method</h2>
-            
+
             <div class="radio-group">
               <label class="radio-label">
                 <input type="radio" name="payment" value="Online" required>
@@ -69,16 +74,19 @@
               </label>
             </div>
 
-            <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+            <div
+              style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
               <button type="submit" class="btn btn-primary" style="padding: 16px 32px; width:100%;">Place Order</button>
             </div>
           </div>
         </form>
 
         <aside class="checkout-summary-card">
-          <h3 style="font-size: 1.1rem; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">Order Summary</h3>
+          <h3
+            style="font-size: 1.1rem; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+            Order Summary</h3>
           <div id="checkoutSummaryItems"></div>
-          
+
           <div style="border-top: 1px solid var(--border-color); margin-top: 20px; padding-top: 16px;">
             <div class="checkout-item" style="color: var(--text-muted);">
               <span>Subtotal</span>
@@ -88,7 +96,8 @@
               <span>Delivery Charge</span>
               <span>â‚¹70.00</span>
             </div>
-            <div class="checkout-item" style="font-size: 1.25rem; font-weight: 700; margin-top: 16px; color: var(--text-main);">
+            <div class="checkout-item"
+              style="font-size: 1.25rem; font-weight: 700; margin-top: 16px; color: var(--text-main);">
               <span>Total</span>
               <span id="checkoutTotal">â‚¹0.00</span>
             </div>
@@ -98,16 +107,10 @@
     </div>
   </main>
 
-  <!-- Payment Modal Overlay -->
-  <div id="paymentOverlay">
-    <div class="payment-modal">
-      <div class="loader"></div>
-      <h3 style="font-size: 1.5rem; margin-bottom: 12px;" id="paymentStatus">Processing Payment...</h3>
-      <p style="color: var(--text-muted);">Please do not close this window.</p>
-    </div>
-  </div>
 
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <script defer src="assets/js/script.js"></script>
 </body>
+
 </html>

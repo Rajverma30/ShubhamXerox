@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -38,6 +38,46 @@
   <!-- My Orders Section -->
   <main class="section" style="padding-top: 60px; min-height: 80vh;">
     <div class="container" style="max-width: 800px;">
+
+      <!-- Payment Success Banner (shown after redirect) -->
+      <div id="paymentSuccessBanner" style="display:none; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; display:flex; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(16,185,129,0.35); animation:slideDown 0.4s ease;">
+        <div style="font-size:2.2rem; flex-shrink:0;">✅</div>
+        <div>
+          <div style="font-size:1.1rem; font-weight:800; margin-bottom:2px;">Payment Successful — Order Placed!</div>
+          <div style="font-size:0.88rem; opacity:0.9;">Your Razorpay payment was received and your order is now confirmed. Track it below.</div>
+        </div>
+        <button onclick="this.parentElement.style.display='none'" style="margin-left:auto; background:rgba(255,255,255,0.2); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:1.1rem; cursor:pointer; flex-shrink:0;">✕</button>
+      </div>
+
+      <!-- COD Confirmation Banner -->
+      <div id="codSuccessBanner" style="display:none; background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; display:flex; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(59,130,246,0.35); animation:slideDown 0.4s ease;">
+        <div style="font-size:2.2rem; flex-shrink:0;">🎉</div>
+        <div>
+          <div style="font-size:1.1rem; font-weight:800; margin-bottom:2px;">Order Placed Successfully!</div>
+          <div style="font-size:0.88rem; opacity:0.9;">Your order is confirmed. Pay cash at the time of delivery. Track it below.</div>
+        </div>
+        <button onclick="this.parentElement.style.display='none'" style="margin-left:auto; background:rgba(255,255,255,0.2); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:1.1rem; cursor:pointer; flex-shrink:0;">✕</button>
+      </div>
+
+      <style>
+        @keyframes slideDown { from { opacity:0; transform:translateY(-16px); } to { opacity:1; transform:translateY(0); } }
+      </style>
+
+      <script>
+        (function() {
+          const p = new URLSearchParams(window.location.search).get('payment');
+          if (p === 'success') {
+            document.getElementById('paymentSuccessBanner').style.display = 'flex';
+            setTimeout(() => { const b = document.getElementById('paymentSuccessBanner'); if(b) b.style.display='none'; }, 8000);
+          } else if (p === 'cod') {
+            document.getElementById('codSuccessBanner').style.display = 'flex';
+            setTimeout(() => { const b = document.getElementById('codSuccessBanner'); if(b) b.style.display='none'; }, 8000);
+          }
+          // Clean URL without reload
+          if (p) history.replaceState({}, '', 'my-orders.html');
+        })();
+      </script>
+
       <h1 class="section-title" style="text-align: left; margin-bottom: 12px;">My Orders</h1>
       <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 32px; line-height: 1.5; max-width: 640px;">
         Each order shows a live status timeline. It moves forward step-by-step over about two days so you always know what is happening, without calling the shop.
@@ -48,6 +88,7 @@
         <!-- Injected via JS -->
       </div>
     </div>
+
   </main>
 
   <!-- Footer -->

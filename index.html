@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -367,6 +367,14 @@
               <button id="ceDoubleBtn" class="ce-toggle" onclick="setCeSides('double')">Double</button>
             </div>
           </div>
+          <!-- Delivery Mode -->
+          <div class="ce-option-group">
+            <label class="ce-option-label">Receive Method</label>
+            <div class="ce-toggle-group">
+              <button id="ceDeliveryBtn" class="ce-toggle active" onclick="setCeDelivery('delivery')">Delivery</button>
+              <button id="ceCollectBtn" class="ce-toggle" onclick="setCeDelivery('collect')">Collect at Shop</button>
+            </div>
+          </div>
         </div>
 
         <!-- Estimate Result -->
@@ -438,6 +446,7 @@
     </div>
   </div>
 
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script defer src="assets/js/script.js"></script>
