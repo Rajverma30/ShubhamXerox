@@ -238,7 +238,7 @@ function logout() {
 async function processSecureRazorpayPayment(amount, orderData, orderType, onComplete) {
   try {
     // 1. Create order on backend
-    const createRes = await fetch("http://localhost:8000/create-order", {
+    const createRes = await fetch("https://shubhamxerox-production.up.railway.app/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ amount: amount, currency: "INR" })
@@ -263,7 +263,7 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
         // 3. Send signature to backend for verification and insertion
         try {
           showToast("Payment captured. Verifying securely...");
-          const verifyRes = await fetch("http://localhost:8000/verify-payment", {
+          const verifyRes = await fetch("https://shubhamxerox-production.up.railway.app/verify-payment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
