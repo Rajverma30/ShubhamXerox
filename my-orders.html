@@ -40,7 +40,7 @@
     <div class="container" style="max-width: 800px;">
 
       <!-- Payment Success Banner (shown after redirect) -->
-      <div id="paymentSuccessBanner" style="display:none; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; display:flex; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(16,185,129,0.35); animation:slideDown 0.4s ease;">
+      <div id="paymentSuccessBanner" style="display:none; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(16,185,129,0.35); animation:slideDown 0.4s ease;">
         <div style="font-size:2.2rem; flex-shrink:0;">✅</div>
         <div>
           <div style="font-size:1.1rem; font-weight:800; margin-bottom:2px;">Payment Successful — Order Placed!</div>
@@ -50,7 +50,7 @@
       </div>
 
       <!-- COD Confirmation Banner -->
-      <div id="codSuccessBanner" style="display:none; background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; display:flex; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(59,130,246,0.35); animation:slideDown 0.4s ease;">
+      <div id="codSuccessBanner" style="display:none; background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(59,130,246,0.35); animation:slideDown 0.4s ease;">
         <div style="font-size:2.2rem; flex-shrink:0;">🎉</div>
         <div>
           <div style="font-size:1.1rem; font-weight:800; margin-bottom:2px;">Order Placed Successfully!</div>
@@ -65,15 +65,18 @@
 
       <script>
         (function() {
-          const p = new URLSearchParams(window.location.search).get('payment');
-          if (p === 'success') {
+          const type = sessionStorage.getItem('orderBanner');
+          if (type === 'success') {
             document.getElementById('paymentSuccessBanner').style.display = 'flex';
+            sessionStorage.removeItem('orderBanner');
             setTimeout(() => { const b = document.getElementById('paymentSuccessBanner'); if(b) b.style.display='none'; }, 8000);
-          } else if (p === 'cod') {
+          } else if (type === 'cod') {
             document.getElementById('codSuccessBanner').style.display = 'flex';
+            sessionStorage.removeItem('orderBanner');
             setTimeout(() => { const b = document.getElementById('codSuccessBanner'); if(b) b.style.display='none'; }, 8000);
           }
-          // Clean URL without reload
+          // Clean legacy URL without reload just in case
+          const p = new URLSearchParams(window.location.search).get('payment');
           if (p) history.replaceState({}, '', 'my-orders.html');
         })();
       </script>

@@ -341,7 +341,7 @@ function addToCart(productId) {
 function removeFromCart(productId) {
   cart = cart.filter(item => item.id !== productId);
   saveCart();
-  if (window.location.pathname.includes('cart.html')) renderCart();
+  if (document.getElementById('cartItems')) renderCart();
 }
 
 function updateQuantity(productId, delta) {
@@ -351,7 +351,7 @@ function updateQuantity(productId, delta) {
     if (item.quantity <= 0) removeFromCart(productId);
     else {
       saveCart();
-      if (window.location.pathname.includes('cart.html')) renderCart();
+      if (document.getElementById('cartItems')) renderCart();
     }
   }
 }
@@ -549,7 +549,8 @@ async function handleCheckout(e) {
           city: cityEl ? cityEl.value.trim() : '',
           pincode: pinEl ? pinEl.value.trim() : ''
         });
-        window.location.href = "my-orders.html?payment=success";
+        sessionStorage.setItem("orderBanner", "success");
+        window.location.href = "my-orders.html";
       } else {
         if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
       }
@@ -583,8 +584,8 @@ async function completeOrder(orderData) {
   });
   cart = [];
   saveCart();
-  showToast("Order Placed Successfully!");
-  setTimeout(() => window.location.href = "index.html", 2000);
+  sessionStorage.setItem("orderBanner", "cod");
+  window.location.href = "my-orders.html";
 }
 
 
@@ -1527,6 +1528,18 @@ async function renderReviews(productId) {
 
 // --- Main Bootstrap ---
 document.addEventListener('DOMContentLoaded', async () => {
+  // --- Global Loader Injection ---
+  const globalLoader = document.createElement('div');
+  globalLoader.id = 'shubham-global-loader';
+  globalLoader.innerHTML = `
+    <div style="position: fixed; inset: 0; background: var(--bg-main, #111113); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s ease;">
+      <div style="width: 48px; height: 48px; border: 4px solid rgba(255, 255, 255, 0.1); border-top-color: var(--primary, #007aff); border-radius: 50%; animation: s-spin 1s linear infinite; margin-bottom: 20px;"></div>
+      <div style="color: var(--text-muted); font-size: 0.95rem; font-weight: 600; font-family: 'Inter', sans-serif; letter-spacing: 0.5px;">Please wait...</div>
+      <style>@keyframes s-spin { 100% { transform: rotate(360deg); } }</style>
+    </div>
+  `;
+  document.body.appendChild(globalLoader);
+
   // --- Log Visit ---
   const todayDate = new Date().toISOString().split('T')[0];
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
@@ -1844,6 +1857,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       detailContainer.innerHTML = '<div style="text-align: center; font-size: 1.2rem;">Product not found. <a href="products.html">Browse all products</a></div>';
     }
   }
+
+  // --- Loader Teardown ---
+  // A minimum viable delay protects against visual flicker if cache hits instantly
+  setTimeout(() => {
+    const loader = document.getElementById('shubham-global-loader');
+    if (loader) {
+      loader.firstElementChild.style.opacity = '0';
+      setTimeout(() => loader.remove(), 400);
+    }
+  }, 250);
+
 });
 
 // --- Reviews Functions ---
@@ -2737,7 +2761,8 @@ window.placeCopyOrder = async function (e) {
 
       if (success) {
         saveSavedDeliveryDetails({ street: address });
-        window.location.href = 'my-orders.html?payment=success';
+        sessionStorage.setItem("orderBanner", "success");
+        window.location.href = 'my-orders.html';
       }
     });
 
@@ -2771,7 +2796,8 @@ window.placeCopyOrder = async function (e) {
 
     if (success) {
       saveSavedDeliveryDetails({ street: address });
-      window.location.href = 'my-orders.html?payment=cod';
+      sessionStorage.setItem("orderBanner", "cod");
+      window.location.href = 'my-orders.html';
     }
   }
 };
