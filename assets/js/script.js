@@ -2666,16 +2666,11 @@ window.captureScannerFrame = function () {
   const canvas = document.getElementById('scannerPreviewCanvas');
   const ctx = canvas.getContext('2d');
   
-  // Auto crop 15% from left/right and 10% from top/bottom
-  const mX = video.videoWidth * 0.15;
-  const mY = video.videoHeight * 0.10;
-  const cW = video.videoWidth * 0.70;
-  const cH = video.videoHeight * 0.80;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
   
-  canvas.width = cW;
-  canvas.height = cH;
-  
-  ctx.drawImage(video, mX, mY, cW, cH, 0, 0, canvas.width, canvas.height);
+  // Capture the full raw feed that the user framed
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   
   // Basic Enhancement (Grayscale & High Contrast)
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
