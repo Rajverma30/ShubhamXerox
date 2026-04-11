@@ -2635,7 +2635,9 @@ window.openScanner = async function () {
 
   try {
     scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    document.getElementById('scannerVideo').srcObject = scannerStream;
+    const scannerVideo = document.getElementById('scannerVideo');
+    scannerVideo.srcObject = scannerStream;
+    try { await scannerVideo.play(); } catch(e) { console.debug('Autoplay needed mute/interaction'); }
     resetScannerUI();
   } catch (err) {
     console.error("Camera error:", err);
@@ -2664,10 +2666,16 @@ window.captureScannerFrame = function () {
   const canvas = document.getElementById('scannerPreviewCanvas');
   const ctx = canvas.getContext('2d');
   
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  // Auto crop 15% from left/right and 10% from top/bottom
+  const mX = video.videoWidth * 0.15;
+  const mY = video.videoHeight * 0.10;
+  const cW = video.videoWidth * 0.70;
+  const cH = video.videoHeight * 0.80;
   
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.width = cW;
+  canvas.height = cH;
+  
+  ctx.drawImage(video, mX, mY, cW, cH, 0, 0, canvas.width, canvas.height);
   
   // Basic Enhancement (Grayscale & High Contrast)
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);

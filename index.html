@@ -322,9 +322,9 @@
             onchange="handleCePdfUpload(this)">
         </div>
         
-        <button type="button" class="btn btn-secondary" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; gap: 8px;" onclick="openScanner()">
+        <button type="button" class="btn" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; gap: 8px; background-color: var(--primary); color: #000; font-weight: 600;" onclick="openScanner()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          Or Scan Document with Camera
+          Scan Document with Camera
         </button>
 
         <!-- Page count badge -->
@@ -454,7 +454,8 @@
   <!-- Document Scanner Modal -->
   <div id="scannerModal">
     <div class="scanner-badge" id="scannerBadge">Scanned: 0</div>
-    <video id="scannerVideo" autoplay playsinline></video>
+    <video id="scannerVideo" autoplay playsinline muted></video>
+    <div id="scannerGuide"></div>
     
     <div id="scannerPreviewContainer">
       <canvas id="scannerPreviewCanvas"></canvas>

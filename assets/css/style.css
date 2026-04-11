@@ -2242,3 +2242,111 @@ input:checked + .theme-slider:before {
   color: #ef4444;
   font-weight: 600;
 }
+
+/* --- Document Scanner UI --- */
+#scannerModal {
+  display: none; 
+  position: fixed; 
+  inset: 0; 
+  background: #000; 
+  z-index: 100000; 
+  flex-direction: column;
+}
+
+#scannerVideo {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #111;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#scannerGuide {
+  position: absolute;
+  top: 10%;
+  left: 15%;
+  right: 15%;
+  bottom: 10%;
+  border: 2px dashed rgba(255,255,255,0.7);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.6);
+  pointer-events: none;
+  z-index: 5;
+  border-radius: 8px;
+}
+
+#scannerControls {
+  padding: 20px;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  z-index: 20;
+}
+
+.scanner-btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.scanner-btn:active {
+  opacity: 0.8;
+}
+
+.scanner-cam-btn {
+  background: var(--primary);
+  color: #000;
+  border-radius: 50%;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.2);
+}
+
+#scannerPreviewContainer {
+  display: none;
+  flex: 1;
+  background: #000;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  padding-bottom: 100px;
+  z-index: 15;
+  position: relative;
+}
+
+#scannerPreviewCanvas {
+  max-width: 100%;
+  max-height: 100%;
+  border: 2px solid var(--primary);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.scanner-badge {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: var(--primary);
+  color: #000;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  z-index: 50;
+} 
+ 
