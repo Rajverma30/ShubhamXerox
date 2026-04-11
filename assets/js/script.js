@@ -1606,6 +1606,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateNavForUser();
   initSlider();
 
+  // Handle mobile nav dropdown toggle
+  document.querySelectorAll('.nav-dropdown-trigger').forEach(trigger => {
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      trigger.parentElement.classList.toggle('mobile-open');
+    });
+  });
+
   // Attach priority listeners BEFORE blocking network fetches
   if (document.getElementById('loginForm')) document.getElementById('loginForm').addEventListener('submit', handleLogin);
   if (document.getElementById('registerForm')) document.getElementById('registerForm').addEventListener('submit', handleRegister);
@@ -1803,8 +1811,15 @@ document.addEventListener('DOMContentLoaded', async () => {
               <h4 style="font-size: 1.2rem; margin-bottom: 16px;">Write a Review</h4>
               <form id="reviewForm" style="display: flex; flex-direction: column; gap: 16px;">
                 <div>
-                  <label for="rating" style="font-weight: 600; margin-bottom: 8px; display: block; color: var(--text-main);">Rating (1-5 stars):</label>
-                  <input type="number" id="rating" min="1" max="5" required style="padding: 8px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 4px; width: 100px;">
+                  <label for="rating" style="font-weight: 600; margin-bottom: 8px; display: block; color: var(--text-main);">Tap to Rate:</label>
+                  <div id="starRatingContainer" style="display: flex; gap: 4px; font-size: 2rem; cursor: pointer; color: #ccc;">
+                    <span class="star" data-value="1">★</span>
+                    <span class="star" data-value="2">★</span>
+                    <span class="star" data-value="3">★</span>
+                    <span class="star" data-value="4">★</span>
+                    <span class="star" data-value="5">★</span>
+                  </div>
+                  <input type="hidden" id="rating" value="5">
                 </div>
                 <div>
                   <label for="reviewText" style="font-weight: 600; margin-bottom: 8px; display: block; color: var(--text-main);">Your Review:</label>
@@ -1819,6 +1834,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Initialize reviews right away on page load
       await renderReviews(productId);
+
+      const stars = document.querySelectorAll('#starRatingContainer .star');
+      const ratingInput = document.getElementById('rating');
+      stars.forEach(star => {
+        star.addEventListener('click', () => {
+          let val = parseInt(star.getAttribute('data-value'));
+          ratingInput.value = val;
+          stars.forEach(s => {
+             if(parseInt(s.getAttribute('data-value')) <= val) {
+                s.style.color = '#ffc107';
+             } else {
+                s.style.color = '#ccc';
+             }
+          });
+        });
+      });
+      // Initial 5 star select
+      if(stars.length > 4) stars[4].click();
 
       document.getElementById('reviewForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -2585,6 +2618,127 @@ window.handleCePdfUpload = async function (input) {
   }
 };
 
+/* --- Scanner Camera Feature --- */
+let scannerStream = null;
+let scannerImages = [];
+
+window.openScanner = async function () {
+  if (!window.jspdf) {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    document.body.appendChild(script);
+  }
+  scannerImages = [];
+  document.getElementById('scannerBadge').textContent = `Scanned: 0`;
+  document.getElementById('scannerModal').style.display = 'flex';
+  document.getElementById('scannerFinishBtn').style.display = 'none';
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    document.getElementById('scannerVideo').srcObject = scannerStream;
+    resetScannerUI();
+  } catch (err) {
+    console.error("Camera error:", err);
+    showToast("Camera access denied or unavailable.");
+    closeScanner();
+  }
+};
+
+window.closeScanner = function () {
+  if (scannerStream) {
+    scannerStream.getTracks().forEach(track => track.stop());
+  }
+  document.getElementById('scannerModal').style.display = 'none';
+};
+
+function resetScannerUI() {
+  document.getElementById('scannerVideo').style.display = 'block';
+  document.getElementById('scannerPreviewContainer').style.display = 'none';
+  document.getElementById('scannerCaptureBtn').style.display = 'flex';
+  document.getElementById('scannerRetakeBtn').style.display = 'none';
+  document.getElementById('scannerAcceptBtn').style.display = 'none';
+}
+
+window.captureScannerFrame = function () {
+  const video = document.getElementById('scannerVideo');
+  const canvas = document.getElementById('scannerPreviewCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  
+  // Basic Enhancement (Grayscale & High Contrast)
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imgData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+    avg = avg < 128 ? avg * 0.8 : avg * 1.2;
+    if (avg > 255) avg = 255;
+    data[i] = avg;       
+    data[i + 1] = avg;   
+    data[i + 2] = avg;   
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  document.getElementById('scannerVideo').style.display = 'none';
+  document.getElementById('scannerPreviewContainer').style.display = 'flex';
+  document.getElementById('scannerCaptureBtn').style.display = 'none';
+  document.getElementById('scannerRetakeBtn').style.display = 'block';
+  document.getElementById('scannerAcceptBtn').style.display = 'block';
+};
+
+window.retakeScannerFrame = function () {
+  resetScannerUI();
+};
+
+window.acceptScannerFrame = function () {
+  const canvas = document.getElementById('scannerPreviewCanvas');
+  scannerImages.push(canvas.toDataURL('image/jpeg', 0.8));
+  document.getElementById('scannerBadge').textContent = `Scanned: ${scannerImages.length}`;
+  document.getElementById('scannerFinishBtn').style.display = 'block';
+  resetScannerUI();
+};
+
+window.finishScanner = function () {
+  if (scannerImages.length === 0) return;
+  
+  const jsPDF = window.jspdf.jsPDF;
+  if (!jsPDF) {
+    showToast("Wait for PDF lib to load...");
+    return;
+  }
+  
+  const doc = new jsPDF({ format: 'a4', unit: 'mm' });
+  const a4w = 210, a4h = 297;
+  
+  scannerImages.forEach((imgDataUrl, i) => {
+    if (i > 0) doc.addPage();
+    doc.addImage(imgDataUrl, 'JPEG', 0, 0, a4w, a4h);
+  });
+  
+  const pdfBlob = doc.output('blob');
+  ceState.pdfFile = new File([pdfBlob], "Scanned_Document.pdf", { type: "application/pdf" });
+  ceState.pages = scannerImages.length;
+  
+  document.getElementById('ceUploadText').textContent = `\u2705 Scanned_Document.pdf`;
+  document.getElementById('ceUploadZone').classList.add('has-file');
+  document.getElementById('cePageCount').textContent = ceState.pages;
+  document.getElementById('ceFileName').textContent = "Scanned_Document.pdf";
+  document.getElementById('cePageInfo').style.display = 'flex';
+  
+  closeScanner();
+  recalcEstimate();
+};
+
+window.changeCopies = function (step) {
+  const newVal = ceState.copies + step;
+  if (newVal >= 1) {
+    ceState.copies = newVal;
+    recalcEstimate();
+  }
+};
 window.setCePrintType = function (type) {
   ceState.printType = type;
   document.getElementById('ceBwBtn').classList.toggle('active', type === 'bw');
@@ -2630,11 +2784,19 @@ window.recalcEstimate = function () {
     protoCost = protoCost * 0.6;
   }
   ceState.totalCost = protoCost * ceState.copies;
+  if (ceState.deliveryMode === 'delivery') {
+    ceState.totalCost += DELIVERY_FEE;
+  }
 
   document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ' pages (Double-Sided discounted)' : ' pages');
   document.getElementById('ceResCopies').textContent = ceState.copies;
   document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'})`;
-  document.getElementById('ceResTotal').textContent = `\u20B9${ceState.totalCost.toFixed(2)}`;
+  
+  let totalDesc = `\u20B9${ceState.totalCost.toFixed(2)}`;
+  if (ceState.deliveryMode === 'delivery') {
+    totalDesc = `\u20B9${ceState.totalCost.toFixed(2)} (incl. \u20B9${DELIVERY_FEE} Delivery)`;
+  }
+  document.getElementById('ceResTotal').textContent = totalDesc;
 };
 
 window.proceedToPayment = function () {
