@@ -88,7 +88,7 @@ function showToast(message) {
 async function fetchProducts() {
   const supabase = getSupabase();
   if (!supabase) {
-    products = JSON.parse(localStorage.getItem('shubham_products')) || defaultProducts;
+    products = []; // No fallback to defaultProducts or localStorage
     return;
   }
   try {
@@ -96,13 +96,13 @@ async function fetchProducts() {
     if (data && data.length > 0) {
       products = data;
     } else {
-      await supabase.from('products').insert(defaultProducts);
-      const { data: newData } = await supabase.from('products').select('*').order('id', { ascending: true });
-      products = newData || [];
+      products = [];
     }
   } catch (e) {
-    products = JSON.parse(localStorage.getItem('shubham_products')) || defaultProducts;
+    products = [];
   }
+  // Clear any existing localStorage data that might repopulate the products
+  localStorage.removeItem('shubham_products');
 }
 
 // --- Authentication Logic ---
@@ -596,7 +596,7 @@ function createProductCard(product) {
       <a href="product.html?id=${product.id}" class="product-link-wrapper" style="display: contents;">
         <div class="product-img-wrapper" style="background:white; position:relative;">
           <div style="position:absolute; top:8px; right:8px; background:linear-gradient(135deg, #ffc107, #ff9800); color:#fff; font-size:0.65rem; font-weight:800; padding:4px 8px; border-radius:4px; box-shadow:0 2px 4px rgba(0,0,0,0.2); letter-spacing:0.5px; z-index:2;">BEST SELLER</div>
-          <img src="${product.img}" alt="${product.name}" loading="lazy">
+          <img src="${(product.img && product.img.split(',')[0]) || 'default-book.png'}" alt="${product.name}" loading="lazy">
         </div>
         <div class="category-tag">${product.category}</div>
         <h3 class="product-title">${product.name}</h3>
@@ -727,7 +727,7 @@ function renderCart() {
 
   itemsContainer.innerHTML = cart.map(item => `
     <div class="cart-item">
-      <img src="${item.img}" class="cart-item-img" alt="${item.name}">
+      <img src="${(item.img && item.img.split(',')[0]) || ''}" class="cart-item-img" alt="${item.name}">
       <div class="cart-item-details">
         <div class="cart-item-title">${item.name}</div>
         <div class="cart-item-price">${formatPrice(item.price)}</div>
@@ -811,13 +811,37 @@ async function handleAddProduct(e) {
   const original_price = rawOriginal ? parseFloat(rawOriginal) : null;
   const category = document.getElementById('category').value;
   let imgUrl = document.getElementById('img').value;
-  const fileInput = document.getElementById('imgUpload');
+
+  const readImage = (input) => {
+    return new Promise((resolve) => {
+      if (input && input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.readAsDataURL(input.files[0]);
+      } else {
+        resolve(null);
+      }
+    });
+  };
+
+  const images = await Promise.all([
+    readImage(document.getElementById('imgUpload1')),
+    readImage(document.getElementById('imgUpload2')),
+    readImage(document.getElementById('imgUpload3'))
+  ]);
+
+  let finalImages = images.filter(Boolean);
+  if (finalImages.length === 0) {
+    if (imgUrl) finalImages = [imgUrl];
+    else finalImages = ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
+  }
+
+  const finalImg = finalImages.join(',');
 
   const addNode = async (imageSrc) => {
-    const finalImg = imageSrc || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
     const supabase = getSupabase();
     if (supabase) {
-      const payload = { name, price, category, img: finalImg };
+      const payload = { name, price, category, img: imageSrc };
       if (original_price) payload.original_price = original_price;
 
       let { error } = await supabase.from('products').insert(payload);
@@ -847,13 +871,7 @@ async function handleAddProduct(e) {
     if (document.getElementById('adminProductsList')) await renderAdminList();
   };
 
-  if (fileInput.files && fileInput.files[0]) {
-    const reader = new FileReader();
-    reader.onload = function (evt) { addNode(evt.target.result); };
-    reader.readAsDataURL(fileInput.files[0]);
-  } else {
-    addNode(imgUrl);
-  }
+  await addNode(finalImg);
 }
 
 async function removeProduct(id) {
@@ -873,7 +891,7 @@ async function renderAdminList() {
     container.innerHTML = products.map(p => `
       <div class="admin-list-item">
         <div style="display:flex; gap:12px; align-items:center;">
-          <img src="${p.img}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
+          <img src="${(p.img && p.img.split(',')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
           <div>
             <strong>${p.name}</strong> <br>
             <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
@@ -1540,6 +1558,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   `;
   document.body.appendChild(globalLoader);
 
+  // --- Click toggle for nav dropdowns ---
+  document.querySelectorAll('.nav-dropdown-trigger').forEach(trigger => {
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dropdown = e.target.closest('.nav-dropdown');
+      dropdown.classList.toggle('is-open');
+      document.querySelectorAll('.nav-dropdown').forEach(d => {
+        if (d !== dropdown) d.classList.remove('is-open');
+      });
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.nav-dropdown')) {
+      document.querySelectorAll('.nav-dropdown').forEach(d => d.classList.remove('is-open'));
+    }
+  });
+
   // --- Log Visit ---
   const todayDate = new Date().toISOString().split('T')[0];
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
@@ -1742,11 +1779,30 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.buyNow = function (pid) { addToCart(pid); window.location.href = "checkout.html"; };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
+      const imgs = product.img ? product.img.split(',') : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
+      let imgGalleryHtml = '';
+      if(imgs.length > 1) {
+        imgGalleryHtml = `
+          <div class="product-slider-container" style="position:relative; width:100%;">
+            <div class="product-slider-main">
+              <img id="mainProductImg" src="${imgs[0]}" alt="${product.name}" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
+            </div>
+            <div class="product-slider-thumbs" style="display:flex; gap:10px; margin-top:15px; overflow-x:auto;">
+              ${imgs.map((src, i) => `
+                <img src="${src.trim()}" onclick="document.getElementById('mainProductImg').src='${src.trim()}'; document.querySelectorAll('.product-slider-thumbs img').forEach(el=>el.style.borderColor='transparent'); this.style.borderColor='var(--primary)';" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i===0 ? 'var(--primary)' : 'transparent'};">
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else {
+        imgGalleryHtml = `<img src="${imgs[0]}" alt="${product.name}" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
+      }
+
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
       detailContainer.innerHTML = `
         <div class="product-detail-layout">
           <div class="product-detail-img-card">
-            <img src="${product.img}" alt="${product.name}" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
+            ${imgGalleryHtml}
           </div>
           <div>
             <div class="category-tag" style="margin-bottom: 16px; font-size: 0.95rem; color: #802a7e;">${product.category}</div>

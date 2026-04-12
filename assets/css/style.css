@@ -221,8 +221,7 @@ button {
   z-index: 300;
 }
 
-.nav-links .nav-dropdown:hover .nav-dropdown-menu,
-.nav-links .nav-dropdown:focus-within .nav-dropdown-menu,
+.nav-links .nav-dropdown.is-open .nav-dropdown-menu,
 .nav-links .nav-dropdown.mobile-open .nav-dropdown-menu {
   display: block;
 }
