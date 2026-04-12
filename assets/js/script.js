@@ -596,7 +596,7 @@ function createProductCard(product) {
       <a href="product.html?id=${product.id}" class="product-link-wrapper" style="display: contents;">
         <div class="product-img-wrapper" style="background:white; position:relative;">
           <div style="position:absolute; top:8px; right:8px; background:linear-gradient(135deg, #ffc107, #ff9800); color:#fff; font-size:0.65rem; font-weight:800; padding:4px 8px; border-radius:4px; box-shadow:0 2px 4px rgba(0,0,0,0.2); letter-spacing:0.5px; z-index:2;">BEST SELLER</div>
-          <img src="${(product.img && product.img.split(',')[0]) || 'default-book.png'}" alt="${product.name}" loading="lazy">
+          <img src="${(product.img && product.img.split('|')[0]) || 'default-book.png'}" alt="${product.name}" loading="lazy">
         </div>
         <div class="category-tag">${product.category}</div>
         <h3 class="product-title">${product.name}</h3>
@@ -727,7 +727,7 @@ function renderCart() {
 
   itemsContainer.innerHTML = cart.map(item => `
     <div class="cart-item">
-      <img src="${(item.img && item.img.split(',')[0]) || ''}" class="cart-item-img" alt="${item.name}">
+      <img src="${(item.img && item.img.split('|')[0]) || ''}" class="cart-item-img" alt="${item.name}">
       <div class="cart-item-details">
         <div class="cart-item-title">${item.name}</div>
         <div class="cart-item-price">${formatPrice(item.price)}</div>
@@ -836,7 +836,7 @@ async function handleAddProduct(e) {
     else finalImages = ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
   }
 
-  const finalImg = finalImages.join(',');
+  const finalImg = finalImages.join('|');
 
   const addNode = async (imageSrc) => {
     const supabase = getSupabase();
@@ -891,7 +891,7 @@ async function renderAdminList() {
     container.innerHTML = products.map(p => `
       <div class="admin-list-item">
         <div style="display:flex; gap:12px; align-items:center;">
-          <img src="${(p.img && p.img.split(',')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
+          <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
           <div>
             <strong>${p.name}</strong> <br>
             <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
@@ -1779,7 +1779,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.buyNow = function (pid) { addToCart(pid); window.location.href = "checkout.html"; };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
-      const imgs = product.img ? product.img.split(',') : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
+      const imgs = product.img ? product.img.split('|') : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
       let imgGalleryHtml = '';
       if(imgs.length > 1) {
         imgGalleryHtml = `
