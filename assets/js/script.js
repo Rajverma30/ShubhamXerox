@@ -277,42 +277,44 @@ function updateNavForUser() {
   });
 }
 
-async function requestRegisterOTP() {
+async function requestRegisterOTP(btn, channel = 'sms') {
   const phone = (document.getElementById('regPhone') || {}).value || '';
   if (!/^\d{10}$/.test(phone)) {
     showToast("Enter a valid 10-digit number first.");
     return;
   }
+  btn.classList.add('loading');
   try {
-    const res = await apiFetch("/send-otp", { method: "POST", body: { phone }, auth: false });
-    showToast("OTP sent successfully.");
-    if (res.dev_otp) {
-      alert("Simulated SMS (Fast2SMS is restricted). Your OTP code is: " + res.dev_otp);
-    }
+    const res = await apiFetch("/send-otp", { method: "POST", body: { phone, channel }, auth: false });
+    showToast("OTP sent successfully via " + channel.toUpperCase() + ".");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
+  } finally {
+    btn.classList.remove('loading');
   }
 }
 
-async function requestForgotPasswordOTP() {
+async function requestForgotPasswordOTP(btn, channel = 'sms') {
   const phone = (document.getElementById('forgotPhone') || {}).value || '';
   if (!/^\d{10}$/.test(phone)) {
     showToast("Enter a valid 10-digit number first.");
     return;
   }
+  btn.classList.add('loading');
   try {
-    const res = await apiFetch("/send-otp", { method: "POST", body: { phone }, auth: false });
-    showToast("OTP sent successfully.");
-    if (res.dev_otp) {
-      alert("Simulated SMS (Fast2SMS is restricted). Your OTP code is: " + res.dev_otp);
-    }
+    const res = await apiFetch("/send-otp", { method: "POST", body: { phone, channel }, auth: false });
+    showToast("OTP sent successfully via " + channel.toUpperCase() + ".");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
+  } finally {
+    btn.classList.remove('loading');
   }
 }
 
 async function handleLogin(e) {
   e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  if (btn) btn.classList.add('loading');
   const phone = document.getElementById('phone').value;
   const password = document.getElementById('loginPassword').value;
   try {
@@ -322,11 +324,14 @@ async function handleLogin(e) {
     window.location.href = (currentUser && currentUser.role === "admin") ? "admin.html" : "index.html";
   } catch (err) {
     showToast(err.message || "Login failed");
+    if (btn) btn.classList.remove('loading');
   }
 }
 
 async function handleRegister(e) {
   e.preventDefault();
+  const btn = document.getElementById('registerBtn');
+  if (btn) btn.classList.add('loading');
   const name = document.getElementById('regName').value;
   const phone = document.getElementById('regPhone').value;
   const otp = document.getElementById('regOtp').value;
@@ -337,6 +342,7 @@ async function handleRegister(e) {
     await apiFetch("/verify-otp", { method: "POST", body: { phone, otp }, auth: false });
   } catch (err) {
     showToast(err.message || "Invalid OTP");
+    if (btn) btn.classList.remove('loading');
     return;
   }
   try {
@@ -346,11 +352,14 @@ async function handleRegister(e) {
     window.location.href = "index.html";
   } catch (err) {
     showToast(err.message || "Registration failed");
+    if (btn) btn.classList.remove('loading');
   }
 }
 
 async function handleForgotPassword(e) {
   e.preventDefault();
+  const btn = document.getElementById('resetBtn');
+  if (btn) btn.classList.add('loading');
   const phone = document.getElementById('forgotPhone').value;
   const otp = document.getElementById('forgotOtp').value;
   const newPassword = document.getElementById('forgotNewPassword').value;
@@ -360,6 +369,7 @@ async function handleForgotPassword(e) {
     await apiFetch("/verify-otp", { method: "POST", body: { phone, otp }, auth: false });
   } catch (err) {
     showToast(err.message || "Invalid OTP");
+    if (btn) btn.classList.remove('loading');
     return;
   }
   try {
@@ -369,6 +379,8 @@ async function handleForgotPassword(e) {
     if (forgotForm) forgotForm.reset();
   } catch (err) {
     showToast(err.message || "Reset failed");
+  } finally {
+    if (btn) btn.classList.remove('loading');
   }
 }
 

@@ -94,6 +94,7 @@ class ResetPasswordRequest(BaseModel):
 
 class SendOtpRequest(BaseModel):
     phone: str
+    channel: str = "sms"
 
 class VerifyOtpRequest(BaseModel):
     phone: str
@@ -276,7 +277,7 @@ async def send_otp(req: SendOtpRequest):
 
     # Send SMS via Twilio
     try:
-        send_otp_twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SERVICE_SID, phone, "")
+        send_otp_twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SERVICE_SID, phone, "", channel=req.channel)
     except Exception as e:
         logger.exception(f"Twilio error for phone=%s", phone)
         raise HTTPException(status_code=500, detail="Failed to send OTP")

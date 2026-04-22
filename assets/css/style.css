@@ -2437,3 +2437,14 @@ input:checked + .theme-slider:before {
 }
  
  
+/* --- Loaders and Button Groups --- */
+.spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s ease-in-out infinite; display: none; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn.loading { pointer-events: none; opacity: 0.8; }
+.btn.loading .spinner { display: inline-block; }
+.otp-btn-group { display: flex; gap: 10px; margin-bottom: 12px; }
+.otp-btn-group .btn { flex: 1; font-size: 0.9rem; padding: 10px; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: white; border: none; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+.btn-sms { background-color: #2575fc; }
+.btn-sms:hover { background-color: #1a5bce; }
+.btn-whatsapp { background-color: #25D366; }
+.btn-whatsapp:hover { background-color: #1ebe57; }

@@ -7,7 +7,7 @@ from twilio.rest import Client
 logger = logging.getLogger("shubhamxerox.sms")
 
 
-def send_otp_twilio(account_sid: str, auth_token: str, service_sid: str, phone: str, otp: str) -> Dict[str, Any]:
+def send_otp_twilio(account_sid: str, auth_token: str, service_sid: str, phone: str, otp: str, channel: str = "sms") -> Dict[str, Any]:
     """
     Sends OTP via Twilio Verify service.
     NOTE: We do not log the OTP.
@@ -16,7 +16,7 @@ def send_otp_twilio(account_sid: str, auth_token: str, service_sid: str, phone: 
         client = Client(account_sid, auth_token)
         verification = client.verify.v2.services(service_sid).verifications.create(
             to=f"+91{phone}",
-            channel="sms"
+            channel=channel
         )
         return {"status": "pending", "sid": verification.sid}
     except Exception as e:
