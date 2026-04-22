@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Chat Dashboard | Shubham Xerox</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <style>
+    body {
+      display: flex;
+      height: 100vh;
+      height: 100dvh;
+      margin: 0;
+      overflow: hidden;
+      background: var(--body-bg);
+    }
+    
+    .admin-chat-layout {
+      display: flex;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      background: var(--card-bg);
+    }
+
+    .admin-chat-sidebar {
+      width: 350px;
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      background: var(--nav-bg);
+    }
+
+    .admin-chat-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: #e5ddd5; /* Light readable background for reading messages */
+    }
+    
+    [data-theme="dark"] .admin-chat-main {
+      background: #111b21;
+    }
+
+    .admin-sidebar-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .admin-users-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+    
+    .admin-user-item {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: background 0.2s;
+    }
+    
+    .admin-user-item:hover, .admin-user-item.active {
+      background: var(--active-cat-bg);
+    }
+    
+    .admin-user-item-avatar {
+      width: 45px;
+      height: 45px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .admin-chat-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 20px;
+    }
+  </style>
+<link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+
+  <div class="admin-chat-layout">
+    <!-- Sidebar -->
+    <aside class="admin-chat-sidebar">
+      <div class="admin-sidebar-header">
+        <h2 style="font-size: 1.2rem; margin: 0;">Chat Center</h2>
+        <a href="admin.html" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">Back</a>
+      </div>
+      <div class="admin-users-list" id="adminChatUsersList">
+        <!-- Users injected via JS -->
+        <div style="padding: 20px; text-align: center; color: var(--text-muted);">Loading chats...</div>
+      </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="admin-chat-main" id="adminChatMainArea">
+      <div class="admin-chat-placeholder">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        <h3 style="margin-top: 16px; font-size: 1.2rem;">Select a chat to view</h3>
+        <p style="margin-top: 8px;">Choose a user from the left sidebar to start messaging.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="assets/js/script.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        if (!currentUser || currentUser.phone !== ADMIN_PHONE) {
+          window.location.href = 'index.html';
+        } else {
+          initAdminChatCenter();
+        }
+      }, 500);
+
+      // Delegate file input parsing for admin
+      document.body.addEventListener('change', (e) => {
+        if (e.target.id === 'adminChatFileInput' && e.target.files && e.target.files[0]) {
+          document.getElementById('adminChatFilePreview').style.display = 'flex';
+          document.getElementById('adminChatFileName').textContent = e.target.files[0].name;
+        }
+      });
+      
+      // Delegate enter key
+      document.body.addEventListener('keypress', function (e) {
+        if (e.target.id === 'adminChatInputMessage' && e.key === 'Enter') {
+          handleSendChatMessage('admin');
+        }
+      });
+    });
+    
+    function clearAdminChatFilePreview() {
+      const input = document.getElementById('adminChatFileInput');
+      if(input) input.value = '';
+      const preview = document.getElementById('adminChatFilePreview');
+      if(preview) preview.style.display = 'none';
+      const name = document.getElementById('adminChatFileName');
+      if(name) name.textContent = '';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photocopy Orders | Admin | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-products.html">Manage Books &amp; Notes</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger" style="color: var(--primary);">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html" class="nav-dropdown-current">Photocopy orders</a>
+            <a href="admin-pdf-sales.html">Paid PDF orders</a>
+            <a href="admin-returns.html">Returned orders</a>
+          </div>
+        </div>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons">
+        <!-- Theme Switch Injected by JS -->
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+
+      <!-- Header row -->
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; margin-bottom:32px;">
+        <div>
+          <h1 style="font-size:1.75rem; font-weight:800; color:var(--text-main); margin:0;">Photocopy Orders</h1>
+          <p id="adminPhotocopyCountLabel" style="color:var(--text-muted); margin-top:6px; font-size:0.9rem;">Total: —</p>
+          <p style="color:var(--text-muted); margin-top:2px; font-size:0.85rem;">Manage photocopy &amp; printing orders from customers</p>
+        </div>
+        <button class="btn btn-secondary" onclick="renderAdminPhotocopyOrders()" style="gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div style="max-width: 520px; margin: -10px 0 22px 0;">
+        <input id="adminPhotocopySearch" type="text" class="form-control" placeholder="Search by Order ID (e.g. COPY...)" style="border-radius: var(--radius-full); padding: 12px 18px;">
+      </div>
+
+      <!-- Orders List -->
+      <div id="adminPhotocopyOrdersList">
+        <div style="padding:40px; text-align:center; color:var(--text-muted);">Loading orders&hellip;</div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="assets/js/script.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        checkAdminAccess();
+        renderAdminPhotocopyOrders();
+      }, 800);
+    });
+  </script>
+</body>
+</html>

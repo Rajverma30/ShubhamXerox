@@ -1,0 +1,527 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shubham Xerox | Fast Xerox & Study Materials Near You</title>
+  <meta name="description"
+    content="Premium photocopy, printing, and study materials in Indore. High-quality notes for UPSC, MPPSC, and more.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span
+          style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM
+          XEROX</span>
+      </a>
+
+      <div class="nav-links" id="mainNavLinks">
+        <a href="index.html">Home</a>
+
+        <a href="products.html?category=Books">Books & Notes</a>
+        <a href="index.html#services">Services</a>
+        <!-- Auth link injected by JS -->
+        <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
+      </div>
+
+      <div class="nav-icons">
+        <a href="cart.html" class="icon-btn" aria-label="Cart">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path>
+            <path d="M20 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path>
+            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+          </svg>
+          <span class="cart-badge" style="display: none;">0</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero">
+    <!-- Image Slider as Background -->
+    <div class="slider-container" id="heroSlider">
+      <div class="slide active" style="background-image: url('images/hero-book-1.jpg');"></div>
+      <div class="slide" style="background-image: url('images/hero-book-2.jpg');"></div>
+      <div class="slide" style="background-image: url('images/hero-book-3.jpg');"></div>
+
+      <div class="slider-dots" id="sliderDots">
+        <div class="dot active" onclick="goToSlide(0)"></div>
+        <div class="dot" onclick="goToSlide(1)"></div>
+        <div class="dot" onclick="goToSlide(2)"></div>
+      </div>
+    </div>
+
+    <div class="container hero-content">
+      <h1>Fast Xerox & <br>Study Materials Near You.</h1>
+      <p>Premium photocopy services and top-institute study notes for UPSC, MPPSC, and competitive exams. Located
+        conveniently in Indore.</p>
+      <div class="hero-btns">
+        <a href="products.html" class="btn btn-primary">Shop Now</a>
+        <button id="openCostEstimator" class="btn btn-estimator" onclick="openCostEstimatorModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2" />
+            <line x1="8" y1="6" x2="16" y2="6" />
+            <line x1="8" y1="10" x2="16" y2="10" />
+            <line x1="8" y1="14" x2="12" y2="14" />
+          </svg>
+          Book Your Print
+        </button>
+        <a href="https://wa.me/919826462963" target="_blank" class="btn btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path
+              d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
+            </path>
+          </svg>
+          Contact on WhatsApp
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Study Notes Hub -->
+  <section class="section" id="free-notes-hub"
+    style="background-color: var(--card-bg); border-bottom: 1px solid var(--border-color);">
+    <div class="container">
+      <h2 class="section-title">Study Notes & PDFs</h2>
+      <p class="section-subtitle">Explore high-quality study notes, available for free or as paid premium PDFs.</p>
+
+      <div style="max-width: 500px; margin: 0 auto 32px;">
+        <input type="text" id="freeNotesSearch" class="form-control"
+          placeholder="Search notes... (e.g. MPPSC Syllabus)" onkeyup="filterFreeNotes()"
+          style="border-radius: var(--radius-full); padding: 14px 24px; text-align: center; box-shadow: var(--shadow-sm);">
+      </div>
+
+      <div class="free-notes-slider-wrap">
+        <button id="freeNotesPrevBtn" class="free-notes-nav free-notes-nav-left" type="button" onclick="scrollFreeNotes('left')" aria-label="Previous notes">&#10094;</button>
+        <div class="free-notes-slider" id="freeNotesContainer">
+          <!-- Injected via JS -->
+        </div>
+        <button id="freeNotesNextBtn" class="free-notes-nav free-notes-nav-right" type="button" onclick="scrollFreeNotes('right')" aria-label="Next notes">&#10095;</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Featured Products -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Trending Notes & Books</h2>
+      <div class="product-grid" id="featuredProducts">
+        <!-- Injected via JS -->
+      </div>
+      <div style="text-align: center; margin-top: 48px;">
+        <a href="products.html" class="btn btn-secondary">View All Products</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- About Us Section -->
+  <section class="section about-us-section" id="about-us">
+    <div class="container">
+      <div class="about-us-card">
+        <div class="about-us-image-wrap">
+          <img src="images/about-books.png" alt="Shubham Xerox books and study material">
+        </div>
+        <div class="about-us-content">
+          <h2>Shubham Xerox Books</h2>
+          <p>
+            Shubham Xerox provides a wide range of high-quality books and study materials for competitive government
+            exams,
+            helping students prepare efficiently and achieve their career goals with confidence.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Instagram Reels Section -->
+  <section class="section instagram-reels-section" id="instagram-reels">
+    <div class="container">
+      <h2 class="section-title">Shop our Instagram Reels</h2>
+      <p class="section-subtitle">Explore our latest book highlights, student recommendations, and quick updates from
+        our Instagram Reels.</p>
+      <div class="social-preview-card">
+        <div class="social-reel-embed">
+          <iframe src="https://www.instagram.com/reel/DRziyPVCrpg/embed/" title="Instagram Reel" loading="lazy"
+            allowfullscreen></iframe>
+        </div>
+        <div class="social-preview-content">
+          <h3>Latest Reels from Shubham Xerox</h3>
+          <p>Watch short video updates about newly available books, best-selling notes, and exam preparation materials.
+          </p>
+          <a href="https://www.instagram.com/shubhamxeroxindore/reels/" target="_blank" rel="noopener noreferrer"
+            class="btn btn-secondary">Watch Reels on Instagram</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Google Reviews Section -->
+  <section class="section reviews-link-section" id="google-reviews">
+    <div class="container">
+      <h2 class="section-title">Our Google Reviews</h2>
+      <p class="section-subtitle">Students trust us for quality printing, fast delivery, and reliable study materials.
+      </p>
+      <div class="reviews-highlight-grid">
+        <article class="review-highlight-card">
+          <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p>"Excellent service and timely delivery. The study material quality is very good."</p>
+          <span>- Verified Customer</span>
+        </article>
+        <article class="review-highlight-card">
+          <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p>"Best place for competitive exam books in Indore. Helpful team and fair pricing."</p>
+          <span>- Verified Customer</span>
+        </article>
+        <article class="review-highlight-card">
+          <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p>"Great collection of notes and books. Smooth ordering experience."</p>
+          <span>- Verified Customer</span>
+        </article>
+      </div>
+      <div style="text-align: center; margin-top: 18px;">
+        <a href="https://share.google/iuKQhQ4VBLsNLxoaY" target="_blank" rel="noopener noreferrer"
+          class="btn btn-secondary">Read All Google Reviews</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Services Section -->
+  <section class="section" id="services" style="background-color: var(--card-bg);">
+    <div class="container">
+      <h2 class="section-title">Our Premium Services</h2>
+      <div class="product-grid">
+        <a href="https://wa.me/919826462963?text=Hello%2C%20I%20want%20Photocopy%20%26%20Printing%20services"
+          target="_blank" class="product-card"
+          style="text-align: center; padding: 40px 20px; display: block; text-decoration: none;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5"
+            style="margin-bottom: 24px;">
+            <path d="M6 9V2h12v7"></path>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          <h3 class="product-title" style="justify-content: center; color: var(--text-main);">Photocopy & Printing</h3>
+          <p style="color: var(--text-muted); font-size: 0.95rem;">High-quality Black & White and crisp color prints at
+            the best local rates.</p>
+        </a>
+        <a href="https://wa.me/919826462963?text=Hello%2C%20I%20want%20Lamination%20%26%20Binding%20services"
+          target="_blank" class="product-card"
+          style="text-align: center; padding: 40px 20px; display: block; text-decoration: none;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5"
+            style="margin-bottom: 24px;">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <h3 class="product-title" style="justify-content: center; color: var(--text-main);">Lamination & Binding</h3>
+          <p style="color: var(--text-muted); font-size: 0.95rem;">Spiral binding, hardbound options, and precise
+            lamination for your documents.</p>
+        </a>
+        <a href="products.html?category=Study Material" class="product-card"
+          style="text-align: center; padding: 40px 20px; display: block; text-decoration: none;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5"
+            style="margin-bottom: 24px;">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+          <h3 class="product-title" style="justify-content: center; color: var(--text-main);">Study Notes Hub</h3>
+          <p style="color: var(--text-muted); font-size: 0.95rem;">Instant access to Nirman IAS, Aakar IAS, and other
+            top institute materials.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer style="background-color: #1d1d1f; color: #86868b; padding: 60px 0 30px; margin-top: auto;">
+    <div class="container" style="display: flex; flex-wrap: wrap; gap: 40px;">
+      <div style="flex: 1; min-width: 250px;">
+        <h4 style="color: #f5f5f7; margin-bottom: 16px; font-size: 1.1rem; font-weight: 600;">Shubham Xerox</h4>
+        <p style="font-size: 0.9rem; margin-bottom: 8px;">Shop No 5, Vinayak Empire, Opposite Tinkus Cafe, Bhawarkua
+          Road, Indore.</p>
+        <p style="font-size: 0.9rem;">Email: shubhamsethi760@gmail.com</p>
+      </div>
+      <div style="flex: 1; min-width: 250px;">
+        <h4 style="color: #f5f5f7; margin-bottom: 16px; font-size: 1.1rem; font-weight: 600;">Quick Links</h4>
+        <ul style="display: flex; flex-direction: column; gap: 8px;">
+          <li><a href="products.html" style="font-size: 0.9rem; transition: color 0.2s;">Shop All Products</a></li>
+          <li><a href="#" style="font-size: 0.9rem; transition: color 0.2s;">Store Policy</a></li>
+          <li><a href="#" style="font-size: 0.9rem; transition: color 0.2s;">Return Policy</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="container"
+      style="border-top: 1px solid #434345; margin-top: 40px; padding-top: 20px; font-size: 0.8rem; text-align: center;">
+      <p>&copy; 2026 Shubham Xerox. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <!-- Floating Action Buttons -->
+  <div class="floating-actions"
+    style="position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 1000;">
+    <button onclick="checkChatLogin()" class="chat-float" aria-label="Chat with Us"
+      style="background-color: var(--primary); color: #fff; width: 60px; height: 60px; border-radius: 50%; box-shadow: var(--shadow-lg); display: flex; align-items: center; justify-content: center; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); border:none; cursor:pointer;"
+      onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path
+          d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z">
+        </path>
+      </svg>
+    </button>
+    <a href="https://wa.me/919826462963" target="_blank" class="wa-float" style="position: static;"
+      aria-label="Chat on WhatsApp">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path
+          d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
+        </path>
+      </svg>
+    </a>
+  </div>
+
+  <!-- Cost Estimator Modal -->
+  <div id="costEstimatorModal"
+    style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:2000; align-items:center; justify-content:center; padding:16px; backdrop-filter:blur(6px);">
+    <div class="ce-modal-box">
+      <!-- Header -->
+      <div class="ce-header">
+        <div class="ce-header-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2" />
+            <line x1="8" y1="6" x2="16" y2="6" />
+            <line x1="8" y1="10" x2="16" y2="10" />
+            <line x1="8" y1="14" x2="12" y2="14" />
+          </svg>
+        </div>
+        <div>
+          <h2 class="ce-title">Photocopy Cost Estimator</h2>
+          <p class="ce-subtitle">B&amp;W &#8377;1/page &middot; Colour &#8377;5/page</p>
+        </div>
+        <button class="ce-close-btn" onclick="closeCostEstimatorModal()" aria-label="Close">&times;</button>
+      </div>
+
+      <!-- Step 1: Estimate -->
+      <div id="ceStepEstimate">
+        <!-- PDF Upload -->
+        <div class="ce-upload-zone" id="ceUploadZone" onclick="document.getElementById('cePdfInput').click()" style="margin-bottom: 12px;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <p id="ceUploadText">Click to upload PDF</p>
+          <span style="font-size:0.8rem; color:var(--text-muted);">Pages will be auto-counted</span>
+          <input type="file" id="cePdfInput" accept="application/pdf" multiple style="display:none"
+            onchange="handleCePdfUpload(this)">
+        </div>
+        <div class="form-group" style="margin: 0 0 16px 0;">
+          <label for="ceManualPages" style="display:block; margin-bottom:8px; color:var(--text-main);">Or enter total pages manually</label>
+          <input type="number" id="ceManualPages" class="form-control" min="1" step="1" placeholder="e.g. 120" oninput="setCeManualPages(this.value)">
+        </div>
+        
+        <button type="button" class="btn" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; gap: 8px; background-color: var(--primary); color: #000; font-weight: 600;" onclick="openScanner()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          Scan Document with Camera
+        </button>
+
+        <!-- Page count badge -->
+        <div id="cePageInfo" class="ce-page-info" style="display:none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span id="cePageCount">0</span> pages detected in <strong id="ceFileName"></strong>
+        </div>
+
+        <!-- Options row -->
+        <div class="ce-options-grid">
+          <!-- Print Type -->
+          <div class="ce-option-group">
+            <label class="ce-option-label">Print Type</label>
+            <div class="ce-toggle-group">
+              <button id="ceBwBtn" class="ce-toggle active" onclick="setCePrintType('bw')">B&amp;W</button>
+              <button id="ceColorBtn" class="ce-toggle" onclick="setCePrintType('color')">Colour</button>
+            </div>
+          </div>
+          <!-- Paper Size -->
+          <div class="ce-option-group">
+            <label class="ce-option-label">Paper Size</label>
+            <select id="cePaperSize" class="ce-select" onchange="recalcEstimate()">
+              <option value="a4">A4 (Standard)</option>
+              <option value="a3">A3 (Large)</option>
+              <option value="legal">Legal</option>
+              <option value="letter">Letter</option>
+            </select>
+          </div>
+          <!-- Copies -->
+          <div class="ce-option-group">
+            <label class="ce-option-label">No. of Copies</label>
+            <div class="ce-counter">
+              <button class="ce-counter-btn" onclick="changeCopies(-1)">&minus;</button>
+              <span id="ceCopiesVal">1</span>
+              <button class="ce-counter-btn" onclick="changeCopies(1)">+</button>
+            </div>
+          </div>
+          <!-- Sides -->
+          <div class="ce-option-group">
+            <label class="ce-option-label">Print Sides</label>
+            <div class="ce-toggle-group">
+              <button id="ceSingleBtn" class="ce-toggle active" onclick="setCeSides('single')">Single</button>
+              <button id="ceDoubleBtn" class="ce-toggle" onclick="setCeSides('double')">Double</button>
+            </div>
+          </div>
+          <!-- Delivery Mode -->
+          <div class="ce-option-group">
+            <label class="ce-option-label">Receive Method</label>
+            <div class="ce-toggle-group">
+              <button id="ceDeliveryBtn" class="ce-toggle active" onclick="setCeDelivery('delivery')">Delivery</button>
+              <button id="ceCollectBtn" class="ce-toggle" onclick="setCeDelivery('collect')">Collect at Shop</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Estimate Result -->
+        <div class="ce-estimate-box" id="ceEstimateBox">
+          <div class="ce-estimate-row">
+            <span>Pages</span><span id="ceResPages">&ndash;</span>
+          </div>
+          <div class="ce-estimate-row">
+            <span>Copies</span><span id="ceResCopies">&ndash;</span>
+          </div>
+          <div class="ce-estimate-row">
+            <span>Rate</span><span id="ceResRate">&ndash;</span>
+          </div>
+          <div class="ce-estimate-row ce-estimate-total">
+            <span>Total Cost</span><span id="ceResTotal">Upload PDF first</span>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" style="width:100%; margin-top:8px; font-size:1rem; padding:14px;"
+          onclick="proceedToPayment()">
+          Proceed to Order &amp; Pay
+        </button>
+      </div>
+
+      <!-- Step 2: Order Details -->
+      <div id="ceStepOrder" style="display:none;">
+        <button class="ce-back-btn" onclick="ceGoBack()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          Back to Estimate
+        </button>
+        <div class="ce-order-summary">
+          <div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:4px;">Your Order Summary</div>
+          <div id="ceOrderSummaryText" style="font-weight:700; font-size:1.1rem; color:var(--primary);"></div>
+        </div>
+        <form id="ceOrderForm" onsubmit="placeCopyOrder(event)">
+          <p id="ceLoggedInHint" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px; display:none;">
+          </p>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="ce-option-label">Pickup / Delivery Address</label>
+            <textarea id="ceCustomerAddress" class="form-control" rows="3" required
+              placeholder="Shop pickup or full delivery address"></textarea>
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="ce-option-label">Payment Method</label>
+            <div class="ce-toggle-group">
+              <button type="button" id="ceCodBtn" class="ce-toggle active" onclick="setCePayment('COD')">Cash at
+                Shop</button>
+              <button type="button" id="ceOnlineBtn" class="ce-toggle" onclick="setCePayment('Online')">Pay
+                Online</button>
+            </div>
+          </div>
+          <button type="submit" id="cePlaceOrderBtn" class="btn btn-primary"
+            style="width:100%; padding:14px; font-size:1rem; margin-top:8px;">
+            Place Photocopy Order
+          </button>
+        </form>
+      </div>
+
+      <!-- Step 3: Success -->
+      <div id="ceStepSuccess" style="display:none; text-align:center; padding:20px 0;">
+        <div style="font-size:4rem; margin-bottom:16px;" aria-hidden="true">&#9989;</div>
+        <h3 style="font-size:1.4rem; font-weight:700; margin-bottom:8px; color:var(--text-main);">Order Placed!</h3>
+        <p style="color:var(--text-muted); margin-bottom:20px;">Your photocopy order has been received. We'll contact
+          you shortly.</p>
+        <button class="btn btn-primary" onclick="closeCostEstimatorModal()" style="padding:12px 32px;">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document Scanner Modal -->
+  <div id="scannerModal">
+    <div class="scanner-badge" id="scannerBadge">Scanned: 0</div>
+    <video id="scannerVideo" autoplay playsinline muted></video>
+    
+    <div id="scannerPreviewContainer">
+      <canvas id="scannerPreviewCanvas"></canvas>
+    </div>
+
+    <div id="scannerControls">
+      <!-- Capture Mode -->
+      <button class="scanner-btn" id="scannerCloseBtn" onclick="closeScanner()" style="color: #ff3b30; background: transparent;">Cancel</button>
+      <button class="scanner-cam-btn" id="scannerCaptureBtn" onclick="captureScannerFrame()">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"></circle><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path></svg>
+      </button>
+      <button class="scanner-btn" id="scannerFinishBtn" onclick="finishScanner()" style="color: var(--success); background: transparent; display: none;">Finish & PDF</button>
+
+      <!-- Preview Mode -->
+      <button class="scanner-btn" id="scannerRetakeBtn" onclick="retakeScannerFrame()" style="color: #ff9800; background: transparent; display: none;">Retake</button>
+      <button class="scanner-btn" id="scannerAcceptBtn" onclick="acceptScannerFrame()" style="color: var(--success); background: rgba(68,189,50,0.2); display: none;">Accept Scan</button>
+    </div>
+  </div>
+
+  <!-- Custom PDF Viewer Modal -->
+  <div id="pdfViewerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:3000; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(8px);">
+    <div style="width:100%; max-width:800px; display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h3 id="pdfViewerTitle" style="color:#fff; font-size:1.2rem; margin:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:70%;">Loading...</h3>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button id="pdfFullscreenBtn" onclick="togglePdfFullscreen()" style="background:none; border:1px solid rgba(255,255,255,0.35); color:#fff; font-size:0.9rem; cursor:pointer; border-radius:6px; padding:6px 10px;" aria-label="Toggle fullscreen">Fullscreen</button>
+        <button onclick="closePdfViewer()" style="background:none; border:none; color:#fff; font-size:2rem; cursor:pointer;" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    
+    <div id="pdfViewerContainer" style="width:100%; max-width:800px; flex:1; background:#fff; border-radius:8px; overflow-y:auto; position:relative; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column; align-items:center; padding:20px;">
+      <canvas id="pdfViewerCanvas" style="max-width:100%; height:auto; border:1px solid #ddd;"></canvas>
+      
+      <!-- Lock Screen overlay for page > 2 -->
+      <div id="pdfViewerLockScreen" style="display:none; position:absolute; inset:0; background:rgba(255,255,255,0.95); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px; z-index:10;">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="margin-bottom:20px;">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <h2 style="font-size:1.5rem; margin-bottom:12px; color:var(--text-main);">Premium Content Locked</h2>
+        <p style="color:var(--text-muted); margin-bottom:24px; max-width:400px; line-height:1.6;">You have reached the end of the free preview. Purchase to continue in secure view-only mode (no download or print).</p>
+        <button id="btnBuyPdfUnlock" class="btn btn-primary" style="padding:14px 32px; font-size:1.1rem;">Buy Now to Unlock</button>
+      </div>
+    </div>
+    
+    <div style="width:100%; max-width:800px; display:flex; justify-content:space-between; align-items:center; margin-top:16px; gap:10px; flex-wrap:wrap;">
+      <button id="pdfPrevBtn" class="btn btn-secondary" onclick="pdfPrevPage()" style="padding:8px 16px;">&laquo; Previous</button>
+      <span style="color:#fff; font-size:1rem; font-weight:600;">Page <span id="pdfPageNum">1</span> / <span id="pdfPageCount">-</span></span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input id="pdfJumpInput" type="number" min="1" placeholder="Page #" style="width:90px; padding:8px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.35); background:rgba(255,255,255,0.08); color:#fff;">
+        <button class="btn btn-secondary" onclick="goToPdfPage()" style="padding:8px 14px;">Go</button>
+      </div>
+      <button id="pdfNextBtn" class="btn btn-primary" onclick="pdfNextPage()" style="padding:8px 16px;">Next &raquo;</button>
+    </div>
+  </div>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script defer src="assets/js/script.js"></script>
+</body>
+
+</html>

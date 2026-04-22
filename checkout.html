@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+
+<body style="background-color: var(--bg-color);">
+
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span
+          style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM
+          XEROX</span>
+      </a>
+      <div class="nav-links">
+        <a href="cart.html">Back to Cart</a>
+        <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container" style="max-width: 800px;">
+      <h1 class="section-title" style="text-align: left; margin-bottom: 32px;">Checkout</h1>
+
+      <div class="checkout-grid">
+        <form id="checkoutForm">
+          <!-- Step 1: Address -->
+          <div class="admin-card" style="max-width: 100%;">
+            <h2 style="font-size: 1.25rem; margin-bottom: 24px;">1. Shipping Address</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="fullName">Full Name</label>
+                <input type="text" id="fullName" class="form-control" required placeholder="Name">
+              </div>
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="address">Street Address / Hostel</label>
+                <textarea id="address" class="form-control" rows="3" required
+                  placeholder="E.g., Room 102, Bhawarkua..."></textarea>
+              </div>
+              <div class="form-group">
+                <label for="city">City</label>
+                <input type="text" id="city" class="form-control" value="Indore" required>
+              </div>
+              <div class="form-group">
+                <label for="pincode">Pincode</label>
+                <input type="text" id="pincode" class="form-control" required placeholder="452001">
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Payment Method -->
+          <div class="admin-card" style="max-width: 100%;">
+            <h2 style="font-size: 1.25rem; margin-bottom: 24px;">2. Payment Method</h2>
+
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" name="payment" value="Online" required>
+                <span>Pay Online (UPI / Card)</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="payment" value="COD" required>
+                <span>Cash on Delivery</span>
+              </label>
+            </div>
+
+            <div
+              style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+              <button type="submit" class="btn btn-primary" style="padding: 16px 32px; width:100%;">Place Order</button>
+            </div>
+          </div>
+        </form>
+
+        <aside class="checkout-summary-card">
+          <h3
+            style="font-size: 1.1rem; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+            Order Summary</h3>
+          <div id="checkoutSummaryItems"></div>
+
+          <div style="border-top: 1px solid var(--border-color); margin-top: 20px; padding-top: 16px;">
+            <div class="checkout-item" style="color: var(--text-muted);">
+              <span>Subtotal</span>
+              <span id="checkoutSubtotal">â‚¹0.00</span>
+            </div>
+            <div class="checkout-item" style="color: var(--text-muted);">
+              <span>Delivery Charge</span>
+              <span>â‚¹70.00</span>
+            </div>
+            <div class="checkout-item"
+              style="font-size: 1.25rem; font-weight: 700; margin-top: 16px; color: var(--text-main);">
+              <span>Total</span>
+              <span id="checkoutTotal">â‚¹0.00</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="assets/js/script.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Paid PDF Sales | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-products.html">Manage Books & Notes</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger" style="color: var(--primary);">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html">Photocopy orders</a>
+            <a href="admin-pdf-sales.html" class="nav-dropdown-current">Paid PDF orders</a>
+            <a href="admin-returns.html">Returned orders</a>
+          </div>
+        </div>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons">
+        <!-- Theme Switch -->
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 16px;">
+        <div>
+          <h1 class="section-title" style="text-align: left; margin-bottom: 8px;">Paid PDF Sales</h1>
+          <p id="adminPdfOrdersCountLabel" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 0;">Logging all customers who purchased digital notes.</p>
+        </div>
+      </div>
+      <div style="max-width: 520px; margin: -10px 0 22px 0;">
+        <input id="adminPdfOrdersSearch" type="text" class="form-control" placeholder="Search by Order ID (e.g. NORD...)" style="border-radius: var(--radius-full); padding: 12px 18px;">
+      </div>
+
+      <div class="admin-list" id="paidPdfOrdersList">
+        <div style="padding: 24px; color: var(--text-muted);">Loading PDF purchase records...</div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="assets/js/script.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        if(window.renderAdminDashboard) {
+           renderAdminDashboard();
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>

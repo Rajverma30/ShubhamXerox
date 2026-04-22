@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Orders | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="index.html#services">Services</a>
+        <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
+      </div>
+
+      <div class="nav-icons">
+        <a href="cart.html" class="icon-btn" aria-label="Cart">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M20 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+          <span class="cart-badge" style="display: none;">0</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- My Orders Section -->
+  <main class="section" style="padding-top: 60px; min-height: 80vh;">
+    <div class="container" style="max-width: 800px;">
+
+      <!-- Payment Success Banner (shown after redirect) -->
+      <div id="paymentSuccessBanner" style="display:none; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(16,185,129,0.35); animation:slideDown 0.4s ease;">
+        <div style="font-size:2.2rem; flex-shrink:0;">✅</div>
+        <div>
+          <div style="font-size:1.1rem; font-weight:800; margin-bottom:2px;">Payment Successful — Order Placed!</div>
+          <div style="font-size:0.88rem; opacity:0.9;">Your Razorpay payment was received and your order is now confirmed. Track it below.</div>
+        </div>
+        <button onclick="this.parentElement.style.display='none'" style="margin-left:auto; background:rgba(255,255,255,0.2); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:1.1rem; cursor:pointer; flex-shrink:0;">✕</button>
+      </div>
+
+      <!-- COD Confirmation Banner -->
+      <div id="codSuccessBanner" style="display:none; background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; border-radius:var(--radius-md); padding:20px 24px; margin-bottom:28px; align-items:center; gap:16px; box-shadow:0 4px 20px rgba(59,130,246,0.35); animation:slideDown 0.4s ease;">
+        <div style="font-size:2.2rem; flex-shrink:0;">🎉</div>
+        <div>
+          <div style="font-size:1.1rem; font-weight:800; margin-bottom:2px;">Order Placed Successfully!</div>
+          <div style="font-size:0.88rem; opacity:0.9;">Your order is confirmed. Pay cash at the time of delivery. Track it below.</div>
+        </div>
+        <button onclick="this.parentElement.style.display='none'" style="margin-left:auto; background:rgba(255,255,255,0.2); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:1.1rem; cursor:pointer; flex-shrink:0;">✕</button>
+      </div>
+
+      <style>
+        @keyframes slideDown { from { opacity:0; transform:translateY(-16px); } to { opacity:1; transform:translateY(0); } }
+      </style>
+
+      <script>
+        (function() {
+          const type = sessionStorage.getItem('orderBanner');
+          if (type === 'success') {
+            document.getElementById('paymentSuccessBanner').style.display = 'flex';
+            sessionStorage.removeItem('orderBanner');
+            setTimeout(() => { const b = document.getElementById('paymentSuccessBanner'); if(b) b.style.display='none'; }, 8000);
+          } else if (type === 'cod') {
+            document.getElementById('codSuccessBanner').style.display = 'flex';
+            sessionStorage.removeItem('orderBanner');
+            setTimeout(() => { const b = document.getElementById('codSuccessBanner'); if(b) b.style.display='none'; }, 8000);
+          }
+          // Clean legacy URL without reload just in case
+          const p = new URLSearchParams(window.location.search).get('payment');
+          if (p) history.replaceState({}, '', 'my-orders.html');
+        })();
+      </script>
+
+      <h1 class="section-title" style="text-align: left; margin-bottom: 12px;">My Orders</h1>
+      <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 32px; line-height: 1.5; max-width: 640px;">
+        Each order shows a live status timeline. It moves forward step-by-step over about two days so you always know what is happening, without calling the shop.
+      </p>
+      
+      <!-- Orders List -->
+      <div class="admin-list" id="myOrdersList">
+        <!-- Injected via JS -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer style="background-color: #1d1d1f; color: #86868b; padding: 40px 0 20px; margin-top: auto;">
+    <div class="container" style="text-align: center; font-size: 0.8rem;">
+      <p>&copy; 2026 Shubham Xerox. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="assets/js/script.js"></script>
+</body>
+</html>

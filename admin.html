@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html" style="color: var(--primary);">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-products.html">Manage Books & Notes</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html">Photocopy orders</a>
+            <a href="admin-pdf-sales.html">Paid PDF orders</a>
+            <a href="admin-returns.html">Returned orders</a>
+          </div>
+        </div>
+        <a href="admin-chat.html" style="color: #44bd32; font-weight: 600;">Chat</a>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons">
+        <!-- Theme Switch -->
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; flex-wrap: wrap; gap: 16px;">
+        <h1 style="font-size: 2rem; color: var(--text-main); margin: 0;">Dashboard Stats</h1>
+        <button onclick="document.getElementById('exportModal').style.display='flex'" class="btn btn-primary" style="padding: 10px 20px; font-size: 0.95rem; border-radius: var(--radius-md); font-weight: 600;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px; vertical-align: text-bottom;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Export All Orders (CSV)
+        </button>
+      </div>
+      
+      <!-- Metrics Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 48px;">
+        <div class="admin-card" style="text-align: center; padding: 24px;">
+          <h3 style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.95rem;">Total Revenue</h3>
+          <div id="statRevenue" style="font-size: 2rem; font-weight: 800; color: #10b981;">--</div>
+        </div>
+        <div class="admin-card" style="text-align: center; padding: 24px;">
+          <h3 style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.95rem;">Pending Revenue</h3>
+          <div id="statPendingRevenue" style="font-size: 2rem; font-weight: 800; color: #e67e22;">--</div>
+        </div>
+        <div class="admin-card" style="text-align: center; padding: 24px;">
+          <h3 style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.95rem;">Paid PDFs Sold</h3>
+          <div id="statPdfSold" style="font-size: 2rem; font-weight: 800; color: var(--primary);">--</div>
+        </div>
+        <div class="admin-card" style="text-align: center; padding: 24px;">
+          <h3 style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.95rem;">Delivered Books</h3>
+          <div id="statDeliveredBooks" style="font-size: 2rem; font-weight: 800; color: var(--primary);">--</div>
+        </div>
+        <div class="admin-card" style="text-align: center; padding: 24px;">
+          <h3 style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.95rem;">Total Visitors</h3>
+          <div id="statVisitors" style="font-size: 2rem; font-weight: 800; color: var(--primary);">--</div>
+        </div>
+      </div>
+
+      <div class="admin-card" style="margin-bottom: 48px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 style="font-size: 1.5rem; margin: 0;">Top 3 selling books</h2>
+          <a href="admin-pdf-sales.html" style="color: var(--primary); font-size: 0.9rem; font-weight: 600; text-decoration: underline;">View Paid PDF Sales</a>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin: -8px 0 16px 0;">By total quantity sold across all book orders</p>
+        <div id="topSellingBooks">
+          <div style="padding: 20px; color: var(--text-muted);">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Graph -->
+      <div class="admin-card" style="margin-bottom: 48px;">
+        <h2 style="margin-bottom: 24px; font-size: 1.5rem;">Visits this Week</h2>
+        <div style="width: 100%; height: 400px; display: flex; justify-content: center; align-items: center;">
+          <canvas id="visitsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Registered Users -->
+      <h2 style="margin-bottom: 24px; font-size: 1.5rem;">Registered Users</h2>
+      <div class="admin-list" id="adminUsersList" style="margin-bottom: 60px;">
+        <div style="padding: 24px; color: var(--text-muted);">Loading users...</div>
+      </div>
+
+      <div class="admin-card" style="margin-bottom: 60px;">
+        <h2 style="font-size: 1.35rem; margin-bottom: 16px;">Photocopy Pricing Settings</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">Set current per-page rates used in photocopy orders.</p>
+        <form id="pricingForm" style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-end;">
+          <div>
+            <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:6px;">B&W Rate (₹/page)</label>
+            <input type="number" id="bwRateInput" min="0" step="0.01" style="width:140px; padding:10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main);" required>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:6px;">Colour Rate (₹/page)</label>
+            <input type="number" id="colorRateInput" min="0" step="0.01" style="width:140px; padding:10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main);" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="padding:10px 24px;">Save Settings</button>
+        </form>
+      </div>
+      
+    </div>
+  </main>
+
+  <!-- Export Options Modal -->
+  <div id="exportModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="modal-content" style="background: var(--bg-color); padding: 32px; border-radius: 16px; max-width: 400px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.6); border: 1px solid var(--border-color);">
+      <h3 style="font-size: 1.4rem; margin-bottom: 12px; color: var(--text-main);">Download Orders (Excel)</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px;">Please select which types of valid orders you want to include in the spreadsheet calculation and log.</p>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <button onclick="exportOrdersToCSV('pending'); document.getElementById('exportModal').style.display='none'" style="background: #e67e22; border:none; padding:14px; border-radius:8px; color:#fff; font-weight:600; font-size:1rem; cursor:pointer;">1. Only Pending / Active</button>
+        <button onclick="exportOrdersToCSV('completed'); document.getElementById('exportModal').style.display='none'" style="background: #10b981; border:none; padding:14px; border-radius:8px; color:#fff; font-weight:600; font-size:1rem; cursor:pointer;">2. Only Delivered / Completed</button>
+        <button onclick="exportOrdersToCSV('all'); document.getElementById('exportModal').style.display='none'" style="background: var(--primary); border:none; padding:14px; border-radius:8px; color:#000; font-weight:800; font-size:1rem; cursor:pointer;">3. Download All Orders (Combined)</button>
+      </div>
+
+      <button onclick="document.getElementById('exportModal').style.display='none'" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main); margin-top: 24px; padding: 10px; width: 100%; border-radius: 8px; cursor: pointer;">Cancel</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="assets/js/script.js"></script>
+</body>
+</html>
