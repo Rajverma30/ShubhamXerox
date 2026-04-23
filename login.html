@@ -46,10 +46,11 @@
           <label for="forgotPhone">Phone Number</label>
           <input type="tel" id="forgotPhone" class="form-control" placeholder="10-digit number" pattern="[0-9]{10}" required>
         </div>
-        <div class="otp-btn-group">
-          <button type="button" class="btn btn-sms" onclick="requestForgotPasswordOTP(this, 'sms')"><span class="spinner"></span> SMS OTP</button>
-          <button type="button" class="btn btn-whatsapp" onclick="requestForgotPasswordOTP(this, 'whatsapp')"><span class="spinner"></span> WhatsApp OTP</button>
+        <div style="margin-bottom: 12px; font-size: 0.85rem; text-align: left;">
+          <label><input type="radio" name="forgotOtpService" value="sms" checked> Twilio (Default)</label>
+          <label style="margin-left: 10px;"><input type="radio" name="forgotOtpService" value="2factor"> 2Factor API</label>
         </div>
+        <button type="button" class="btn btn-secondary" style="width: 100%; margin-bottom: 12px;" onclick="requestForgotPasswordOTP(this)"><span class="spinner"></span> Get OTP</button>
         <div class="form-group" style="text-align: left;">
           <label for="forgotOtp">Enter OTP</label>
           <input type="text" id="forgotOtp" class="form-control" placeholder="6-digit OTP" pattern="[0-9]{6}" required>

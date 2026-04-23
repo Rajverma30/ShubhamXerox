@@ -277,7 +277,9 @@ function updateNavForUser() {
   });
 }
 
-async function requestRegisterOTP(btn, channel = 'sms') {
+async function requestRegisterOTP(btn, defaultChannel = 'sms') {
+  const selectedRadio = document.querySelector('input[name="registerOtpService"]:checked');
+  const channel = selectedRadio ? selectedRadio.value : defaultChannel;
   const phone = (document.getElementById('regPhone') || {}).value || '';
   if (!/^\d{10}$/.test(phone)) {
     showToast("Enter a valid 10-digit number first.");
@@ -286,7 +288,7 @@ async function requestRegisterOTP(btn, channel = 'sms') {
   btn.classList.add('loading');
   try {
     const res = await apiFetch("/send-otp", { method: "POST", body: { phone, channel }, auth: false });
-    showToast("OTP sent successfully via " + channel.toUpperCase() + ".");
+    showToast("OTP sent successfully.");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
   } finally {
@@ -294,7 +296,9 @@ async function requestRegisterOTP(btn, channel = 'sms') {
   }
 }
 
-async function requestForgotPasswordOTP(btn, channel = 'sms') {
+async function requestForgotPasswordOTP(btn, defaultChannel = 'sms') {
+  const selectedRadio = document.querySelector('input[name="forgotOtpService"]:checked');
+  const channel = selectedRadio ? selectedRadio.value : defaultChannel;
   const phone = (document.getElementById('forgotPhone') || {}).value || '';
   if (!/^\d{10}$/.test(phone)) {
     showToast("Enter a valid 10-digit number first.");
@@ -303,7 +307,7 @@ async function requestForgotPasswordOTP(btn, channel = 'sms') {
   btn.classList.add('loading');
   try {
     const res = await apiFetch("/send-otp", { method: "POST", body: { phone, channel }, auth: false });
-    showToast("OTP sent successfully via " + channel.toUpperCase() + ".");
+    showToast("OTP sent successfully.");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
   } finally {

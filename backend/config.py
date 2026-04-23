@@ -20,6 +20,8 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
 TWILIO_SERVICE_SID = os.getenv("TWILIO_SERVICE_SID", "").strip()
 
+TWOFACTOR_API_KEY = os.getenv("TWOFACTOR_API_KEY", "").strip()
+
 
 # Existing app settings (kept)
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()

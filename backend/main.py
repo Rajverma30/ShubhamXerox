@@ -3,6 +3,9 @@ import re
 import hmac
 import hashlib
 import logging
+import requests
+import random
+import time
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +30,7 @@ from config import (
     ADMIN_DEFAULT_PASSWORD,
     OTP_EXPIRY_MINUTES,
     OTP_RATE_LIMIT_PER_MINUTE,
+    TWOFACTOR_API_KEY,
 )
 from utils.otp import generate_and_hash_otp, hash_otp
 from utils.sms import send_otp_twilio, verify_otp_twilio
@@ -34,6 +38,8 @@ from utils.rate_limit import PerPhoneRateLimiter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("shubhamxerox.api")
+
+OTP_CACHE = {}  # In-memory cache for 2factor OTPs: phone -> (otp, expiry_time)
 
 app = FastAPI(title="Shubham Xerox API")
 
@@ -263,7 +269,7 @@ async def reset_password(req: ResetPasswordRequest):
 @app.post("/send-otp")
 async def send_otp(req: SendOtpRequest):
     """
-    Sends OTP via Twilio Verify service and enforces 3/min per phone.
+    Sends OTP via Twilio Verify or 2Factor API and enforces 3/min per phone.
     """
     phone = (req.phone or "").strip()
     if not _is_valid_phone(phone):
@@ -272,15 +278,30 @@ async def send_otp(req: SendOtpRequest):
     if not otp_rate_limiter.allow(phone):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait and try again.")
 
-    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_SERVICE_SID:
-        raise HTTPException(status_code=500, detail="Twilio credentials are not configured on the server")
-
-    # Send SMS via Twilio
-    try:
-        send_otp_twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SERVICE_SID, phone, "", channel=req.channel)
-    except Exception as e:
-        logger.exception(f"Twilio error for phone=%s", phone)
-        raise HTTPException(status_code=500, detail="Failed to send OTP")
+    if req.channel == "2factor":
+        if not TWOFACTOR_API_KEY:
+            raise HTTPException(status_code=500, detail="2Factor API Key is not configured")
+        try:
+            otp = str(random.randint(100000, 999999))
+            url = f"https://2factor.in/API/V1/{TWOFACTOR_API_KEY}/SMS/{phone}/{otp}"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            if data.get("Status") == "Success":
+                OTP_CACHE[phone] = (otp, time.time() + (OTP_EXPIRY_MINUTES * 60))
+            else:
+                raise Exception("2Factor API returned failure")
+        except Exception as e:
+            logger.exception(f"2Factor error for phone={phone}")
+            raise HTTPException(status_code=500, detail="Failed to send OTP via 2Factor")
+    else:
+        if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_SERVICE_SID:
+            raise HTTPException(status_code=500, detail="Twilio credentials are not configured on the server")
+        # Send SMS via Twilio
+        try:
+            send_otp_twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SERVICE_SID, phone, "", channel=req.channel)
+        except Exception as e:
+            logger.exception(f"Twilio error for phone={phone}")
+            raise HTTPException(status_code=500, detail="Failed to send OTP")
 
     return {"status": "ok", "message": "OTP sent successfully"}
 
@@ -294,6 +315,18 @@ async def verify_otp(req: VerifyOtpRequest):
     if not otp.isdigit() or len(otp) != 6:
         raise HTTPException(status_code=400, detail="Invalid OTP format")
 
+    # Check 2Factor Cache first
+    if phone in OTP_CACHE:
+        cached_otp, expiry_time = OTP_CACHE[phone]
+        if time.time() > expiry_time:
+            del OTP_CACHE[phone]
+            raise HTTPException(status_code=400, detail="OTP expired")
+        if cached_otp == otp:
+            del OTP_CACHE[phone]
+            return {"status": "ok", "message": "OTP verified successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid OTP")
+
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_SERVICE_SID:
         raise HTTPException(status_code=500, detail="Twilio credentials are not configured on the server")
 
@@ -303,7 +336,7 @@ async def verify_otp(req: VerifyOtpRequest):
         if not result.get("valid"):
             raise HTTPException(status_code=400, detail="Invalid OTP")
     except Exception as e:
-        logger.exception("OTP verification failed for phone=%s", phone)
+        logger.exception(f"OTP verification failed for phone={phone}")
         raise HTTPException(status_code=500, detail="OTP verification failed")
 
     return {"status": "ok", "message": "OTP verified successfully"}
