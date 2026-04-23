@@ -419,6 +419,12 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
     sb.table("users").delete().eq("phone", phone).execute()
     return {"status": "ok"}
 
+@app.get("/products")
+async def list_public_products():
+    sb = _require_supabase()
+    res = sb.table("products").select("*").order("id").execute()
+    return {"products": res.data or []}
+
 @app.get("/admin/products")
 async def admin_list_products(_admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()

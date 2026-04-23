@@ -27,12 +27,16 @@ def send_otp_email(to_email: str, otp: str):
             json={"to": to_email, "subject": subject, "htmlBody": body},
             timeout=15
         )
-        data = response.json()
-        if data.get("status") == "success":
-            logger.info(f"OTP email sent successfully to {to_email} via Google Apps Script")
-            return True
-        else:
-            logger.error(f"Google Script returned error: {data}")
+        try:
+            data = response.json()
+            if data.get("status") == "success":
+                logger.info(f"OTP email sent successfully to {to_email} via Google Apps Script")
+                return True
+            else:
+                logger.error(f"Google Script returned error: {data}")
+                return False
+        except Exception as json_err:
+            logger.error(f"Failed to parse JSON. Response status: {response.status_code}, text: {response.text}")
             return False
     except Exception as e:
         logger.exception(f"Failed to send email to {to_email} via Google Script")
