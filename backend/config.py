@@ -15,11 +15,8 @@ def _require_env(name: str) -> str:
 SUPABASE_URL = _require_env("SUPABASE_URL")
 SUPABASE_KEY = _require_env("SUPABASE_KEY")  # Use service_role key on backend
 
-# SMTP Config for Email OTP
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com").strip()
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-SMTP_USERNAME = os.getenv("SMTP_USERNAME", "vermaraj01110@gmail.com").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+# Email API Config (Google Apps Script)
+GOOGLE_SCRIPT_URL = os.getenv("GOOGLE_SCRIPT_URL", "").strip()
 
 
 # Existing app settings (kept)
