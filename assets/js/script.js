@@ -211,49 +211,26 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 
 // --- Data Fetching logic ---
 async function fetchProducts() {
-  // 1. Load from cache first for instant display
-  const cached = localStorage.getItem('shubham_products_cache');
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        products = parsed;
-      }
-    } catch (e) {}
-  }
-
-  // 2. If no cache, use default products instantly
-  if (!products || products.length === 0) {
-    products = [...defaultProducts];
-  }
-
   const supabase = getSupabase();
   if (!supabase) return;
 
-  // 3. Fetch from Supabase in the background with a timeout
   try {
-    const fetchPromise = supabase.from('products').select('*').order('id', { ascending: true });
-    // Timeout after 8 seconds so it doesn't hang forever
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase Timeout')), 8000));
+    const { data, error } = await supabase.from('products').select('*').order('id', { ascending: true });
     
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
-    
-    if (response && response.data && response.data.length > 0) {
-      products = response.data;
-      localStorage.setItem('shubham_products_cache', JSON.stringify(products));
-      
-      // Update UI dynamically since this might finish after initial render
-      if (document.getElementById('featuredProducts')) {
-        renderProductsGrid('featuredProducts', 4);
-      }
-      if (document.getElementById('allProductsContainer')) {
-        let oldCategories = [...selectedCategories];
-        renderMultiSelect();
-        renderProductsGrid('allProductsContainer', null, oldCategories);
-      }
+    if (error) {
+      console.error("Supabase Error:", error);
+      products = [];
+      return;
+    }
+
+    if (data && data.length > 0) {
+      products = data;
+    } else {
+      products = [];
     }
   } catch (e) {
-    console.error("Supabase fetch error (using cache/defaults):", e.message || e);
+    console.error("Supabase fetch exception:", e);
+    products = [];
   }
 }
 
@@ -2228,10 +2205,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.requestRegisterOTP = requestRegisterOTP;
   window.requestForgotPasswordOTP = requestForgotPasswordOTP;
 
-  // Start background fetch (doesn't block)
-  fetchProducts().catch(e => console.error("fetchProducts error", e));
+  try {
+    await fetchProducts();
+  } catch (e) {
+    console.error("fetchProducts error", e);
+  }
 
-  // Render immediately with cache or defaults
   if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
 
   if (document.getElementById('allProductsContainer')) {
