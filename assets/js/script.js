@@ -817,7 +817,8 @@ window.filterMultiSelect = function () {
 function renderMultiSelect() {
   const container = document.getElementById('multiSelectOptionsList');
   if (!container) return;
-  const allCats = [...new Set([...siteCategories, ...products.map(p => p.category)])].sort();
+  let safeSiteCategories = Array.isArray(siteCategories) ? siteCategories : defaultSiteCategories;
+  const allCats = [...new Set([...safeSiteCategories, ...products.map(p => p.category)])].sort();
 
   container.innerHTML = allCats.map(c => `
     <label class="multi-select-option">
@@ -2207,7 +2208,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
 
   if (document.getElementById('allProductsContainer')) {
-    renderMultiSelect();
+    const urlParams = new URLSearchParams(window.location.search);
+    const catParam = urlParams.get('category');
+    if (catParam) {
+      selectedCategories = [catParam];
+    }
+    
+    try {
+      renderMultiSelect();
+    } catch (e) {
+      console.error("renderMultiSelect error:", e);
+    }
     renderProductsGrid('allProductsContainer', null, selectedCategories);
 
     const searchInput = document.getElementById('searchInput');
