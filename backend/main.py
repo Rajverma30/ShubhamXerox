@@ -33,13 +33,13 @@ from config import (
     TWOFACTOR_API_KEY,
 )
 from utils.otp import generate_and_hash_otp, hash_otp
-from utils.sms import send_otp_twilio, verify_otp_twilio
+from utils.email_service import send_otp_email
 from utils.rate_limit import PerPhoneRateLimiter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("shubhamxerox.api")
 
-OTP_CACHE = {}  # In-memory cache for 2factor OTPs: phone -> (otp, expiry_time)
+OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 
 app = FastAPI(title="Shubham Xerox API")
 
@@ -86,24 +86,24 @@ class VerifyPaymentRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     phone: str
+    email: str
     name: str
     password: str
 
 class LoginRequest(BaseModel):
-    phone: str
+    identifier: str
     password: str
 
 class ResetPasswordRequest(BaseModel):
-    phone: str
+    email: str
     otp: str
     new_password: str
 
 class SendOtpRequest(BaseModel):
-    phone: str
-    channel: str = "sms"
+    email: str
 
 class VerifyOtpRequest(BaseModel):
-    phone: str
+    email: str
     otp: str
 
 class AdminProductUpsert(BaseModel):
@@ -223,123 +223,100 @@ async def register(req: RegisterRequest):
     sb = _require_supabase()
     if len(req.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    # never allow role escalation from client
     role = "user"
-    # Enforce unique phone
-    existing = sb.table("users").select("phone").eq("phone", req.phone).execute()
-    if existing.data:
+    
+    existing_phone = sb.table("users").select("phone").eq("phone", req.phone).execute()
+    if existing_phone.data:
         raise HTTPException(status_code=409, detail="Phone already registered")
+        
+    existing_email = sb.table("users").select("email").eq("email", req.email).execute()
+    if existing_email.data:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
     sb.table("users").insert({
         "phone": req.phone,
+        "email": req.email,
         "name": req.name,
         "role": role,
         "password_hash": _hash_password(req.password),
     }).execute()
-    token = _issue_jwt({"phone": req.phone, "role": role, "name": req.name})
-    return {"token": token, "user": {"phone": req.phone, "role": role, "name": req.name}}
+    token = _issue_jwt({"phone": req.phone, "email": req.email, "role": role, "name": req.name})
+    return {"token": token, "user": {"phone": req.phone, "email": req.email, "role": role, "name": req.name}}
 
 @app.post("/login")
 async def login(req: LoginRequest):
     sb = _require_supabase()
-    res = sb.table("users").select("phone,name,role,password_hash").eq("phone", req.phone).execute()
+    identifier = req.identifier.strip()
+    
+    res = sb.table("users").select("phone,email,name,role,password_hash").eq("phone", identifier).execute()
     row = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+    
     if not row:
-        raise HTTPException(status_code=401, detail="Invalid phone or password")
+        res = sb.table("users").select("phone,email,name,role,password_hash").eq("email", identifier).execute()
+        row = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+
+    if not row:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     if not row.get("password_hash") or not _verify_password(req.password, row["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid phone or password")
-    token = _issue_jwt({"phone": row["phone"], "role": row.get("role", "user"), "name": row.get("name", "")})
-    return {"token": token, "user": {"phone": row["phone"], "role": row.get("role", "user"), "name": row.get("name", "")}}
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = _issue_jwt({"phone": row["phone"], "email": row.get("email", ""), "role": row.get("role", "user"), "name": row.get("name", "")})
+    return {"token": token, "user": {"phone": row["phone"], "email": row.get("email", ""), "role": row.get("role", "user"), "name": row.get("name", "")}}
 
 @app.post("/reset-password")
 async def reset_password(req: ResetPasswordRequest):
-    """
-    Temporary OTP flow (currently accepts only '1234' as in frontend).
-    """
     sb = _require_supabase()
-    # The frontend calls /verify-otp prior to calling this endpoint.
     if len(req.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    res = sb.table("users").select("phone").eq("phone", req.phone).execute()
+    res = sb.table("users").select("email").eq("email", req.email).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="User not found")
-    sb.table("users").update({"password_hash": _hash_password(req.new_password)}).eq("phone", req.phone).execute()
+    sb.table("users").update({"password_hash": _hash_password(req.new_password)}).eq("email", req.email).execute()
     return {"status": "ok"}
 
 
 @app.post("/send-otp")
 async def send_otp(req: SendOtpRequest):
-    """
-    Sends OTP via Twilio Verify or 2Factor API and enforces 3/min per phone.
-    """
-    phone = (req.phone or "").strip()
-    if not _is_valid_phone(phone):
-        raise HTTPException(status_code=400, detail="Invalid phone number")
+    email = (req.email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
 
-    if not otp_rate_limiter.allow(phone):
+    if not otp_rate_limiter.allow(email):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait and try again.")
 
-    if req.channel == "2factor":
-        if not TWOFACTOR_API_KEY:
-            raise HTTPException(status_code=500, detail="2Factor API Key is not configured")
-        try:
-            otp = str(random.randint(100000, 999999))
-            url = f"https://2factor.in/API/V1/{TWOFACTOR_API_KEY}/SMS/{phone}/{otp}"
-            response = requests.get(url, timeout=10)
-            data = response.json()
-            if data.get("Status") == "Success":
-                OTP_CACHE[phone] = (otp, time.time() + (OTP_EXPIRY_MINUTES * 60))
-            else:
-                raise Exception("2Factor API returned failure")
-        except Exception as e:
-            logger.exception(f"2Factor error for phone={phone}")
-            raise HTTPException(status_code=500, detail="Failed to send OTP via 2Factor")
-    else:
-        if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_SERVICE_SID:
-            raise HTTPException(status_code=500, detail="Twilio credentials are not configured on the server")
-        # Send SMS via Twilio
-        try:
-            send_otp_twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SERVICE_SID, phone, "", channel=req.channel)
-        except Exception as e:
-            logger.exception(f"Twilio error for phone={phone}")
-            raise HTTPException(status_code=500, detail="Failed to send OTP")
+    try:
+        otp = str(random.randint(100000, 999999))
+        if send_otp_email(email, otp):
+            OTP_CACHE[email] = (otp, time.time() + (OTP_EXPIRY_MINUTES * 60))
+        else:
+            raise Exception("Email service failed")
+    except Exception as e:
+        logger.exception(f"Error sending OTP email to {email}")
+        raise HTTPException(status_code=500, detail="Failed to send OTP email")
 
     return {"status": "ok", "message": "OTP sent successfully"}
 
 
 @app.post("/verify-otp")
 async def verify_otp(req: VerifyOtpRequest):
-    phone = (req.phone or "").strip()
+    email = (req.email or "").strip().lower()
     otp = (req.otp or "").strip()
-    if not _is_valid_phone(phone):
-        raise HTTPException(status_code=400, detail="Invalid phone number")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
     if not otp.isdigit() or len(otp) != 6:
         raise HTTPException(status_code=400, detail="Invalid OTP format")
 
-    # Check 2Factor Cache first
-    if phone in OTP_CACHE:
-        cached_otp, expiry_time = OTP_CACHE[phone]
+    if email in OTP_CACHE:
+        cached_otp, expiry_time = OTP_CACHE[email]
         if time.time() > expiry_time:
-            del OTP_CACHE[phone]
+            del OTP_CACHE[email]
             raise HTTPException(status_code=400, detail="OTP expired")
         if cached_otp == otp:
-            del OTP_CACHE[phone]
+            del OTP_CACHE[email]
             return {"status": "ok", "message": "OTP verified successfully"}
         else:
             raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_SERVICE_SID:
-        raise HTTPException(status_code=500, detail="Twilio credentials are not configured on the server")
-
-    # Verify OTP via Twilio
-    try:
-        result = verify_otp_twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SERVICE_SID, phone, otp)
-        if not result.get("valid"):
-            raise HTTPException(status_code=400, detail="Invalid OTP")
-    except Exception as e:
-        logger.exception(f"OTP verification failed for phone={phone}")
-        raise HTTPException(status_code=500, detail="OTP verification failed")
-
-    return {"status": "ok", "message": "OTP verified successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
 @app.get("/me")
 async def me(user: Dict[str, Any] = Depends(verify_user)):

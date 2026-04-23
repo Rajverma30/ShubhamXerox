@@ -277,17 +277,15 @@ function updateNavForUser() {
   });
 }
 
-async function requestRegisterOTP(btn, defaultChannel = 'sms') {
-  const selectedRadio = document.querySelector('input[name="registerOtpService"]:checked');
-  const channel = selectedRadio ? selectedRadio.value : defaultChannel;
-  const phone = (document.getElementById('regPhone') || {}).value || '';
-  if (!/^\d{10}$/.test(phone)) {
-    showToast("Enter a valid 10-digit number first.");
+async function requestRegisterOTP(btn) {
+  const email = (document.getElementById('regEmail') || {}).value || '';
+  if (!email || !email.includes('@')) {
+    showToast("Enter a valid email address first.");
     return;
   }
   btn.classList.add('loading');
   try {
-    const res = await apiFetch("/send-otp", { method: "POST", body: { phone, channel }, auth: false });
+    const res = await apiFetch("/send-otp", { method: "POST", body: { email }, auth: false });
     showToast("OTP sent successfully.");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
@@ -296,17 +294,15 @@ async function requestRegisterOTP(btn, defaultChannel = 'sms') {
   }
 }
 
-async function requestForgotPasswordOTP(btn, defaultChannel = 'sms') {
-  const selectedRadio = document.querySelector('input[name="forgotOtpService"]:checked');
-  const channel = selectedRadio ? selectedRadio.value : defaultChannel;
-  const phone = (document.getElementById('forgotPhone') || {}).value || '';
-  if (!/^\d{10}$/.test(phone)) {
-    showToast("Enter a valid 10-digit number first.");
+async function requestForgotPasswordOTP(btn) {
+  const email = (document.getElementById('forgotEmail') || {}).value || '';
+  if (!email || !email.includes('@')) {
+    showToast("Enter a valid email address first.");
     return;
   }
   btn.classList.add('loading');
   try {
-    const res = await apiFetch("/send-otp", { method: "POST", body: { phone, channel }, auth: false });
+    const res = await apiFetch("/send-otp", { method: "POST", body: { email }, auth: false });
     showToast("OTP sent successfully.");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
@@ -318,45 +314,65 @@ async function requestForgotPasswordOTP(btn, defaultChannel = 'sms') {
 async function handleLogin(e) {
   e.preventDefault();
   const btn = document.getElementById('loginBtn');
-  if (btn) btn.classList.add('loading');
-  const phone = document.getElementById('phone').value;
+  let originalBtnText = "";
+  if (btn) {
+    originalBtnText = btn.innerHTML;
+    btn.classList.add('loading');
+    btn.innerHTML = '<span class="spinner"></span> Logging in...';
+  }
+  const identifier = document.getElementById('phone').value;
   const password = document.getElementById('loginPassword').value;
   try {
-    const data = await apiFetch("/login", { method: "POST", body: { phone, password }, auth: false });
+    const data = await apiFetch("/login", { method: "POST", body: { identifier, password }, auth: false });
     setAuthToken(data.token);
     currentUser = data.user || loadCurrentUserFromToken();
     window.location.href = (currentUser && currentUser.role === "admin") ? "admin.html" : "index.html";
   } catch (err) {
-    showToast(err.message || "Login failed");
-    if (btn) btn.classList.remove('loading');
+    showToast("Login failed");
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.innerHTML = originalBtnText;
+    }
   }
 }
 
 async function handleRegister(e) {
   e.preventDefault();
   const btn = document.getElementById('registerBtn');
-  if (btn) btn.classList.add('loading');
+  let originalBtnText = "";
+  if (btn) {
+    originalBtnText = btn.innerHTML;
+    btn.classList.add('loading');
+    btn.innerHTML = '<span class="spinner"></span> Registering...';
+  }
   const name = document.getElementById('regName').value;
   const phone = document.getElementById('regPhone').value;
+  const email = document.getElementById('regEmail').value;
   const otp = document.getElementById('regOtp').value;
   const password = document.getElementById('regPassword').value;
   const confirmPassword = document.getElementById('regConfirmPassword').value;
 
   try {
-    await apiFetch("/verify-otp", { method: "POST", body: { phone, otp }, auth: false });
+    await apiFetch("/verify-otp", { method: "POST", body: { email, otp }, auth: false });
   } catch (err) {
     showToast(err.message || "Invalid OTP");
-    if (btn) btn.classList.remove('loading');
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.innerHTML = originalBtnText;
+    }
     return;
   }
   try {
-    const data = await apiFetch("/register", { method: "POST", body: { phone, name, password }, auth: false });
+    const data = await apiFetch("/register", { method: "POST", body: { phone, email, name, password }, auth: false });
     setAuthToken(data.token);
     currentUser = data.user || loadCurrentUserFromToken();
     window.location.href = "index.html";
   } catch (err) {
     showToast(err.message || "Registration failed");
-    if (btn) btn.classList.remove('loading');
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.innerHTML = originalBtnText;
+    }
   }
 }
 
@@ -364,20 +380,20 @@ async function handleForgotPassword(e) {
   e.preventDefault();
   const btn = document.getElementById('resetBtn');
   if (btn) btn.classList.add('loading');
-  const phone = document.getElementById('forgotPhone').value;
+  const email = document.getElementById('forgotEmail').value;
   const otp = document.getElementById('forgotOtp').value;
   const newPassword = document.getElementById('forgotNewPassword').value;
   const confirmPassword = document.getElementById('forgotConfirmPassword').value;
 
   try {
-    await apiFetch("/verify-otp", { method: "POST", body: { phone, otp }, auth: false });
+    await apiFetch("/verify-otp", { method: "POST", body: { email, otp }, auth: false });
   } catch (err) {
     showToast(err.message || "Invalid OTP");
     if (btn) btn.classList.remove('loading');
     return;
   }
   try {
-    await apiFetch("/reset-password", { method: "POST", body: { phone, otp, new_password: newPassword }, auth: false });
+    await apiFetch("/reset-password", { method: "POST", body: { email, otp, new_password: newPassword }, auth: false });
     showToast("Password reset successful. Login now.");
     const forgotForm = document.getElementById('forgotPasswordForm');
     if (forgotForm) forgotForm.reset();
@@ -1022,16 +1038,51 @@ async function handleAddProduct(e) {
   const pdfPreviewInput = document.getElementById('bookPdfPreview');
   const previewPdfFile = pdfPreviewInput && pdfPreviewInput.files ? pdfPreviewInput.files[0] : null;
 
-  const readImage = (input) => {
+  window.compressImage = function(file) {
     return new Promise((resolve) => {
-      if (input && input.files && input.files[0]) {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.readAsDataURL(input.files[0]);
-      } else {
+      if (!file) {
         resolve(null);
+        return;
       }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1200;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = () => resolve(null);
+        img.src = e.target.result;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
     });
+  };
+
+  const readImage = async (input) => {
+    if (input && input.files && input.files[0]) {
+      return await window.compressImage(input.files[0]);
+    }
+    return null;
   };
 
   const images = await Promise.all([
@@ -1210,9 +1261,8 @@ async function handleEditProduct(e) {
   };
 
   if (fileInput.files && fileInput.files[0]) {
-    const reader = new FileReader();
-    reader.onload = function (evt) { updateNode(evt.target.result); };
-    reader.readAsDataURL(fileInput.files[0]);
+    const compressed = await window.compressImage(fileInput.files[0]);
+    updateNode(compressed);
   } else {
     updateNode(imgUrl);
   }
