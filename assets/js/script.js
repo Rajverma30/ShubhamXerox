@@ -211,18 +211,22 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 
 // --- Data Fetching logic ---
 async function fetchProducts() {
+  const supabase = getSupabase();
+  if (!supabase) {
+    products = [...defaultProducts];
+    return;
+  }
   try {
-    const data = await apiFetch('/products', { method: 'GET', auth: false });
-    if (data && data.products && data.products.length > 0) {
-      products = data.products;
+    const { data, error } = await supabase.from('products').select('*').order('id', { ascending: true });
+    if (data && data.length > 0) {
+      products = data;
     } else {
-      products = [];
+      products = [...defaultProducts];
     }
   } catch (e) {
     console.error("Failed to fetch products:", e);
-    products = [];
+    products = [...defaultProducts];
   }
-  // Clear any existing localStorage data that might repopulate the products
   localStorage.removeItem('shubham_products');
 }
 

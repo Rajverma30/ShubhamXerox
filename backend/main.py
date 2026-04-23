@@ -421,14 +421,18 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
 
 @app.get("/products")
 async def list_public_products():
-    sb = _require_supabase()
-    res = sb.table("products").select("*").order("id").execute()
-    return {"products": res.data or []}
+    try:
+        sb = _require_supabase()
+        res = sb.table("products").select("*").execute()
+        return {"products": res.data or []}
+    except Exception as e:
+        logger.exception("Error fetching products")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/products")
 async def admin_list_products(_admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
-    res = sb.table("products").select("*").order("id").execute()
+    res = sb.table("products").select("*").execute()
     return {"products": res.data or []}
 
 @app.post("/admin/products")
