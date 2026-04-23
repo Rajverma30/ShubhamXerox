@@ -213,7 +213,7 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 async function fetchProducts() {
   const supabase = getSupabase();
   if (!supabase) {
-    products = [...defaultProducts];
+    products = [];
     return;
   }
   try {
@@ -221,11 +221,11 @@ async function fetchProducts() {
     if (data && data.length > 0) {
       products = data;
     } else {
-      products = [...defaultProducts];
+      products = [];
     }
   } catch (e) {
     console.error("Failed to fetch products:", e);
-    products = [...defaultProducts];
+    products = [];
   }
   localStorage.removeItem('shubham_products');
 }
