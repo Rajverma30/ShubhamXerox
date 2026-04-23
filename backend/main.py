@@ -19,9 +19,6 @@ import jwt
 from config import (
     SUPABASE_URL,
     SUPABASE_KEY,
-    TWILIO_ACCOUNT_SID,
-    TWILIO_AUTH_TOKEN,
-    TWILIO_SERVICE_SID,
     RAZORPAY_KEY_ID,
     RAZORPAY_KEY_SECRET,
     RAZORPAY_WEBHOOK_SECRET,
@@ -30,7 +27,6 @@ from config import (
     ADMIN_DEFAULT_PASSWORD,
     OTP_EXPIRY_MINUTES,
     OTP_RATE_LIMIT_PER_MINUTE,
-    TWOFACTOR_API_KEY,
 )
 from utils.otp import generate_and_hash_otp, hash_otp
 from utils.email_service import send_otp_email
