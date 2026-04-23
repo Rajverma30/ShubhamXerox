@@ -1225,16 +1225,20 @@ async function handleAddProduct(e) {
   }
 }
 
-async function removeProduct(id) {
-  const shouldDelete = await showConfirmDialog('Are you sure you want to delete this book?', 'Delete Book');
+async function removeProduct(id, name) {
+  const shouldDelete = await showConfirmDialog(`Are you sure you want to delete "${name || 'this book'}"?`, 'Delete Book');
   if (!shouldDelete) return;
+  
+  showGlobalLoader(true, name ? `Say bye bye to ${name} 👋` : 'Deleting...');
   try {
     await apiFetch(`/admin/products/${id}`, { method: "DELETE" });
   } catch (err) {
+    showGlobalLoader(false);
     showToast(err.message || "Delete failed");
     return;
   }
   await renderAdminList();
+  showGlobalLoader(false);
 }
 
 async function renderAdminList() {
@@ -1258,7 +1262,7 @@ async function renderAdminList() {
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${p.id})">Edit</button>
-          <button class="remove-btn" onclick="removeProduct(${p.id})">Delete</button>
+          <button class="remove-btn" onclick="removeProduct(${p.id}, '${p.name ? p.name.replace(/'/g, "\\'") : ''}')">Delete</button>
         </div>
       </div>
     `).join('');
@@ -1558,14 +1562,17 @@ async function renderAdminReturns(useCache = false) {
 
 window.deleteOrder = async function (orderId) {
   if (!confirm('Delete this order? This cannot be undone.')) return;
+  showGlobalLoader(true, `Say bye bye to ${orderId} 👋`);
   try {
     await apiFetch(`/admin/orders/${encodeURIComponent(orderId)}?order_type=books`, { method: "DELETE" });
   } catch (err) {
+    showGlobalLoader(false);
     showToast(err.message || "Delete failed");
     return;
   }
   showToast('Order deleted.');
   await renderAdminOrders();
+  showGlobalLoader(false);
 };
 
 window.updateOrderStatus = async function (orderId, newStatus) {
@@ -3135,7 +3142,7 @@ async function loadAdminFreeNotes() {
         </div>
         <div style="font-size:0.8rem; color:var(--text-muted);"><a href="${note.file_url}" target="_blank" style="color:var(--primary); text-decoration:underline;">View PDF</a> • Added: ${new Date(note.created_at).toLocaleDateString()}</div>
       </div>
-      <button class="remove-btn" onclick="deleteFreeNote('${note.id}')" style="padding:8px 16px;">Delete</button>
+      <button class="remove-btn" onclick="deleteFreeNote('${note.id}', '${note.title ? note.title.replace(/'/g, "\\'") : ''}')" style="padding:8px 16px;">Delete</button>
     </div>
   `).join('');
 }
@@ -3204,9 +3211,11 @@ if (addFreeNoteForm) {
   });
 }
 
-window.deleteFreeNote = async function (id) {
-  const shouldDelete = await showConfirmDialog('Are you sure you want to delete this note?', 'Delete Note');
+window.deleteFreeNote = async function (id, title) {
+  const shouldDelete = await showConfirmDialog(`Are you sure you want to delete "${title || 'this note'}"?`, 'Delete Note');
   if (!shouldDelete) return;
+  
+  showGlobalLoader(true, title ? `Say bye bye to ${title} 👋` : 'Deleting...');
   const supabase = getSupabase();
   if (supabase) {
     try {
@@ -3235,6 +3244,35 @@ window.deleteFreeNote = async function (id) {
       loadAdminFreeNotes();
     }
   }
+  showGlobalLoader(false);
+}
+
+function showGlobalLoader(show, msg) {
+  let loader = document.getElementById('globalFullscreenLoader');
+  if (!loader) {
+    loader = document.createElement('div');
+    loader.id = 'globalFullscreenLoader';
+    loader.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px;">
+        <span class="spinner" style="width: 50px; height: 50px; border-width: 4px;"></span>
+        <div id="globalLoaderText" style="color: white; font-size: 1.4rem; font-weight: 700; text-align: center; text-shadow: 0 2px 10px rgba(0,0,0,0.5);"></div>
+      </div>
+    `;
+    loader.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 999999; display: flex; align-items: center; justify-content: center; transition: opacity 0.3s ease;';
+    document.body.appendChild(loader);
+  }
+  
+  const textEl = document.getElementById('globalLoaderText');
+  if (textEl) {
+    if (msg) {
+      textEl.textContent = msg;
+      textEl.style.display = 'block';
+    } else {
+      textEl.style.display = 'none';
+    }
+  }
+
+  loader.style.display = show ? 'flex' : 'none';
 }
 
 // Hook them into DOMContentLoaded
@@ -3959,6 +3997,7 @@ async function renderAdminPhotocopyOrders(useCache = false) {
 window.deletePhotocopyOrder = async function (orderId, docPathEncoded) {
   if (!confirm('Delete this photocopy order and its attached PDF? This cannot be undone.')) return;
 
+  showGlobalLoader(true, `Say bye bye to ${orderId} 👋`);
   const supabase = getSupabase();
   if (supabase) {
     // 1. Delete PDF from storage (if exists)
@@ -3974,11 +4013,13 @@ window.deletePhotocopyOrder = async function (orderId, docPathEncoded) {
   try {
     await apiFetch(`/admin/orders/${encodeURIComponent(orderId)}?order_type=photocopy`, { method: "DELETE" });
   } catch (err) {
+    showGlobalLoader(false);
     showToast(err.message || "Delete failed");
     return;
   }
   showToast('Order and PDF deleted successfully.');
   await renderAdminPhotocopyOrders();
+  showGlobalLoader(false);
 };
 
 window.updatePhotocopyStatus = async function (orderId, newStatus) {
@@ -4291,5 +4332,16 @@ function purchaseNote(id, price, title) {
     }
   });
 }
+
+function updateHeroRates() {
+  const bwEl = document.getElementById('heroRateBw');
+  const colorEl = document.getElementById('heroRateColor');
+  if (bwEl && colorEl) {
+    const rates = getCeRates();
+    bwEl.textContent = `₹${rates.bw}`;
+    colorEl.textContent = `₹${rates.color}`;
+  }
+}
+document.addEventListener('DOMContentLoaded', updateHeroRates);
 
 

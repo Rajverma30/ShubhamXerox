@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -88,6 +88,20 @@
           </svg>
           Contact on WhatsApp
         </a>
+      </div>
+      <div id="heroRatesDisplay" style="margin-top: 24px; display: inline-flex; align-items: center; gap: 16px; background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 8px 20px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.15); font-size: 0.95rem; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: fadeIn 1s ease forwards;">
+        <span style="font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          Today's Rate
+        </span>
+        <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.3);"></div>
+        <span style="display: flex; align-items: center; gap: 4px;">
+          <span style="opacity: 0.8;">B&W:</span> <strong id="heroRateBw" style="font-size: 1.05rem; letter-spacing: 0.5px;">₹...</strong>
+        </span>
+        <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.3);"></div>
+        <span style="display: flex; align-items: center; gap: 4px;">
+          <span style="opacity: 0.8;">Colour:</span> <strong id="heroRateColor" style="font-size: 1.05rem; letter-spacing: 0.5px;">₹...</strong>
+        </span>
       </div>
     </div>
   </header>
@@ -264,6 +278,9 @@
     <div class="container"
       style="border-top: 1px solid #434345; margin-top: 40px; padding-top: 20px; font-size: 0.8rem; text-align: center;">
       <p>&copy; 2026 Shubham Xerox. All rights reserved.</p>
+      <p style="margin-top: 8px; font-size: 0.9rem; color: #a1a1aa;">
+        Made with <span style="color: #ef4444;">&hearts;</span> by <a href="https://nexus-tech-web.vercel.app/" target="_blank" style="color: #38bdf8; text-decoration: none; font-weight: 600; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">Nexus Tech</a>
+      </p>
     </div>
   </footer>
 
