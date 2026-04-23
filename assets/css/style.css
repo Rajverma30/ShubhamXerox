@@ -323,8 +323,15 @@ button {
 }
 
 .btn-secondary:hover {
-  background-color: #f9f9f9;
-  border-color: #d2d2d7;
+  background-color: var(--dropdown-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* --- WhatsApp Float Button --- */
@@ -694,8 +701,8 @@ button {
     margin-top: 8px;
     border-top: 1px solid var(--border-color);
     gap: 20px;
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
   .nav-links a {
     white-space: nowrap;
@@ -705,13 +712,18 @@ button {
   
   .nav-links .nav-dropdown-menu {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 250px;
+    top: 115px;
+    right: 15px;
+    left: auto;
+    transform: none;
+    width: 230px;
     z-index: 99999;
     box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-    border: 1px solid var(--primary);
+    border: 1px solid var(--border-color);
+    background: rgba(17, 20, 30, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: var(--radius-md);
   }
   
   .section-title { font-size: 2rem; }

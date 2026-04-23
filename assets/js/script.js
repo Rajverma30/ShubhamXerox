@@ -211,26 +211,54 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 
 // --- Data Fetching logic ---
 async function fetchProducts() {
+  // Try to load previously fetched REAL Supabase data from cache
+  const cachedData = localStorage.getItem('shubham_real_products_cache');
+  if (cachedData) {
+    try {
+      const parsed = JSON.parse(cachedData);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        products = parsed;
+      }
+    } catch(e) {}
+  }
+
   const supabase = getSupabase();
   if (!supabase) return;
 
   try {
+    // Fetch fresh data from Supabase in the background
     const { data, error } = await supabase.from('products').select('*').order('id', { ascending: true });
     
     if (error) {
       console.error("Supabase Error:", error);
-      products = [];
+      if (products.length === 0) products = [];
       return;
     }
 
     if (data && data.length > 0) {
       products = data;
+      // Save the REAL Supabase data to cache for next time to prevent slow 37MB loading
+      try {
+        localStorage.setItem('shubham_real_products_cache', JSON.stringify(products));
+      } catch (cacheErr) {
+        console.warn("Could not cache products (payload too large for localStorage)");
+      }
+      
+      // Force UI update once the heavy download finishes
+      if (document.getElementById('featuredProducts')) {
+        renderProductsGrid('featuredProducts', 4);
+      }
+      if (document.getElementById('allProductsContainer')) {
+        let oldCategories = [...selectedCategories];
+        renderMultiSelect();
+        renderProductsGrid('allProductsContainer', null, oldCategories);
+      }
     } else {
-      products = [];
+      if (products.length === 0) products = [];
     }
   } catch (e) {
     console.error("Supabase fetch exception:", e);
-    products = [];
+    if (products.length === 0) products = [];
   }
 }
 
@@ -287,14 +315,32 @@ async function requestRegisterOTP(btn) {
     showToast("Enter a valid email address first.");
     return;
   }
-  btn.classList.add('loading');
+  
+  const originalText = btn.innerHTML;
+  btn.classList.remove('loading'); // remove default loading class if any
+  btn.disabled = true;
+  
+  // Start countdown IMMEDIATELY upon click
+  let timeLeft = 30;
+  btn.innerText = `OTP Sent (${timeLeft}s)`;
+  
+  const interval = setInterval(() => {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      clearInterval(interval);
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    } else {
+      btn.innerText = `OTP Sent (${timeLeft}s)`;
+    }
+  }, 1000);
+  
   try {
-    const res = await apiFetch("/send-otp", { method: "POST", body: { email }, auth: false });
+    await apiFetch("/send-otp", { method: "POST", body: { email }, auth: false });
     showToast("OTP sent successfully.");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
-  } finally {
-    btn.classList.remove('loading');
+    // We do NOT clear the interval here, we force them to wait 30s before retrying
   }
 }
 
@@ -304,14 +350,32 @@ async function requestForgotPasswordOTP(btn) {
     showToast("Enter a valid email address first.");
     return;
   }
-  btn.classList.add('loading');
+  
+  const originalText = btn.innerHTML;
+  btn.classList.remove('loading');
+  btn.disabled = true;
+  
+  // Start countdown IMMEDIATELY upon click
+  let timeLeft = 30;
+  btn.innerText = `OTP Sent (${timeLeft}s)`;
+  
+  const interval = setInterval(() => {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      clearInterval(interval);
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    } else {
+      btn.innerText = `OTP Sent (${timeLeft}s)`;
+    }
+  }, 1000);
+  
   try {
-    const res = await apiFetch("/send-otp", { method: "POST", body: { email }, auth: false });
+    await apiFetch("/send-otp", { method: "POST", body: { email }, auth: false });
     showToast("OTP sent successfully.");
   } catch (err) {
     showToast(err.message || "Failed to send OTP");
-  } finally {
-    btn.classList.remove('loading');
+    // Force them to wait 30s even if it fails, to prevent spam
   }
 }
 
@@ -423,12 +487,12 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getAuthToken()}` },
       body: JSON.stringify({ amount: amount, currency: "INR" })
     });
-    
+
     if (!createRes.ok) {
       const err = await createRes.json();
       throw new Error(err.detail || "Failed to create payment order");
     }
-    
+
     const { order_id, key_id, amount: rzpAmount } = await createRes.json();
 
     // 2. Open Razorpay Checkout Widget
@@ -454,7 +518,7 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
               order_data: orderData
             })
           });
-          
+
           if (verifyRes.ok) {
             onComplete(true, response.razorpay_payment_id);
           } else {
@@ -474,7 +538,7 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
       },
       theme: { color: "#3399cc" },
       modal: {
-        ondismiss: function() {
+        ondismiss: function () {
           showToast("Payment interface closed safely.");
           onComplete(false);
         }
@@ -482,10 +546,10 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
     };
 
     const rzp = new Razorpay(options);
-    rzp.on('payment.failed', function (response){
-        console.error("Payment failed", response.error);
-        showToast("Payment Failed: " + response.error.description);
-        onComplete(false);
+    rzp.on('payment.failed', function (response) {
+      console.error("Payment failed", response.error);
+      showToast("Payment Failed: " + response.error.description);
+      onComplete(false);
     });
     rzp.open();
 
@@ -1018,7 +1082,30 @@ async function generatePreviewImagesFromPdf(file, pageLimit = 3) {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: ctx, viewport }).promise;
-    images.push(canvas.toDataURL('image/jpeg', 0.85));
+    
+    // Compress and resize the extracted image to max 1200x1200
+    const MAX_WIDTH = 1200;
+    const MAX_HEIGHT = 1200;
+    let width = canvas.width;
+    let height = canvas.height;
+    
+    if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+      if (width > height) {
+        height *= MAX_WIDTH / width;
+        width = MAX_WIDTH;
+      } else {
+        width *= MAX_HEIGHT / height;
+        height = MAX_HEIGHT;
+      }
+      const compressedCanvas = document.createElement('canvas');
+      compressedCanvas.width = width;
+      compressedCanvas.height = height;
+      const compressedCtx = compressedCanvas.getContext('2d');
+      compressedCtx.drawImage(canvas, 0, 0, width, height);
+      images.push(compressedCanvas.toDataURL('image/jpeg', 0.8));
+    } else {
+      images.push(canvas.toDataURL('image/jpeg', 0.8));
+    }
   }
   return images;
 }
@@ -1034,101 +1121,101 @@ async function handleAddProduct(e) {
   }
 
   try {
-  const name = document.getElementById('name').value;
-  const price = parseFloat(document.getElementById('price').value);
-  const rawOriginal = document.getElementById('originalPrice').value;
-  const original_price = rawOriginal ? parseFloat(rawOriginal) : null;
-  const category = document.getElementById('category').value;
-  let imgUrl = document.getElementById('img').value;
-  const pdfPreviewInput = document.getElementById('bookPdfPreview');
-  const previewPdfFile = pdfPreviewInput && pdfPreviewInput.files ? pdfPreviewInput.files[0] : null;
+    const name = document.getElementById('name').value;
+    const price = parseFloat(document.getElementById('price').value);
+    const rawOriginal = document.getElementById('originalPrice').value;
+    const original_price = rawOriginal ? parseFloat(rawOriginal) : null;
+    const category = document.getElementById('category').value;
+    let imgUrl = document.getElementById('img').value;
+    const pdfPreviewInput = document.getElementById('bookPdfPreview');
+    const previewPdfFile = pdfPreviewInput && pdfPreviewInput.files ? pdfPreviewInput.files[0] : null;
 
-  window.compressImage = function(file) {
-    return new Promise((resolve) => {
-      if (!file) {
-        resolve(null);
+    window.compressImage = function (file) {
+      return new Promise((resolve) => {
+        if (!file) {
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1200;
+            const MAX_HEIGHT = 1200;
+            let width = img.width;
+            let height = img.height;
+            if (width > height) {
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+            } else {
+              if (height > MAX_HEIGHT) {
+                width *= MAX_HEIGHT / height;
+                height = MAX_HEIGHT;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+          };
+          img.onerror = () => resolve(null);
+          img.src = e.target.result;
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+    };
+
+    const readImage = async (input) => {
+      if (input && input.files && input.files[0]) {
+        return await window.compressImage(input.files[0]);
+      }
+      return null;
+    };
+
+    const images = await Promise.all([
+      readImage(document.getElementById('imgUpload1')),
+      readImage(document.getElementById('imgUpload2')),
+      readImage(document.getElementById('imgUpload3'))
+    ]);
+
+    let finalImages = images.filter(Boolean);
+    if (finalImages.length === 0) {
+      if (imgUrl) {
+        finalImages = [imgUrl];
+      } else if (previewPdfFile) {
+        finalImages = await generatePreviewImagesFromPdf(previewPdfFile, 3);
+        if (finalImages.length) {
+          showToast('Created 3 preview images from PDF.');
+        }
+      }
+      if (finalImages.length === 0) {
+        finalImages = ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
+      }
+    }
+
+    const finalImg = finalImages.join('|');
+
+    const addNode = async (imageSrc) => {
+      const payload = { name, price, category, img: imageSrc };
+      if (original_price) payload.original_price = original_price;
+      try {
+        await apiFetch("/admin/products", { method: "POST", body: payload });
+        showToast("Product added successfully!");
+      } catch (err) {
+        showToast(err.message || "Failed to add product");
+        console.error(err);
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200;
-          const MAX_HEIGHT = 1200;
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-        img.onerror = () => resolve(null);
-        img.src = e.target.result;
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    });
-  };
+      e.target.reset();
+      if (document.getElementById('adminProductsList')) await renderAdminList();
+    };
 
-  const readImage = async (input) => {
-    if (input && input.files && input.files[0]) {
-      return await window.compressImage(input.files[0]);
-    }
-    return null;
-  };
-
-  const images = await Promise.all([
-    readImage(document.getElementById('imgUpload1')),
-    readImage(document.getElementById('imgUpload2')),
-    readImage(document.getElementById('imgUpload3'))
-  ]);
-
-  let finalImages = images.filter(Boolean);
-  if (finalImages.length === 0) {
-    if (imgUrl) {
-      finalImages = [imgUrl];
-    } else if (previewPdfFile) {
-      finalImages = await generatePreviewImagesFromPdf(previewPdfFile, 3);
-      if (finalImages.length) {
-        showToast('Created 3 preview images from PDF.');
-      }
-    }
-    if (finalImages.length === 0) {
-      finalImages = ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
-    }
-  }
-
-  const finalImg = finalImages.join('|');
-
-  const addNode = async (imageSrc) => {
-    const payload = { name, price, category, img: imageSrc };
-    if (original_price) payload.original_price = original_price;
-    try {
-      await apiFetch("/admin/products", { method: "POST", body: payload });
-      showToast("Product added successfully!");
-    } catch (err) {
-      showToast(err.message || "Failed to add product");
-      console.error(err);
-      return;
-    }
-    e.target.reset();
-    if (document.getElementById('adminProductsList')) await renderAdminList();
-  };
-
-  await addNode(finalImg);
+    await addNode(finalImg);
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
@@ -1308,7 +1395,7 @@ async function renderAdminOrders(useCache = false) {
   }
 
   window.ordersListContext = dbOrders;
-  
+
   const q = getTrimmedInputValue('adminOrdersSearch').toLowerCase();
 
   // Filter out any orders that are ONLY PDFs
@@ -1724,20 +1811,20 @@ async function renderTopSellingBooks() {
 }
 
 // Excel CSV Exporter
-window.exportOrdersToCSV = async function(filterType = 'all') {
+window.exportOrdersToCSV = async function (filterType = 'all') {
   const supabase = getSupabase();
   if (!supabase) return alert("Database not connected!");
-  
+
   try {
     let stdFilter = '*';
     let photoFilter = '*';
-    
+
     const { data: stdOrders } = await supabase.from('orders').select(stdFilter);
     const { data: photoOrders } = await supabase.from('photocopy_orders').select(photoFilter);
-    
+
     let csvRows = [];
     csvRows.push(['Order ID', 'Type', 'Customer Name', 'Phone No.', 'Items/Details', 'Total (Rs)', 'Status', 'Date', 'Time']);
-    
+
     if (stdOrders) {
       stdOrders.forEach(o => {
         let isPending = o.status !== 'Delivered' && o.status !== 'Cancelled' && o.status !== 'Returned';
@@ -1797,8 +1884,8 @@ window.exportOrdersToCSV = async function(filterType = 'all') {
     }
 
     let fName = "All";
-    if(filterType === 'pending') fName = "Pending";
-    if(filterType === 'completed') fName = "Completed";
+    if (filterType === 'pending') fName = "Pending";
+    if (filterType === 'completed') fName = "Completed";
     const dateStringForFile = new Date().toLocaleDateString('en-GB').split('/').join('-');
     const fileName = `Shubham_Xerox_${fName}_Orders_${dateStringForFile}.xlsx`;
 
@@ -1822,13 +1909,13 @@ window.exportOrdersToCSV = async function(filterType = 'all') {
         document.body.removeChild(link);
       }
     }
-  } catch(e) {
+  } catch (e) {
     console.error("Export error", e);
     alert("Failed to export data.");
   }
 };
 
-window.renderPaidPDFLog = function(pdfOrders) {
+window.renderPaidPDFLog = function (pdfOrders) {
   const container = document.getElementById('paidPdfOrdersList');
   if (!container) return;
   if (!pdfOrders || pdfOrders.length === 0) {
@@ -1845,12 +1932,12 @@ window.renderPaidPDFLog = function(pdfOrders) {
   }
 
   // Sort descending by date
-  filtered.sort((a,b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
+  filtered.sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
 
   container.innerHTML = filtered.map(o => {
     let pdfNames = '';
     if (o.items && Array.isArray(o.items)) {
-       pdfNames = o.items.filter(i => i.type === 'note').map(i => i.name).join(', ');
+      pdfNames = o.items.filter(i => i.type === 'note').map(i => i.name).join(', ');
     }
     const d = new Date(o.created_at || o.date);
     return `
@@ -1866,7 +1953,7 @@ window.renderPaidPDFLog = function(pdfOrders) {
       </div>
       <div style="text-align: right;">
         <div style="font-weight:700; color:#10b981; font-size:1.1rem;">₹${o.total}</div>
-        <div style="font-size:0.8rem; color:var(--text-muted);">${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted);">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
     </div>`;
   }).join('');
@@ -1931,7 +2018,7 @@ async function renderAdminDashboard() {
       const penEl = document.getElementById('statPendingRevenue');
       const pdfEl = document.getElementById('statPdfSold');
       const bkEl = document.getElementById('statDeliveredBooks');
-      
+
       if (revEl) revEl.innerText = '₹' + Math.floor(totalRevenue).toLocaleString('en-IN');
       if (penEl) penEl.innerText = '₹' + Math.floor(pendingRevenue).toLocaleString('en-IN');
       if (pdfEl) pdfEl.innerText = String(paidPdfsSold);
@@ -2205,11 +2292,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.requestRegisterOTP = requestRegisterOTP;
   window.requestForgotPasswordOTP = requestForgotPasswordOTP;
 
-  try {
-    await fetchProducts();
-  } catch (e) {
-    console.error("fetchProducts error", e);
-  }
+  // Fetch in background without blocking rendering
+  fetchProducts().catch(e => console.error("fetchProducts error", e));
 
   if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
 
@@ -2219,7 +2303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (catParam) {
       selectedCategories = [catParam];
     }
-    
+
     try {
       renderMultiSelect();
     } catch (e) {
@@ -2327,7 +2411,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const imgs = product.img ? product.img.split('|') : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
       let imgGalleryHtml = '';
-      if(imgs.length > 1) {
+      if (imgs.length > 1) {
         imgGalleryHtml = `
           <div class="product-slider-container" style="position:relative; width:100%;">
             <div class="product-slider-main">
@@ -2335,7 +2419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             <div class="product-slider-thumbs" style="display:flex; gap:10px; margin-top:15px; overflow-x:auto;">
               ${imgs.map((src, i) => `
-                <img src="${src.trim()}" onclick="document.getElementById('mainProductImg').src='${src.trim()}'; document.querySelectorAll('.product-slider-thumbs img').forEach(el=>el.style.borderColor='transparent'); this.style.borderColor='var(--primary)';" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i===0 ? 'var(--primary)' : 'transparent'};">
+                <img src="${src.trim()}" onclick="document.getElementById('mainProductImg').src='${src.trim()}'; document.querySelectorAll('.product-slider-thumbs img').forEach(el=>el.style.borderColor='transparent'); this.style.borderColor='var(--primary)';" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i === 0 ? 'var(--primary)' : 'transparent'};">
               `).join('')}
             </div>
           </div>
@@ -2444,16 +2528,16 @@ document.addEventListener('DOMContentLoaded', async () => {
           let val = parseInt(star.getAttribute('data-value'));
           ratingInput.value = val;
           stars.forEach(s => {
-             if(parseInt(s.getAttribute('data-value')) <= val) {
-                s.style.color = '#ffc107';
-             } else {
-                s.style.color = '#ccc';
-             }
+            if (parseInt(s.getAttribute('data-value')) <= val) {
+              s.style.color = '#ffc107';
+            } else {
+              s.style.color = '#ccc';
+            }
           });
         });
       });
       // Initial 5 star select
-      if(stars.length > 4) stars[4].click();
+      if (stars.length > 4) stars[4].click();
 
       document.getElementById('reviewForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -3072,7 +3156,7 @@ if (addFreeNoteForm) {
 
     btn.disabled = true;
     btnText.textContent = 'Uploading...';
-    
+
     const isPaid = typeInput && typeInput.value === 'paid';
     const price = isPaid && priceInput ? parseFloat(priceInput.value) || 0 : 0;
 
@@ -3096,7 +3180,7 @@ if (addFreeNoteForm) {
         };
 
         let { error: dbError } = await supabase.from('free_notes').insert(payload);
-        
+
         if (dbError && dbError.message && dbError.message.includes('is_paid')) {
           delete payload.is_paid;
           delete payload.price;
@@ -3125,6 +3209,25 @@ window.deleteFreeNote = async function (id) {
   if (!shouldDelete) return;
   const supabase = getSupabase();
   if (supabase) {
+    try {
+      // 1. Fetch note to get the file URL
+      const { data: noteData } = await supabase.from('free_notes').select('file_url').eq('id', id).single();
+      if (noteData && noteData.file_url) {
+        // Extract the filename from the public URL
+        const fileUrl = noteData.file_url;
+        const parts = fileUrl.split('/');
+        const fileName = parts[parts.length - 1];
+        
+        if (fileName) {
+          // 2. Delete from Storage bucket
+          await supabase.storage.from('free-notes').remove([fileName]);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not delete PDF from storage:", e);
+    }
+
+    // 3. Delete from DB
     const { error } = await supabase.from('free_notes').delete().eq('id', id);
     if (error) showToast("Error deleting note.");
     else {
@@ -3350,7 +3453,7 @@ window.openScanner = async function () {
     scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
     const scannerVideo = document.getElementById('scannerVideo');
     scannerVideo.srcObject = scannerStream;
-    try { await scannerVideo.play(); } catch(e) { console.debug('Autoplay needed mute/interaction'); }
+    try { await scannerVideo.play(); } catch (e) { console.debug('Autoplay needed mute/interaction'); }
     resetScannerUI();
   } catch (err) {
     console.error("Camera error:", err);
@@ -3378,13 +3481,13 @@ window.captureScannerFrame = function () {
   const video = document.getElementById('scannerVideo');
   const canvas = document.getElementById('scannerPreviewCanvas');
   const ctx = canvas.getContext('2d');
-  
+
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  
+
   // Capture the full raw feed that the user framed
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  
+
   // Basic Enhancement (Grayscale & High Contrast)
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imgData.data;
@@ -3392,9 +3495,9 @@ window.captureScannerFrame = function () {
     let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
     avg = avg < 128 ? avg * 0.8 : avg * 1.2;
     if (avg > 255) avg = 255;
-    data[i] = avg;       
-    data[i + 1] = avg;   
-    data[i + 2] = avg;   
+    data[i] = avg;
+    data[i + 1] = avg;
+    data[i + 2] = avg;
   }
   ctx.putImageData(imgData, 0, 0);
 
@@ -3419,32 +3522,32 @@ window.acceptScannerFrame = function () {
 
 window.finishScanner = function () {
   if (scannerImages.length === 0) return;
-  
+
   const jsPDF = window.jspdf.jsPDF;
   if (!jsPDF) {
     showToast("Wait for PDF lib to load...");
     return;
   }
-  
+
   const doc = new jsPDF({ format: 'a4', unit: 'mm' });
   const a4w = 210, a4h = 297;
-  
+
   scannerImages.forEach((imgDataUrl, i) => {
     if (i > 0) doc.addPage();
     doc.addImage(imgDataUrl, 'JPEG', 0, 0, a4w, a4h);
   });
-  
+
   const pdfBlob = doc.output('blob');
   ceState.pdfFiles = [new File([pdfBlob], "Scanned_Document.pdf", { type: "application/pdf" })];
   ceState.pages = scannerImages.length;
   ceState.manualPages = 0;
-  
+
   document.getElementById('ceUploadText').textContent = `\u2705 Scanned_Document.pdf`;
   document.getElementById('ceUploadZone').classList.add('has-file');
   document.getElementById('cePageCount').textContent = ceState.pages;
   document.getElementById('ceFileName').textContent = "Scanned_Document.pdf";
   document.getElementById('cePageInfo').style.display = 'flex';
-  
+
   closeScanner();
   recalcEstimate();
 };
@@ -3508,7 +3611,7 @@ window.recalcEstimate = function () {
   document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ' pages (Double-Sided discounted)' : ' pages');
   document.getElementById('ceResCopies').textContent = ceState.copies;
   document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'})`;
-  
+
   let totalDesc = `\u20B9${ceState.totalCost.toFixed(2)}`;
   if (ceState.deliveryMode === 'delivery') {
     totalDesc = `\u20B9${ceState.totalCost.toFixed(2)} (incl. \u20B9${DELIVERY_FEE} Delivery)`;
@@ -3998,57 +4101,57 @@ function addPdfWatermark(ctx, canvas) {
   ctx.restore();
 }
 
-window.openPdfViewer = async function(url, price, id, title) {
+window.openPdfViewer = async function (url, price, id, title) {
   const modal = document.getElementById('pdfViewerModal');
   if (!modal) return;
-  
+
   if (!currentUser) {
     showToast("Please login first to preview and purchase notes.");
     setTimeout(() => window.location.href = "login.html", 1500);
     return;
   }
-  
+
   viewerNoteId = id;
   viewerNotePrice = price;
   viewerNoteTitle = title;
   viewerRequiresPurchase = Number(price) > 0;
   viewerSecureModeEnabled = hasUnlockedNote(id);
-  
+
   document.getElementById('pdfViewerTitle').textContent = `${viewerRequiresPurchase ? (viewerSecureModeEnabled ? 'Secure View' : 'Preview') : 'Viewer'}: ${title}`;
   document.getElementById('pdfViewerLockScreen').style.display = 'none';
   document.getElementById('pdfPageNum').textContent = '1';
   document.getElementById('pdfPageCount').textContent = '-';
   const jumpInput = document.getElementById('pdfJumpInput');
   if (jumpInput) jumpInput.value = '';
-  
+
   const canvas = document.getElementById('pdfViewerCanvas');
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
+
   modal.style.display = 'flex';
   document.body.style.overflow = 'hidden';
   hookDisplayCaptureDetection();
   addPdfViewerGuards();
-  
+
   try {
     if (!window.pdfjsLib) throw new Error("PDF Library not loaded");
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-    
+
     currentPdfDoc = await pdfjsLib.getDocument(url).promise;
     document.getElementById('pdfPageCount').textContent = currentPdfDoc.numPages;
     currentPdfPage = 1;
     renderPdfPage(currentPdfPage);
-  } catch(e) {
+  } catch (e) {
     showToast("Failed to load PDF preview.");
     console.error(e);
   }
 };
 
-window.closePdfViewer = function() {
+window.closePdfViewer = function () {
   const modal = document.getElementById('pdfViewerModal');
   if (modal) modal.style.display = 'none';
   document.body.style.overflow = '';
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
   const fsBtn = document.getElementById('pdfFullscreenBtn');
   if (fsBtn) fsBtn.textContent = 'Fullscreen';
   currentPdfDoc = null;
@@ -4091,7 +4194,7 @@ document.addEventListener('keydown', (e) => {
 
 async function renderPdfPage(num) {
   if (!currentPdfDoc) return;
-  
+
   const lockScreen = document.getElementById('pdfViewerLockScreen');
   if (viewerRequiresPurchase && num > MAX_PREVIEW_PAGES && !hasUnlockedNote(viewerNoteId)) {
     lockScreen.style.display = 'flex';
@@ -4100,16 +4203,16 @@ async function renderPdfPage(num) {
   } else {
     lockScreen.style.display = 'none';
   }
-  
+
   try {
     const page = await currentPdfDoc.getPage(num);
     const canvas = document.getElementById('pdfViewerCanvas');
     const ctx = canvas.getContext('2d');
-    
+
     const viewport = page.getViewport({ scale: window.innerWidth < 600 ? 1.0 : 1.5 });
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    
+
     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
     addPdfWatermark(ctx, canvas);
     document.getElementById('pdfPageNum').textContent = Math.min(num, currentPdfDoc.numPages);
@@ -4118,13 +4221,13 @@ async function renderPdfPage(num) {
   }
 }
 
-window.pdfPrevPage = function() {
+window.pdfPrevPage = function () {
   if (currentPdfPage <= 1) return;
   currentPdfPage--;
   renderPdfPage(currentPdfPage);
 };
 
-window.pdfNextPage = function() {
+window.pdfNextPage = function () {
   if (!currentPdfDoc || currentPdfPage >= currentPdfDoc.numPages) return;
   if (viewerRequiresPurchase && currentPdfPage >= MAX_PREVIEW_PAGES && !hasUnlockedNote(viewerNoteId)) {
     currentPdfPage++;
@@ -4174,12 +4277,12 @@ function purchaseNote(id, price, title) {
   processSecureRazorpayPayment(price, orderData, 'books', async (success, txnId) => {
     btn.disabled = false;
     btn.textContent = "Buy Now to Unlock";
-    
+
     if (success) {
       const purchases = JSON.parse(localStorage.getItem('shubham_note_purchases') || '[]');
       purchases.push(`${currentUser.phone}_${id}`);
       localStorage.setItem('shubham_note_purchases', JSON.stringify(purchases));
-      
+
       showToast("Payment Successful! PDF Unlocked.");
       closePdfViewer();
       if (document.getElementById('freeNotesContainer')) {
