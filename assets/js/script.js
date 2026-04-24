@@ -2408,13 +2408,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const detailContainer = document.getElementById('productDetailContainer');
   if (detailContainer) {
-    if (products.length === 0) {
-      detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
-      if (typeof fetchPromise !== 'undefined') await fetchPromise;
-    }
     const urlParams = new URLSearchParams(window.location.search);
     const productId = parseInt(urlParams.get('id'));
-    const product = products.find(p => p.id === productId);
+    let product = products.find(p => p.id === productId);
+
+    if (!product && typeof fetchPromise !== 'undefined') {
+      detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
+      await fetchPromise;
+      product = products.find(p => p.id === productId);
+    }
 
     if (product) {
       window.buyNow = function (pid) { addToCart(pid); window.location.href = "checkout.html"; };
