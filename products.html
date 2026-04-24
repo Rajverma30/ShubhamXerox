@@ -68,6 +68,20 @@
       
       <div class="active-categories-tags" id="activeCategoryTags" style="margin-bottom: 24px;"></div>
 
+      <div id="freeNotesSectionWrapper" style="display: none; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+        <h2 style="font-size: 1.5rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Matching PDF Notes
+        </h2>
+        <div class="free-notes-slider-wrap">
+          <button id="freeNotesPrevBtn" class="free-notes-nav free-notes-nav-left" type="button" onclick="scrollFreeNotes('left')" aria-label="Previous notes">&#10094;</button>
+          <div class="free-notes-slider" id="freeNotesContainer">
+            <!-- Injected via JS -->
+          </div>
+          <button id="freeNotesNextBtn" class="free-notes-nav free-notes-nav-right" type="button" onclick="scrollFreeNotes('right')" aria-label="Next notes">&#10095;</button>
+        </div>
+      </div>
+
       <div class="product-grid" id="allProductsContainer">
         <!-- Injected via JS -->
       </div>

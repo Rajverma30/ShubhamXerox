@@ -219,7 +219,6 @@ async function fetchProducts() {
       const parsed = JSON.parse(cachedData);
       if (Array.isArray(parsed) && parsed.length > 0) {
         products = parsed;
-        isProductsLoading = false;
       }
     } catch(e) {}
   }
@@ -973,18 +972,29 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
 
   if (formatFilter) {
     if (formatFilter === 'pdf') {
-      filtered = filtered.filter(p => p.category && (p.category.toLowerCase().includes('pdf') || p.category.toLowerCase().includes('notes')));
+      filtered = filtered.filter(p => {
+        const cat = (p.category || '').toLowerCase();
+        const nameL = (p.name || '').toLowerCase();
+        return cat.includes('pdf') || cat.includes('notes') || cat.includes('syllabus') || nameL.includes('pdf') || nameL.includes('syllabus');
+      });
     } else if (formatFilter === 'book') {
-      filtered = filtered.filter(p => p.category && (!p.category.toLowerCase().includes('pdf') && !p.category.toLowerCase().includes('notes')));
+      filtered = filtered.filter(p => {
+        const cat = (p.category || '').toLowerCase();
+        const nameL = (p.name || '').toLowerCase();
+        return !cat.includes('pdf') && !cat.includes('notes') && !cat.includes('syllabus') && !nameL.includes('pdf') && !nameL.includes('syllabus');
+      });
     }
   }
 
   const searchInput = document.getElementById('searchInput');
   if (searchInput && searchInput.value) {
-    const tokens = searchInput.value.toLowerCase().split(/[\s/]+/).filter(t => t);
+    const spaceTokens = searchInput.value.toLowerCase().split(/\s+/).filter(t => t);
     filtered = filtered.filter(p => {
       const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
-      return tokens.every(token => searchableStr.includes(token));
+      return spaceTokens.every(spaceToken => {
+        const slashTokens = spaceToken.split('/').filter(t => t);
+        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
+      });
     });
   }
   if (limit) filtered = filtered.slice(0, limit);
@@ -2525,6 +2535,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (searchInput) {
       searchInput.addEventListener('input', () => {
         renderProductsGrid('allProductsContainer', null, selectedCategories);
+        if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
       });
     }
 
@@ -3205,12 +3216,56 @@ async function loadFreeNotes() {
   const { data: notes } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
   freeNotesData = notes || [];
 
-  renderFreeNotesGrid(freeNotesData);
+  renderFilteredFreeNotes();
 }
+
+window.renderFilteredFreeNotes = function() {
+  let filtered = freeNotesData;
+  const urlParams = new URLSearchParams(window.location.search);
+  const examFilter = urlParams.get('exam');
+  const formatFilter = urlParams.get('format');
+  const searchInput = document.getElementById('searchInput');
+
+  const isProductsPage = window.location.pathname.includes('products.html');
+  const hasSearchIntent = examFilter || formatFilter === 'pdf' || (searchInput && searchInput.value);
+
+  if (isProductsPage && !hasSearchIntent) {
+    const wrapper = document.getElementById('freeNotesSectionWrapper');
+    if (wrapper) wrapper.style.display = 'none';
+    return;
+  }
+
+  if (examFilter) {
+    const originalExam = examFilter.toLowerCase();
+    const qExams = originalExam.split(/[\s/]+/).filter(t => t);
+    filtered = filtered.filter(p => {
+      const titleL = (p.title || '').toLowerCase();
+      return qExams.some(token => titleL.includes(token));
+    });
+  }
+
+  if (searchInput && searchInput.value) {
+    const spaceTokens = searchInput.value.toLowerCase().split(/\s+/).filter(t => t);
+    filtered = filtered.filter(p => {
+      const searchableStr = (p.title || '').toLowerCase();
+      return spaceTokens.every(spaceToken => {
+        const slashTokens = spaceToken.split('/').filter(t => t);
+        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
+      });
+    });
+  }
+
+  renderFreeNotesGrid(filtered);
+};
 
 function renderFreeNotesGrid(notesToDisplay) {
   const container = document.getElementById('freeNotesContainer');
   if (!container) return;
+  
+  const wrapper = document.getElementById('freeNotesSectionWrapper');
+  if (wrapper) {
+    wrapper.style.display = notesToDisplay.length > 0 ? 'block' : 'none';
+  }
 
   if (notesToDisplay.length === 0) {
     container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No free notes available yet. Check back soon!</div>';
