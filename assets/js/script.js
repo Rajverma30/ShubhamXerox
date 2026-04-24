@@ -43,8 +43,8 @@ const WHATSAPP_NUMBER = "919826462963";
 const DELIVERY_FEE = 70;
 const API_BASE = "https://shubhamxerox-production.up.railway.app";
 const AUTH_TOKEN_KEY = "shubham_auth_token";
-
 let products = [];
+let isProductsLoading = true;
 let cart = [];
 let currentUser = null;
 let reviews = {};
@@ -211,6 +211,7 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 
 // --- Data Fetching logic ---
 async function fetchProducts() {
+  const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
   // Try to load previously fetched REAL Supabase data from cache
   const cachedData = localStorage.getItem('shubham_real_products_cache');
   if (cachedData) {
@@ -218,6 +219,7 @@ async function fetchProducts() {
       const parsed = JSON.parse(cachedData);
       if (Array.isArray(parsed) && parsed.length > 0) {
         products = parsed;
+        isProductsLoading = false;
       }
     } catch(e) {}
   }
@@ -259,6 +261,12 @@ async function fetchProducts() {
   } catch (e) {
     console.error("Supabase fetch exception:", e);
     if (products.length === 0) products = [];
+  } finally {
+    await minLoadTime;
+    isProductsLoading = false;
+    if (document.getElementById('allProductsContainer')) {
+      renderProductsGrid('allProductsContainer', null, selectedCategories);
+    }
   }
 }
 
@@ -949,14 +957,139 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
     filtered = products.filter(p => filterCategories.includes(p.category));
   }
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const examFilter = urlParams.get('exam');
+  const formatFilter = urlParams.get('format');
+
+  if (examFilter) {
+    const originalExam = examFilter.toLowerCase();
+    const qExams = originalExam.split(/[\s/]+/).filter(t => t);
+    filtered = filtered.filter(p => {
+      if (p.exam && p.exam.toLowerCase().includes(originalExam)) return true;
+      const nameL = (p.name || '').toLowerCase();
+      return qExams.some(token => nameL.includes(token));
+    });
+  }
+
+  if (formatFilter) {
+    if (formatFilter === 'pdf') {
+      filtered = filtered.filter(p => p.category && (p.category.toLowerCase().includes('pdf') || p.category.toLowerCase().includes('notes')));
+    } else if (formatFilter === 'book') {
+      filtered = filtered.filter(p => p.category && (!p.category.toLowerCase().includes('pdf') && !p.category.toLowerCase().includes('notes')));
+    }
+  }
+
   const searchInput = document.getElementById('searchInput');
   if (searchInput && searchInput.value) {
-    const q = searchInput.value.toLowerCase();
-    filtered = filtered.filter(p => p.name.toLowerCase().includes(q));
+    const tokens = searchInput.value.toLowerCase().split(/[\s/]+/).filter(t => t);
+    filtered = filtered.filter(p => {
+      const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
+      return tokens.every(token => searchableStr.includes(token));
+    });
   }
   if (limit) filtered = filtered.slice(0, limit);
-  container.innerHTML = filtered.map(createProductCard).join('');
+  
+  if (isProductsLoading && filtered.length === 0) {
+    container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; justify-content:center; padding: 60px;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite;"></div></div>';
+    return;
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 1.1rem; background: var(--card-bg); border-radius: var(--radius-md); border: 1px solid var(--border-color);"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg><br>No books or notes found for your selection.</div>';
+  } else {
+    container.innerHTML = filtered.map(createProductCard).join('');
+  }
 }
+
+// --- Exam Bot Logic ---
+const examList = [
+  "MPPSC", "UPSC/IAS", "SSC CGL", "SSC CHSL", "Banking PO", 
+  "Banking Clerk", "Patwari", "Railway RRB NTPC", "Railway Group D", 
+  "MPSI", "MP Police Constable", "CTET/TET", "NDA/CDS", "State PSC", 
+  "GATE", "JEE/NEET"
+];
+
+let selectedBotExam = "";
+
+function typeBotText() {
+  const el = document.getElementById('examBotTypingText');
+  if (!el) return;
+  const text = "I am your exam prep bot, how can I help you?";
+  let i = 0;
+  el.innerHTML = '';
+  function typeChar() {
+    if (i < text.length) {
+      el.innerHTML += text.charAt(i);
+      i++;
+      setTimeout(typeChar, 50);
+    } else {
+      el.style.borderRight = 'none';
+    }
+  }
+  setTimeout(typeChar, 500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  typeBotText();
+  const botInput = document.getElementById('examBotInput');
+  const suggestionsBox = document.getElementById('examBotSuggestions');
+  
+  if (botInput && suggestionsBox) {
+    botInput.addEventListener('input', (e) => {
+      const val = e.target.value.trim().toLowerCase();
+      if (!val) {
+        suggestionsBox.style.display = 'none';
+        return;
+      }
+      
+      const matches = examList.filter(ex => ex.toLowerCase().includes(val));
+      
+      if (matches.length > 0) {
+        suggestionsBox.innerHTML = matches.map(m => 
+          `<div class="exam-suggestion" style="padding: 12px 24px; cursor: pointer; color: var(--text-main); border-bottom: 1px solid var(--border-color); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'" onclick="selectBotExam('${m}')">${m}</div>`
+        ).join('');
+        suggestionsBox.style.display = 'block';
+      } else {
+        suggestionsBox.innerHTML = `<div style="padding: 12px 24px; color: var(--text-muted); font-style: italic;">Search for '${val}'</div>`;
+        suggestionsBox.style.display = 'block';
+      }
+    });
+
+    botInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = botInput.value.trim();
+        if (val) selectBotExam(val);
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!botInput.contains(e.target) && !suggestionsBox.contains(e.target)) {
+        suggestionsBox.style.display = 'none';
+      }
+    });
+  }
+});
+
+window.selectBotExam = function(exam) {
+  const botInput = document.getElementById('examBotInput');
+  const suggestionsBox = document.getElementById('examBotSuggestions');
+  const formatOptions = document.getElementById('examBotFormatOptions');
+  
+  botInput.value = exam;
+  selectedBotExam = exam;
+  suggestionsBox.style.display = 'none';
+  formatOptions.style.display = 'flex';
+};
+
+window.selectExamFormat = function(format) {
+  if (!selectedBotExam) {
+    const val = document.getElementById('examBotInput').value.trim();
+    if(val) selectedBotExam = val;
+    else return;
+  }
+  window.location.href = `products.html?exam=${encodeURIComponent(selectedBotExam)}&format=${format}`;
+};
+
 
 function renderCart() {
   const itemsContainer = document.getElementById('cartItems');
@@ -1126,6 +1259,11 @@ async function handleAddProduct(e) {
     const rawOriginal = document.getElementById('originalPrice').value;
     const original_price = rawOriginal ? parseFloat(rawOriginal) : null;
     const category = document.getElementById('category').value;
+    
+    const examCheckboxes = document.querySelectorAll('input[name="exam_opts"]:checked');
+    const examValues = Array.from(examCheckboxes).map(cb => cb.value);
+    const exam = examValues.length > 0 ? examValues.join(', ') : null;
+    
     let imgUrl = document.getElementById('img').value;
     const pdfPreviewInput = document.getElementById('bookPdfPreview');
     const previewPdfFile = pdfPreviewInput && pdfPreviewInput.files ? pdfPreviewInput.files[0] : null;
@@ -1203,6 +1341,7 @@ async function handleAddProduct(e) {
     const addNode = async (imageSrc) => {
       const payload = { name, price, category, img: imageSrc };
       if (original_price) payload.original_price = original_price;
+      if (exam) payload.exam = exam;
       try {
         await apiFetch("/admin/products", { method: "POST", body: payload });
         showToast("Product added successfully!");
@@ -1244,13 +1383,37 @@ async function removeProduct(id, name) {
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
+    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Waking up server and loading products...<br><span style="font-size:0.85rem; font-weight:normal;">(This may take up to 5 seconds)</span></div></div>';
+    
+    const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
+    let success = false;
+    
     try {
       const res = await apiFetch("/admin/products", { method: "GET" });
       products = (res && res.products) || [];
+      success = true;
     } catch (err) {
-      products = [];
-      showToast(err.message || "Failed to load products");
+      // might fail immediately if server is asleep
     }
+    
+    await minLoadTime;
+    
+    if (!success) {
+      try {
+        const res = await apiFetch("/admin/products", { method: "GET" });
+        products = (res && res.products) || [];
+        success = true;
+      } catch (err) {
+        products = [];
+        showToast(err.message || "Failed to load products");
+      }
+    }
+    
+    if (products.length === 0) {
+      container.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">No products found.</div>';
+      return;
+    }
+
     container.innerHTML = products.map(p => `
       <div class="admin-list-item">
         <div style="display:flex; gap:12px; align-items:center;">
@@ -1321,6 +1484,16 @@ window.openEditModal = function (id) {
   document.getElementById('editPrice').value = product.price;
   document.getElementById('editOriginalPrice').value = product.original_price || '';
   document.getElementById('editCategory').value = product.category;
+  
+  const examBoxes = document.querySelectorAll('input[name="edit_exam_opts"]');
+  examBoxes.forEach(cb => cb.checked = false);
+  if (product.exam) {
+    const pExams = product.exam.split(',').map(e => e.trim());
+    examBoxes.forEach(cb => {
+      if (pExams.includes(cb.value)) cb.checked = true;
+    });
+  }
+  
   document.getElementById('editImg').value = product.img;
 
   const modal = document.getElementById('editProductModal');
@@ -1334,18 +1507,42 @@ window.closeEditModal = function () {
 
 async function handleEditProduct(e) {
   e.preventDefault();
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.classList.add('is-loading');
+    submitBtn.dataset.originalText = submitBtn.dataset.originalText || submitBtn.textContent;
+    submitBtn.innerHTML = '<span class="btn-loader"></span><span>Saving...</span>';
+  }
   const id = parseInt(document.getElementById('editProductId').value);
   const name = document.getElementById('editName').value;
   const price = parseFloat(document.getElementById('editPrice').value);
   const rawOriginal = document.getElementById('editOriginalPrice').value;
   const original_price = rawOriginal ? parseFloat(rawOriginal) : null;
   const category = document.getElementById('editCategory').value;
-  const imgUrl = document.getElementById('editImg').value;
+  
+  const examCheckboxes = document.querySelectorAll('input[name="edit_exam_opts"]:checked');
+  const examValues = Array.from(examCheckboxes).map(cb => cb.value);
+  const exam = examValues.length > 0 ? examValues.join(', ') : null;
+  
+  let imgUrl = document.getElementById('editImg').value;
   const fileInput = document.getElementById('editImgUpload');
+  const editPdfPreviewInput = document.getElementById('editBookPdfPreview');
+  const editPreviewPdfFile = editPdfPreviewInput && editPdfPreviewInput.files ? editPdfPreviewInput.files[0] : null;
 
   const updateNode = async (imageSrc) => {
-    const finalImg = imageSrc || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+    let finalImg = imageSrc;
+    if (!finalImg && editPreviewPdfFile) {
+      const generated = await generatePreviewImagesFromPdf(editPreviewPdfFile, 3);
+      if (generated && generated.length > 0) {
+        finalImg = generated.join('|');
+        showToast('Created 3 preview images from PDF.');
+      }
+    }
+    finalImg = finalImg || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+    
     const payload = { name, price, category, img: finalImg, original_price: original_price || null };
+    if (exam) payload.exam = exam;
     try {
       await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
       showToast("Product updated successfully!");
@@ -1353,6 +1550,12 @@ async function handleEditProduct(e) {
       await renderAdminList();
     } catch (err) {
       showToast(err.message || "Update failed");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('is-loading');
+        submitBtn.textContent = submitBtn.dataset.originalText || 'Save Changes';
+      }
     }
   };
 

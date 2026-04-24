@@ -109,6 +109,7 @@ class AdminProductUpsert(BaseModel):
     original_price: Optional[float] = None
     img: Optional[str] = None
     desc: Optional[str] = Field(default=None, alias="desc")
+    exam: Optional[str] = None
 
 class AdminOrderStatusUpdate(BaseModel):
     status: str
