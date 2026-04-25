@@ -240,7 +240,7 @@ function renderStoreProducts() {
 }
 
 async function fetchProducts() {
-  const cached = sessionStorage.getItem('shubham_session_products');
+  const cached = localStorage.getItem('shubham_real_products_cache');
   if (cached) {
     try {
       const parsed = JSON.parse(cached);
@@ -257,6 +257,7 @@ async function fetchProducts() {
   try {
     const supabase = getSupabase();
     if (!supabase) return;
+    // Download fresh data
     const { data, error } = await supabase.from('products').select('*').order('id', { ascending: true });
     
     if (error) throw error;
@@ -264,7 +265,7 @@ async function fetchProducts() {
     if (data && data.length > 0) {
       products = data;
       try {
-        sessionStorage.setItem('shubham_session_products', JSON.stringify(products));
+        localStorage.setItem('shubham_real_products_cache', JSON.stringify(products));
       } catch(e) {}
     } else {
       products = [];
@@ -1300,8 +1301,8 @@ async function handleAddProduct(e) {
           const img = new Image();
           img.onload = () => {
             const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1200;
-            const MAX_HEIGHT = 1200;
+            const MAX_WIDTH = 800;
+            const MAX_HEIGHT = 800;
             let width = img.width;
             let height = img.height;
             if (width > height) {
@@ -1319,7 +1320,7 @@ async function handleAddProduct(e) {
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.8));
+            resolve(canvas.toDataURL('image/webp', 0.7));
           };
           img.onerror = () => resolve(null);
           img.src = e.target.result;
