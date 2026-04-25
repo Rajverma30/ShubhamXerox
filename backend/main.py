@@ -38,8 +38,18 @@ logger = logging.getLogger("shubhamxerox.api")
 OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 PRODUCTS_CACHE: Dict[str, Any] = {"data": [], "expires_at": 0.0}
 PRODUCTS_CACHE_TTL_SECONDS = 20
+APP_BUILD_MARKER = "products-route-v2-requests-cache"
 
 app = FastAPI(title="Shubham Xerox API")
+
+@app.get("/healthz")
+async def healthz():
+    return {
+        "ok": True,
+        "build_marker": APP_BUILD_MARKER,
+        "railway_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
+        "railway_deployment": os.getenv("RAILWAY_DEPLOYMENT_ID", ""),
+    }
 
 # Configuration for CORS - Update origins in production!
 app.add_middleware(
@@ -424,6 +434,7 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
 
 @app.get("/products")
 async def list_public_products():
+    logger.info("GET /products build=%s", APP_BUILD_MARKER)
     now = time.time()
     if PRODUCTS_CACHE["data"] and now < PRODUCTS_CACHE["expires_at"]:
         return {"products": PRODUCTS_CACHE["data"]}
