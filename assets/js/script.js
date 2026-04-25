@@ -3627,7 +3627,7 @@ function getCeRates() {
 
 async function fetchGlobalRates() {
   try {
-    const res = await fetch(`${supabaseUrl}/storage/v1/object/public/free-notes/settings.json`);
+    const res = await fetch(`${supabaseUrl}/storage/v1/object/public/free-notes/settings.json?t=${new Date().getTime()}`, { cache: 'no-store' });
     if (res.ok) {
       const rates = await res.json();
       if (rates && typeof rates.bw === 'number') {
