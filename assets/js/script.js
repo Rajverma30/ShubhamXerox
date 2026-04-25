@@ -242,34 +242,47 @@ function renderStoreProducts() {
 async function fetchProducts() {
   isProductsLoading = true;
   renderStoreProducts();
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-    const res = await fetch(getProductsEndpoint(), {
-      method: "GET",
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+  
+  let retries = 3;
+  let delay = 2000; // 2 seconds
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Supabase products fetch failed (${res.status}): ${errText.slice(0, 200)}`);
+  while (retries > 0) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const res = await fetch(getProductsEndpoint(), {
+        method: "GET",
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Supabase products fetch failed (${res.status}): ${errText.slice(0, 200)}`);
+      }
+
+      const rows = await res.json();
+      const list = Array.isArray(rows) ? rows : [];
+      products = list.map((item, index) => normalizeProductRecord(item, index));
+      break; // Success, break out of loop
+    } catch (e) {
+      console.error(`Products fetch exception (Retries left: ${retries - 1}):`, e);
+      retries--;
+      if (retries === 0) {
+        products = [];
+      } else {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 1.5; // Exponential backoff
+      }
     }
-
-    const rows = await res.json();
-    const list = Array.isArray(rows) ? rows : [];
-    products = list.map((item, index) => normalizeProductRecord(item, index));
-  } catch (e) {
-    console.error("Products fetch exception:", e);
-    products = [];
-  } finally {
-    isProductsLoading = false;
-    renderStoreProducts();
   }
+
+  isProductsLoading = false;
+  renderStoreProducts();
 }
 
 // --- Authentication Logic ---
