@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import razorpay
 from supabase import create_client, Client
+from supabase.client import ClientOptions
 import bcrypt
 import jwt
 from config import (
@@ -71,7 +72,8 @@ except Exception as e:
 try:
     _orig_match = re.match
     re.match = lambda p, s, *a: True if str(s).startswith('sb_') else _orig_match(p, s, *a)
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    options = ClientOptions(postgrest_client_timeout=60, storage_client_timeout=60)
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
     re.match = _orig_match
 except Exception as e:
     if hasattr(re, 'match') and '_orig_match' in locals() and re.match != _orig_match:
