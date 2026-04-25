@@ -216,7 +216,7 @@ function normalizeProductRecord(raw, index = 0) {
 }
 
 function getProductsEndpoint() {
-  return `${supabaseUrl}/rest/v1/products?select=id,name,category,price,img,desc,original_price,exam&order=id.asc`;
+  return `${supabaseUrl}/rest/v1/products?select=id,name,category,price,img,desc,original_price,exam&order=id.desc`;
 }
 
 function parseProductsCategoryParams() {
@@ -258,7 +258,7 @@ async function fetchProducts() {
     const supabase = getSupabase();
     if (!supabase) return;
     // Download fresh data
-    const { data, error } = await supabase.from('products').select('*').order('id', { ascending: true });
+    const { data, error } = await supabase.from('products').select('*').order('id', { ascending: false });
     
     if (error) throw error;
     
@@ -2605,12 +2605,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       const currentRates = getCeRates();
       document.getElementById('bwRateInput').value = currentRates.bw;
       document.getElementById('colorRateInput').value = currentRates.color;
-      pricingForm.addEventListener('submit', (e) => {
+      pricingForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const bw = Number(parseFloat(document.getElementById('bwRateInput').value).toFixed(2));
         const color = Number(parseFloat(document.getElementById('colorRateInput').value).toFixed(2));
-        localStorage.setItem('shubham_ce_rates', JSON.stringify({ bw, color }));
-        showToast('Pricing settings saved!');
+        
+        const ratesObj = { bw, color };
+        localStorage.setItem('shubham_ce_rates', JSON.stringify(ratesObj));
+        if (window.globalRates) window.globalRates = ratesObj;
+        
+        const supabase = getSupabase();
+        if (supabase) {
+          try {
+            const blob = new Blob([JSON.stringify(ratesObj)], { type: 'application/json' });
+            await supabase.storage.from('free-notes').upload('settings.json', blob, { upsert: true });
+          } catch(err) {
+            console.error("Failed to sync rates to cloud", err);
+          }
+        }
+        
+        showToast('Pricing settings saved globally!');
       });
     }
   }
@@ -3601,13 +3615,33 @@ let ceState = {
   pdfFiles: []
 };
 
+window.globalRates = null;
 function getCeRates() {
+  if (window.globalRates) return window.globalRates;
   try {
     return JSON.parse(localStorage.getItem('shubham_ce_rates')) || { bw: 1, color: 5 };
   } catch (e) {
     return { bw: 1, color: 5 };
   }
 }
+
+async function fetchGlobalRates() {
+  try {
+    const res = await fetch(`${supabaseUrl}/storage/v1/object/public/free-notes/settings.json`);
+    if (res.ok) {
+      const rates = await res.json();
+      if (rates && typeof rates.bw === 'number') {
+        window.globalRates = rates;
+        localStorage.setItem('shubham_ce_rates', JSON.stringify(rates));
+        if (typeof updateHeroRates === 'function') updateHeroRates();
+      }
+    }
+  } catch (e) {
+    // Ignore fetch errors
+  }
+}
+// Kick off fetch
+fetchGlobalRates();
 
 window.openCostEstimatorModal = function () {
   const modal = document.getElementById('costEstimatorModal');

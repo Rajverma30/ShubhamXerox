@@ -448,7 +448,7 @@ async def list_public_products():
 
         url = (
             f"{base_url}/rest/v1/products"
-            "?select=id,name,category,price,original_price,img,desc,exam&order=id.asc"
+            "?select=id,name,category,price,original_price,img,desc,exam&order=id.desc"
         )
         headers = {
             "apikey": SUPABASE_KEY,
@@ -471,7 +471,7 @@ async def list_public_products():
 @app.get("/admin/products")
 async def admin_list_products(_admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
-    res = sb.table("products").select("*").execute()
+    res = sb.table("products").select("*").order("id", desc=True).execute()
     return {"products": res.data or []}
 
 @app.post("/admin/products")
