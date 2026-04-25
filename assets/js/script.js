@@ -2602,6 +2602,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('admin') || path.includes('admin-photocopy')) {
     const pricingForm = document.getElementById('pricingForm');
     if (pricingForm) {
+      await syncCeRatesFromServer();
       const currentRates = getCeRates();
       document.getElementById('bwRateInput').value = currentRates.bw;
       document.getElementById('colorRateInput').value = currentRates.color;
@@ -2613,15 +2614,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const ratesObj = { bw, color };
         localStorage.setItem('shubham_ce_rates', JSON.stringify(ratesObj));
         if (window.globalRates) window.globalRates = ratesObj;
-        
-        const supabase = getSupabase();
-        if (supabase) {
-          try {
-            const blob = new Blob([JSON.stringify(ratesObj)], { type: 'application/json' });
-            await supabase.storage.from('free-notes').upload('settings.json', blob, { upsert: true });
-          } catch(err) {
-            console.error("Failed to sync rates to cloud", err);
-          }
+        try {
+          await apiFetch("/admin/settings/rates", { method: "PUT", body: ratesObj });
+        } catch (err) {
+          console.error("Failed to sync rates to backend", err);
+          showToast("Saved locally. Cloud sync failed.");
+          return;
         }
         
         showToast('Pricing settings saved globally!');
@@ -3625,23 +3623,20 @@ function getCeRates() {
   }
 }
 
-async function fetchGlobalRates() {
+async function syncCeRatesFromServer() {
   try {
-    const res = await fetch(`${supabaseUrl}/storage/v1/object/public/free-notes/settings.json?t=${new Date().getTime()}`, { cache: 'no-store' });
-    if (res.ok) {
-      const rates = await res.json();
-      if (rates && typeof rates.bw === 'number') {
-        window.globalRates = rates;
-        localStorage.setItem('shubham_ce_rates', JSON.stringify(rates));
-        if (typeof updateHeroRates === 'function') updateHeroRates();
-      }
+    const rates = await apiFetch("/settings/rates", { method: "GET", auth: false });
+    if (rates && typeof rates.bw === 'number' && typeof rates.color === 'number') {
+      window.globalRates = { bw: Number(rates.bw), color: Number(rates.color) };
+      localStorage.setItem('shubham_ce_rates', JSON.stringify(window.globalRates));
+      if (typeof updateHeroRates === 'function') updateHeroRates();
     }
   } catch (e) {
-    // Ignore fetch errors
+    // Ignore fetch errors; local cache will be used.
   }
 }
 // Kick off fetch
-fetchGlobalRates();
+syncCeRatesFromServer();
 
 window.openCostEstimatorModal = function () {
   const modal = document.getElementById('costEstimatorModal');

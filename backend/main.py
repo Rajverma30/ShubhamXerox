@@ -40,6 +40,7 @@ OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 PRODUCTS_CACHE: Dict[str, Any] = {"data": [], "expires_at": 0.0}
 PRODUCTS_CACHE_TTL_SECONDS = 20
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
+GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0}
 
 app = FastAPI(title="Shubham Xerox API")
 
@@ -471,6 +472,20 @@ async def list_public_products():
         if PRODUCTS_CACHE["data"]:
             return {"products": PRODUCTS_CACHE["data"]}
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/settings/rates")
+async def get_public_rates():
+    return {"bw": float(GLOBAL_RATES.get("bw", 1.0)), "color": float(GLOBAL_RATES.get("color", 5.0))}
+
+@app.put("/admin/settings/rates")
+async def update_global_rates(req: AdminSettingsUpdate, _admin: Dict[str, Any] = Depends(verify_admin)):
+    bw = float(req.bw)
+    color = float(req.color)
+    if bw <= 0 or color <= 0:
+        raise HTTPException(status_code=400, detail="Rates must be positive numbers")
+    GLOBAL_RATES["bw"] = round(bw, 2)
+    GLOBAL_RATES["color"] = round(color, 2)
+    return {"status": "ok", "rates": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}}
 
 @app.get("/admin/products")
 async def admin_list_products(_admin: Dict[str, Any] = Depends(verify_admin)):
