@@ -36,6 +36,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("shubhamxerox.api")
 
 OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
+PRODUCTS_CACHE: Dict[str, Any] = {"data": [], "expires_at": 0.0}
+PRODUCTS_CACHE_TTL_SECONDS = 20
 
 app = FastAPI(title="Shubham Xerox API")
 
@@ -422,12 +424,35 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
 
 @app.get("/products")
 async def list_public_products():
+    now = time.time()
+    if PRODUCTS_CACHE["data"] and now < PRODUCTS_CACHE["expires_at"]:
+        return {"products": PRODUCTS_CACHE["data"]}
+
     try:
-        sb = _require_supabase()
-        res = sb.table("products").select("*").execute()
-        return {"products": res.data or []}
+        base_url = str(SUPABASE_URL or "").rstrip("/")
+        if not base_url or not SUPABASE_KEY:
+            raise HTTPException(status_code=500, detail="Supabase config missing")
+
+        url = (
+            f"{base_url}/rest/v1/products"
+            "?select=id,name,category,price,original_price,img,desc,exam&order=id.asc"
+        )
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+        # Use explicit connect/read timeout to avoid repeated 5s failures.
+        resp = requests.get(url, headers=headers, timeout=(5, 20))
+        resp.raise_for_status()
+        data = resp.json() if resp.content else []
+        products = data if isinstance(data, list) else []
+        PRODUCTS_CACHE["data"] = products
+        PRODUCTS_CACHE["expires_at"] = time.time() + PRODUCTS_CACHE_TTL_SECONDS
+        return {"products": products}
     except Exception as e:
         logger.exception("Error fetching products")
+        if PRODUCTS_CACHE["data"]:
+            return {"products": PRODUCTS_CACHE["data"]}
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/products")

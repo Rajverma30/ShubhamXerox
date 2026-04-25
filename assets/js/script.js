@@ -25,18 +25,6 @@ function getSupabase() {
   return _supabaseInstance;
 }
 
-const defaultProducts = [
-  { name: "MPPSC Prelims Unit 03: Geography of India", category: "AKAR IAS HINDI MEDIUM PRE", price: 176, img: "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80", desc: "Comprehensive notes covering the complete geography syllabus for MPPSC Prelims Unit 03." },
-  { name: "Satyamev Jayate Institute - MPPSC Mains Short Notes", category: "Satyamev Jayate institute", price: 700, img: "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=400&q=80", desc: "Highly condensed and easy-to-revise short notes for MPPSC Mains by Satyamev Jayate Institute." },
-  { name: "आध�?निक भारतीय इतिहास | Latest 2026", category: "NIRMAN IAS", price: 150, img: "https://images.unsplash.com/photo-1589998059171-988d887df646?auto=format&fit=crop&w=400&q=80", desc: "Modern Indian History textbook customized for 2026 exams in Hindi Medium." },
-  { name: "Modern Indian History | Latest 2026", category: "Champion Square English Medium", price: 140, img: "https://images.unsplash.com/photo-1532012197267-da84d127e765?auto=format&fit=crop&w=400&q=80", desc: "Modern Indian History textbook customized for 2026 exams in English Medium." },
-  { name: "UPSC Blank Practice Answer Sheet (Pack of 3)", category: "Stationery", price: 300, img: "https://images.unsplash.com/photo-1589330694653-efa6573635ce?auto=format&fit=crop&w=400&q=80", desc: "Standard UPSC format blank answer sheets for Mains answer writing practice." },
-  { name: "Unit-10 Chart (Tribes of MP)", category: "DEVANAGARI", price: 40, img: "https://images.unsplash.com/photo-1503694978374-8a2fa686963a?auto=format&fit=crop&w=400&q=80", desc: "A detailed wall chart covering the tribes of Madhya Pradesh as per Unit-10 syllabus." },
-  { name: "MPPSC Prelims 2024-25 | Unit 6", category: "Parikshadham", price: 240, img: "https://images.unsplash.com/photo-1456406644174-8ddd4cd52a06?auto=format&fit=crop&w=400&q=80", desc: "In-depth coverage of Indian and MP Economy for MPPSC Prelims Unit 6." },
-  { name: "Science & Env Notes", category: "Tathyabaan", price: 250, img: "https://images.unsplash.com/photo-1610116306796-6fea9f4fae38?auto=format&fit=crop&w=400&q=80", desc: "Authoritative notes for Science, Technology, and Environment." },
-  { name: "English Medium Notes Bundle", category: "CIVIL JOB", price: 800, img: "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=400&q=80", desc: "Complete bundle of printed notes in English Medium." }
-];
-
 // Constants
 const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
@@ -45,6 +33,7 @@ const API_BASE = "https://shubhamxerox-production.up.railway.app";
 const AUTH_TOKEN_KEY = "shubham_auth_token";
 let products = [];
 let isProductsLoading = true;
+
 let cart = [];
 let currentUser = null;
 let reviews = {};
@@ -210,62 +199,76 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 }
 
 // --- Data Fetching logic ---
-async function fetchProducts() {
-  const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
-  // Try to load previously fetched REAL Supabase data from cache
-  const cachedData = localStorage.getItem('shubham_real_products_cache');
-  if (cachedData) {
-    try {
-      const parsed = JSON.parse(cachedData);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        products = parsed;
-      }
-    } catch(e) {}
+function normalizeProductRecord(raw, index = 0) {
+  const idNum = Number(raw?.id);
+  const priceNum = Number(raw?.price);
+  const originalPriceNum = Number(raw?.original_price);
+  return {
+    id: Number.isFinite(idNum) ? idNum : index + 1,
+    name: (raw?.name || "").toString().trim() || `Product ${index + 1}`,
+    category: (raw?.category || "").toString().trim() || "General",
+    price: Number.isFinite(priceNum) ? priceNum : 0,
+    original_price: Number.isFinite(originalPriceNum) ? originalPriceNum : null,
+    img: (raw?.img || "").toString(),
+    desc: (raw?.desc || "").toString(),
+    exam: (raw?.exam || "").toString(),
+  };
+}
+
+function getProductsEndpoint() {
+  return `${supabaseUrl}/rest/v1/products?select=id,name,category,price,img,desc,original_price,exam&order=id.asc`;
+}
+
+function parseProductsCategoryParams() {
+  const params = new URLSearchParams(window.location.search);
+  const categoryRaw = params.get('category');
+  if (!categoryRaw) return [];
+  return categoryRaw
+    .split(',')
+    .map(v => decodeURIComponent(v).trim())
+    .filter(Boolean);
+}
+
+function renderStoreProducts() {
+  if (document.getElementById('featuredProducts')) {
+    renderProductsGrid('featuredProducts', 4);
   }
+  if (document.getElementById('allProductsContainer')) {
+    renderMultiSelect();
+    renderProductsGrid('allProductsContainer', null, selectedCategories);
+  }
+}
 
-  const supabase = getSupabase();
-  if (!supabase) return;
-
+async function fetchProducts() {
+  isProductsLoading = true;
+  renderStoreProducts();
   try {
-    // Fetch fresh data from Supabase in the background
-    const { data, error } = await supabase.from('products').select('*').order('id', { ascending: true });
-    
-    if (error) {
-      console.error("Supabase Error:", error);
-      if (products.length === 0) products = [];
-      return;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch(getProductsEndpoint(), {
+      method: "GET",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Supabase products fetch failed (${res.status}): ${errText.slice(0, 200)}`);
     }
 
-    if (data && data.length > 0) {
-      products = data;
-      // Save the REAL Supabase data to cache for next time to prevent slow 37MB loading
-      try {
-        localStorage.setItem('shubham_real_products_cache', JSON.stringify(products));
-      } catch (cacheErr) {
-        console.warn("Could not cache products (payload too large for localStorage)");
-      }
-      
-      // Force UI update once the heavy download finishes
-      if (document.getElementById('featuredProducts')) {
-        renderProductsGrid('featuredProducts', 4);
-      }
-      if (document.getElementById('allProductsContainer')) {
-        let oldCategories = [...selectedCategories];
-        renderMultiSelect();
-        renderProductsGrid('allProductsContainer', null, oldCategories);
-      }
-    } else {
-      if (products.length === 0) products = [];
-    }
+    const rows = await res.json();
+    const list = Array.isArray(rows) ? rows : [];
+    products = list.map((item, index) => normalizeProductRecord(item, index));
   } catch (e) {
-    console.error("Supabase fetch exception:", e);
-    if (products.length === 0) products = [];
+    console.error("Products fetch exception:", e);
+    products = [];
   } finally {
-    await minLoadTime;
     isProductsLoading = false;
-    if (document.getElementById('allProductsContainer')) {
-      renderProductsGrid('allProductsContainer', null, selectedCategories);
-    }
+    renderStoreProducts();
   }
 }
 
@@ -897,10 +900,11 @@ function renderMultiSelect() {
 
   container.innerHTML = allCats.map(c => `
     <label class="multi-select-option">
-      <input type="checkbox" value="${c}" onchange="handleCategoryToggle(this)">
+      <input type="checkbox" value="${c}" ${selectedCategories.includes(c) ? "checked" : ""} onchange="handleCategoryToggle(this)">
       <span>${c}</span>
     </label>
   `).join('');
+  updateActiveCategoryTags();
 }
 
 window.handleCategoryToggle = function (checkbox) {
@@ -951,9 +955,13 @@ window.uncheckCategory = function (cat) {
 function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  let filtered = products;
-  if (filterCategories && filterCategories.length > 0) {
-    filtered = products.filter(p => filterCategories.includes(p.category));
+  let filtered = [...products];
+  const selectedCats = Array.isArray(filterCategories) ? filterCategories.filter(Boolean) : [];
+  if (selectedCats.length > 0) {
+    const categorySet = new Set(selectedCats);
+    const byCategory = filtered.filter(p => categorySet.has(p.category));
+    // Keep UX safe if URL has unknown category.
+    filtered = byCategory.length > 0 ? byCategory : filtered;
   }
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -998,12 +1006,10 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
     });
   }
   if (limit) filtered = filtered.slice(0, limit);
-  
   if (isProductsLoading && filtered.length === 0) {
     container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; justify-content:center; padding: 60px;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite;"></div></div>';
     return;
   }
-
   if (filtered.length === 0) {
     container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 1.1rem; background: var(--card-bg); border-radius: var(--radius-md); border: 1px solid var(--border-color);"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg><br>No books or notes found for your selection.</div>';
   } else {
@@ -1013,9 +1019,9 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
 
 // --- Exam Bot Logic ---
 const examList = [
-  "MPPSC", "UPSC/IAS", "SSC CGL", "SSC CHSL", "Banking PO", 
-  "Banking Clerk", "Patwari", "Railway RRB NTPC", "Railway Group D", 
-  "MPSI", "MP Police Constable", "CTET/TET", "NDA/CDS", "State PSC", 
+  "MPPSC", "UPSC/IAS", "SSC CGL", "SSC CHSL", "Banking PO",
+  "Banking Clerk", "Patwari", "Railway RRB NTPC", "Railway Group D",
+  "MPSI", "MP Police Constable", "CTET/TET", "NDA/CDS", "State PSC",
   "GATE", "JEE/NEET"
 ];
 
@@ -1043,7 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
   typeBotText();
   const botInput = document.getElementById('examBotInput');
   const suggestionsBox = document.getElementById('examBotSuggestions');
-  
+
   if (botInput && suggestionsBox) {
     botInput.addEventListener('input', (e) => {
       const val = e.target.value.trim().toLowerCase();
@@ -1051,11 +1057,11 @@ document.addEventListener('DOMContentLoaded', () => {
         suggestionsBox.style.display = 'none';
         return;
       }
-      
+
       const matches = examList.filter(ex => ex.toLowerCase().includes(val));
-      
+
       if (matches.length > 0) {
-        suggestionsBox.innerHTML = matches.map(m => 
+        suggestionsBox.innerHTML = matches.map(m =>
           `<div class="exam-suggestion" style="padding: 12px 24px; cursor: pointer; color: var(--text-main); border-bottom: 1px solid var(--border-color); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'" onclick="selectBotExam('${m}')">${m}</div>`
         ).join('');
         suggestionsBox.style.display = 'block';
@@ -1080,26 +1086,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-window.selectBotExam = function(exam) {
+window.selectBotExam = function (exam) {
   const botInput = document.getElementById('examBotInput');
   const suggestionsBox = document.getElementById('examBotSuggestions');
   const formatOptions = document.getElementById('examBotFormatOptions');
-  
+
   botInput.value = exam;
   selectedBotExam = exam;
   suggestionsBox.style.display = 'none';
   formatOptions.style.display = 'flex';
 };
 
-window.selectExamFormat = function(format) {
+window.selectExamFormat = function (format) {
   if (!selectedBotExam) {
     const val = document.getElementById('examBotInput').value.trim();
-    if(val) selectedBotExam = val;
+    if (val) selectedBotExam = val;
     else return;
   }
   window.location.href = `products.html?exam=${encodeURIComponent(selectedBotExam)}&format=${format}`;
 };
-
 
 function renderCart() {
   const itemsContainer = document.getElementById('cartItems');
@@ -2518,11 +2523,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
 
   if (document.getElementById('allProductsContainer')) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const catParam = urlParams.get('category');
-    if (catParam) {
-      selectedCategories = [catParam];
-    }
+    selectedCategories = parseProductsCategoryParams();
 
     try {
       renderMultiSelect();
