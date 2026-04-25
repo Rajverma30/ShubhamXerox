@@ -128,6 +128,10 @@ class AdminProductUpsert(BaseModel):
 class AdminOrderStatusUpdate(BaseModel):
     status: str
 
+class AdminSettingsUpdate(BaseModel):
+    bw: float
+    color: float
+
 # --- Auth / Security ---
 
 bearer_scheme = HTTPBearer(auto_error=False)
