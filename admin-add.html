@@ -51,7 +51,10 @@
             <form id="adminForm">
               <div class="form-group">
                 <label for="name">Product Name</label>
-                <input type="text" id="name" class="form-control" required placeholder="e.g. UPSC Prelims Notes">
+                <input type="text" id="name" list="productNameSuggestions" class="form-control" required placeholder="e.g. UPSC Prelims Notes" autocomplete="on" autocapitalize="words" spellcheck="true">
+                <datalist id="productNameSuggestions">
+                  <!-- Injected via JS -->
+                </datalist>
               </div>
               <div class="form-group">
                 <label for="price">Selling Price (₹)</label>

@@ -43,6 +43,19 @@
         Loading product...
       </div>
     </div>
+    <div class="container" id="similarProductsSection" style="display: none; margin-top: 24px;">
+      <div class="similar-products-wrap">
+        <div class="similar-products-header">
+          <h2 class="section-title" style="text-align:left; margin-bottom: 8px; font-size: 1.8rem;">Similar Books</h2>
+          <p class="section-subtitle" style="text-align:left; margin: 0 0 24px; max-width: none;">More books from the same category.</p>
+        </div>
+        <div class="free-notes-slider-wrap">
+          <button id="similarProductsPrevBtn" class="free-notes-nav free-notes-nav-left" type="button" onclick="scrollSimilarProducts('left')" aria-label="Previous similar products">&#10094;</button>
+          <div class="similar-products-slider" id="similarProductsContainer"></div>
+          <button id="similarProductsNextBtn" class="free-notes-nav free-notes-nav-right" type="button" onclick="scrollSimilarProducts('right')" aria-label="Next similar products">&#10095;</button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- Footer -->

@@ -38,6 +38,7 @@ let cart = [];
 let currentUser = null;
 let reviews = {};
 let selectedCategories = [];
+let featuredSelectedCategories = [];
 const PRODUCTS_BATCH_SIZE = 20;
 let isLoadingMoreProducts = false;
 
@@ -68,6 +69,95 @@ function setProductsLoadMoreIndicator(state = 'hidden') {
 
   indicator.style.display = 'none';
   indicator.innerHTML = '';
+}
+
+function getAllProductCategories() {
+  let safeSiteCategories = Array.isArray(siteCategories) ? siteCategories : defaultSiteCategories;
+  return [...new Set([...safeSiteCategories, ...products.map(p => p.category).filter(Boolean)])].sort();
+}
+
+function getFilteredProducts(filterCategories = [], searchValue = '') {
+  let filtered = [...products];
+  const selectedCats = Array.isArray(filterCategories) ? filterCategories.filter(Boolean) : [];
+
+  if (selectedCats.length > 0) {
+    const categorySet = new Set(selectedCats);
+    const byCategory = filtered.filter(p => categorySet.has(p.category));
+    filtered = byCategory.length > 0 ? byCategory : filtered;
+  }
+
+  if (searchValue && searchValue.trim()) {
+    const spaceTokens = searchValue.toLowerCase().split(/\s+/).filter(t => t);
+    filtered = filtered.filter(p => {
+      const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
+      return spaceTokens.every(spaceToken => {
+        const slashTokens = spaceToken.split('/').filter(t => t);
+        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
+      });
+    });
+  }
+
+  return filtered;
+}
+
+function renderFeaturedMultiSelect() {
+  const container = document.getElementById('featuredMultiSelectOptionsList');
+  if (!container) return;
+
+  const allCats = getAllProductCategories();
+  container.innerHTML = allCats.map(c => `
+    <label class="multi-select-option">
+      <input type="checkbox" value="${c}" ${featuredSelectedCategories.includes(c) ? "checked" : ""} onchange="handleFeaturedCategoryToggle(this)">
+      <span>${c}</span>
+    </label>
+  `).join('');
+
+  updateFeaturedActiveCategoryTags();
+}
+
+function updateFeaturedActiveCategoryTags() {
+  const container = document.getElementById('featuredActiveCategoryTags');
+  if (container) {
+    container.innerHTML = featuredSelectedCategories.map(c => `
+      <div class="active-cat-tag">
+        ${c} <span style="cursor:pointer; margin-left:4px;" onclick="uncheckFeaturedCategory('${c.replace(/'/g, "\\'")}')">×</span>
+      </div>
+    `).join('');
+  }
+
+  const label = document.getElementById('featuredMultiSelectLabel');
+  if (label) {
+    label.textContent = featuredSelectedCategories.length > 0 ? `${featuredSelectedCategories.length} Selected` : "Select Categories...";
+  }
+}
+
+function renderFeaturedProducts() {
+  const container = document.getElementById('featuredProducts');
+  if (!container) return;
+
+  const searchInput = document.getElementById('featuredSearchInput');
+  const searchValue = searchInput ? searchInput.value : '';
+  const filtered = getFilteredProducts(featuredSelectedCategories, searchValue).slice(0, 8);
+
+  if (isProductsLoading && filtered.length === 0) {
+    container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; justify-content:center; padding: 60px;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite;"></div></div>';
+    return;
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 36px 20px; color: var(--text-muted); background: var(--card-bg); border-radius: var(--radius-md); border: 1px solid var(--border-color);">No matching books found.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(createProductCard).join('');
+}
+
+function populateProductNameSuggestions() {
+  const list = document.getElementById('productNameSuggestions');
+  if (!list) return;
+
+  const uniqueNames = [...new Set(products.map(p => (p.name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  list.innerHTML = uniqueNames.map(name => `<option value="${name.replace(/"/g, '&quot;')}"></option>`).join('');
 }
 
 function getAuthToken() {
@@ -262,12 +352,14 @@ function parseProductsCategoryParams() {
 
 function renderStoreProducts() {
   if (document.getElementById('featuredProducts')) {
-    renderProductsGrid('featuredProducts', 4);
+    renderFeaturedMultiSelect();
+    renderFeaturedProducts();
   }
   if (document.getElementById('allProductsContainer')) {
     renderMultiSelect();
     renderProductsGrid('allProductsContainer', null, selectedCategories);
   }
+  populateProductNameSuggestions();
 }
 
 async function fetchProducts() {
@@ -930,8 +1022,7 @@ window.filterMultiSelect = function () {
 function renderMultiSelect() {
   const container = document.getElementById('multiSelectOptionsList');
   if (!container) return;
-  let safeSiteCategories = Array.isArray(siteCategories) ? siteCategories : defaultSiteCategories;
-  const allCats = [...new Set([...safeSiteCategories, ...products.map(p => p.category)])].sort();
+  const allCats = getAllProductCategories();
 
   container.innerHTML = allCats.map(c => `
     <label class="multi-select-option">
@@ -989,17 +1080,52 @@ window.uncheckCategory = function (cat) {
   }
 };
 
+window.toggleFeaturedMultiSelect = function () {
+  const dropdown = document.getElementById('featuredMultiSelectDropdown');
+  if (dropdown) dropdown.classList.toggle('active');
+};
+
+window.filterFeaturedMultiSelect = function () {
+  const input = document.getElementById('featuredMultiSelectSearch');
+  const q = input ? input.value.toLowerCase() : '';
+  const options = document.querySelectorAll('#featuredMultiSelectOptionsList .multi-select-option');
+  options.forEach(opt => {
+    const text = opt.querySelector('span').textContent.toLowerCase();
+    opt.style.display = text.includes(q) ? 'flex' : 'none';
+  });
+};
+
+window.handleFeaturedCategoryToggle = function (checkbox) {
+  const val = checkbox.value;
+  if (checkbox.checked) {
+    if (!featuredSelectedCategories.includes(val)) featuredSelectedCategories.push(val);
+  } else {
+    featuredSelectedCategories = featuredSelectedCategories.filter(c => c !== val);
+  }
+  updateFeaturedActiveCategoryTags();
+  renderFeaturedProducts();
+};
+
+window.uncheckFeaturedCategory = function (cat) {
+  const checkbox = document.querySelector(`#featuredMultiSelectOptionsList input[value="${cat}"]`);
+  if (checkbox) {
+    checkbox.checked = false;
+    handleFeaturedCategoryToggle(checkbox);
+  }
+};
+
+window.scrollSimilarProducts = function (direction) {
+  const container = document.getElementById('similarProductsContainer');
+  if (!container) return;
+  const amount = Math.min(container.clientWidth * 0.9, 900);
+  container.scrollBy({ left: direction === 'left' ? -amount : amount, behavior: 'smooth' });
+};
+
 function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  let filtered = [...products];
-  const selectedCats = Array.isArray(filterCategories) ? filterCategories.filter(Boolean) : [];
-  if (selectedCats.length > 0) {
-    const categorySet = new Set(selectedCats);
-    const byCategory = filtered.filter(p => categorySet.has(p.category));
-    // Keep UX safe if URL has unknown category.
-    filtered = byCategory.length > 0 ? byCategory : filtered;
-  }
+  const searchInput = document.getElementById('searchInput');
+  let filtered = getFilteredProducts(filterCategories, searchInput ? searchInput.value : '');
 
   const urlParams = new URLSearchParams(window.location.search);
   const examFilter = urlParams.get('exam');
@@ -1031,18 +1157,6 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
     }
   }
 
-  const searchInput = document.getElementById('searchInput');
-  if (searchInput && searchInput.value) {
-    const spaceTokens = searchInput.value.toLowerCase().split(/\s+/).filter(t => t);
-    filtered = filtered.filter(p => {
-      const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
-      return spaceTokens.every(spaceToken => {
-        const slashTokens = spaceToken.split('/').filter(t => t);
-        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
-      });
-    });
-  }
-  
   // Infinite Scroll Pagination logic for All Products page
   const isInfiniteScroll = (limit === null);
   let activeLimit = limit;
@@ -2672,7 +2786,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Fetch in background without blocking rendering
   let fetchPromise = fetchProducts().catch(e => console.error("fetchProducts error", e));
 
-  if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
+  if (document.getElementById('featuredProducts')) {
+    renderFeaturedMultiSelect();
+    renderFeaturedProducts();
+
+    const featuredSearchInput = document.getElementById('featuredSearchInput');
+    if (featuredSearchInput) {
+      featuredSearchInput.addEventListener('input', () => {
+        renderFeaturedProducts();
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      const container = document.getElementById('featuredCategoryMultiSelect');
+      if (container && !container.contains(e.target)) {
+        const dropdown = document.getElementById('featuredMultiSelectDropdown');
+        if (dropdown) dropdown.classList.remove('active');
+      }
+    });
+  }
 
   if (document.getElementById('allProductsContainer')) {
     resetProductsInfiniteScroll();
@@ -2947,6 +3079,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       `;
 
+      renderSimilarProducts(product);
+
       // Initialize reviews right away on page load
       await renderReviews(productId);
 
@@ -3017,6 +3151,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   }, 250);
 
 });
+
+function renderSimilarProducts(product) {
+  const section = document.getElementById('similarProductsSection');
+  const container = document.getElementById('similarProductsContainer');
+  if (!section || !container || !product) return;
+
+  const similarProducts = products
+    .filter(p => p.id !== product.id && p.category === product.category)
+    .slice(0, 10);
+
+  if (!similarProducts.length) {
+    section.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = similarProducts.map(createProductCard).join('');
+  section.style.display = 'block';
+}
 
 // --- Reviews Functions ---
 async function renderReviews(productId) {
