@@ -24,6 +24,11 @@ RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip()
 
+# Shiprocket Config
+SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "").strip()
+SHIPROCKET_PASSWORD = os.getenv("SHIPROCKET_PASSWORD", "").strip()
+SHIPROCKET_PICKUP_LOCATION = os.getenv("SHIPROCKET_PICKUP_LOCATION", "Primary").strip()
+
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "43200"))
 ADMIN_DEFAULT_PASSWORD = os.getenv("ADMIN_DEFAULT_PASSWORD", "1234")
