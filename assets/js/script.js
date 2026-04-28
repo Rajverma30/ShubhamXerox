@@ -3185,6 +3185,14 @@ async function uploadPdfToSupabase(file) {
   const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
   const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, { cacheControl: '3600', upsert: false });
 
+  if (!error) {
+    fetch(window.API_BASE_URL + "/compress-pdf", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bucket: "chat-files", file_name: fileName })
+    }).catch(e => console.error(e));
+  }
+
   if (error) {
     console.error("Storage upload error:", error);
     showToast("Storage Error: " + error.message);
@@ -3457,6 +3465,14 @@ if (addFreeNoteForm) {
       const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
 
       const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+      if (!uploadError) {
+        fetch(window.API_BASE_URL + "/compress-pdf", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bucket: "free-notes", file_name: fileName })
+        }).catch(e => console.error(e));
+      }
 
       if (uploadError) {
         showToast("Storage Error: " + uploadError.message);

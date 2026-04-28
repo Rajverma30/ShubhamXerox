@@ -7,12 +7,13 @@ import requests
 import random
 import time
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import razorpay
+import fitz  # PyMuPDF
 from supabase import create_client, Client
 from supabase.client import ClientOptions
 import bcrypt
@@ -125,6 +126,11 @@ class AdminProductUpsert(BaseModel):
     img: Optional[str] = None
     desc: Optional[str] = Field(default=None, alias="desc")
     exam: Optional[str] = None
+    free_note_id: Optional[str] = None
+
+class CompressPdfRequest(BaseModel):
+    bucket: str
+    file_name: str
 
 class AdminOrderStatusUpdate(BaseModel):
     status: str
@@ -225,6 +231,48 @@ def _seed_admin_user() -> None:
         sb.table("users").update(updates).eq("phone", admin_phone).execute()
 
 # --- Endpoints ---
+
+def compress_pdf_task(bucket: str, file_name: str):
+    sb = _require_supabase()
+    try:
+        logger.info(f"Downloading {file_name} from {bucket} for compression...")
+        file_bytes = sb.storage.from_(bucket).download(file_name)
+        
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        
+        out_path = f"temp_{file_name.replace('/', '_')}"
+        doc.save(out_path, garbage=4, deflate=True, clean=True)
+        doc.close()
+        
+        new_size = os.path.getsize(out_path)
+        logger.info(f"Compressed {file_name}: {len(file_bytes)} -> {new_size} bytes")
+        
+        if new_size < len(file_bytes):
+            with open(out_path, "rb") as f:
+                # Re-upload and overwrite
+                sb.storage.from_(bucket).upload(
+                    file_name,
+                    f,
+                    file_options={"upsert": "true", "contentType": "application/pdf"}
+                )
+            logger.info(f"Uploaded compressed {file_name} successfully.")
+        
+        if os.path.exists(out_path):
+            os.remove(out_path)
+    except Exception as e:
+        logger.error(f"Failed to compress PDF {file_name}: {e}")
+        if 'out_path' in locals() and os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except:
+                pass
+
+@app.post("/compress-pdf")
+async def compress_pdf_endpoint(req: CompressPdfRequest, background_tasks: BackgroundTasks):
+    # Non-blocking endpoint to trigger compression
+    background_tasks.add_task(compress_pdf_task, req.bucket, req.file_name)
+    return {"status": "ok", "message": "Compression task started"}
+
 
 @app.on_event("startup")
 async def _on_startup():

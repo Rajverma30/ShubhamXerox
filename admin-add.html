@@ -104,9 +104,22 @@
                 </div>
               </div>
               <small style="color: var(--text-muted); display: block; margin-top: -10px; margin-bottom: 12px;">Capture from camera or select file. Multi-images show as a slider.</small>
-              <div class="form-group">
-                <label for="bookPdfPreview">Book PDF (Optional: auto-generate first 3 preview images)</label>
-                <input type="file" id="bookPdfPreview" class="form-control" accept="application/pdf">
+              <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-top: 20px;">
+                <h3 style="font-size: 1rem; margin-bottom: 12px;">Attach PDF to Book <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional)</span></h3>
+                <label for="bookAttachedPdf">Upload PDF</label>
+                <input type="file" id="bookAttachedPdf" class="form-control" accept="application/pdf" style="margin-bottom: 12px;">
+                <small style="color: var(--text-muted); display: block; margin-bottom: 12px;">If attached, it will appear in Free Notes section and Book Details page. It will also auto-generate 3 preview images if no other images are uploaded.</small>
+                
+                <label for="bookPdfType">PDF Access Type</label>
+                <select id="bookPdfType" class="form-control" onchange="document.getElementById('bookPdfPriceGroup').style.display = this.value === 'paid' ? 'block' : 'none'" style="margin-bottom: 12px;">
+                  <option value="free">Free</option>
+                  <option value="paid">Paid</option>
+                </select>
+
+                <div id="bookPdfPriceGroup" style="display:none;">
+                  <label for="bookPdfPrice">PDF Price (₹)</label>
+                  <input type="number" id="bookPdfPrice" class="form-control" placeholder="50" min="1" step="1">
+                </div>
               </div>
               <div style="text-align: center; margin: 12px 0; color: var(--text-muted); font-size: 0.9rem;">OR</div>
               <div class="form-group">
