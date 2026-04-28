@@ -132,6 +132,10 @@ class CompressPdfRequest(BaseModel):
     bucket: str
     file_name: str
 
+class CreateCodOrderRequest(BaseModel):
+    order_data: dict
+    order_type: str
+
 class AdminOrderStatusUpdate(BaseModel):
     status: str
 
@@ -469,7 +473,155 @@ async def verify_payment(req: VerifyPaymentRequest, user: Dict[str, Any] = Depen
         else:
             raise HTTPException(status_code=500, detail=f"Database insertion failed: {str(e)}")
 
+    # 5. Shiprocket Integration
+    if table == "orders":
+        _trigger_shiprocket_books(payload, is_cod=False)
+
     return {"status": "success", "message": "Payment verified and order created."}
+
+
+@app.post("/create-cod-order")
+async def create_cod_order(req: CreateCodOrderRequest, user: Dict[str, Any] = Depends(verify_user)):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    table = "orders" if req.order_type == "books" else "photocopy_orders"
+    payload = req.order_data.copy()
+    payload["status"] = "Pending"
+    
+    try:
+        response = supabase.table(table).insert(payload).execute()
+        if not response.data:
+            raise Exception("No data returned from insert")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database insertion failed: {str(e)}")
+
+    if table == "orders":
+        _trigger_shiprocket_books(payload, is_cod=True)
+
+    return {"status": "success", "message": "COD order created"}
+
+
+def _trigger_shiprocket_books(db_payload: dict, is_cod: bool):
+    try:
+        from utils.shiprocket import create_shiprocket_order
+        sr_items = []
+        for item in db_payload.get("items", []):
+            sr_items.append({
+                "name": item.get("name", "Book"),
+                "sku": str(item.get("id", "sku")),
+                "units": item.get("quantity", 1),
+                "selling_price": item.get("price", 0)
+            })
+        
+        # Split address if possible, otherwise use fallback
+        addr = db_payload.get("address", "")
+        
+        sr_order_data = {
+            "order_id": db_payload.get("id"),
+            "date": db_payload.get("date"),
+            "payment_method": "COD" if is_cod else "Prepaid",
+            "sub_total": db_payload.get("total", 0),
+            "customer_name": db_payload.get("customer", "Customer"),
+            "customer_phone": db_payload.get("customerphone", ""),
+            "shipping_address": addr,
+            "shipping_city": "Indore",
+            "shipping_pin_code": "452001",
+            "shipping_state": "Madhya Pradesh",
+            "shipping_country": "India"
+        }
+
+        res = create_shiprocket_order(sr_order_data, sr_items)
+        if "error" not in res and res.get("shiprocket_order_id"):
+            tracking_url = ""
+            if res.get("awb_code"):
+                tracking_url = f"https://shiprocket.co/tracking/{res['awb_code']}"
+            
+            update_payload = {
+                "shiprocket_order_id": str(res["shiprocket_order_id"]),
+                "shipment_id": str(res.get("shipment_id", "")),
+                "tracking_url": tracking_url
+            }
+            supabase.table("orders").update(update_payload).eq("id", db_payload["id"]).execute()
+    except Exception as e:
+        logger.error(f"Failed to trigger Shiprocket for order {db_payload.get('id')}: {e}")
+
+@app.post("/admin/photocopy-shiprocket")
+async def create_photocopy_shiprocket(req: Request, _admin: Dict[str, Any] = Depends(verify_admin)):
+    data = await req.json()
+    order_id = data.get("order_id")
+    if not order_id:
+        raise HTTPException(400, "Missing order_id")
+        
+    res = supabase.table("photocopy_orders").select("*").eq("id", order_id).execute()
+    if not res.data:
+        raise HTTPException(404, "Order not found")
+        
+    db_payload = res.data[0]
+    
+    from utils.shiprocket import create_shiprocket_order
+    is_cod = db_payload.get("payment_method", "").lower() == "cod"
+    
+    sr_items = [{
+        "name": f"Photocopy Order {order_id}",
+        "sku": "PHOTOCOPY",
+        "units": 1,
+        "selling_price": db_payload.get("total_amount", 0)
+    }]
+    
+    sr_order_data = {
+        "order_id": order_id,
+        "date": db_payload.get("created_at"),
+        "payment_method": "COD" if is_cod else "Prepaid",
+        "sub_total": db_payload.get("total_amount", 0),
+        "customer_name": db_payload.get("customer_phone", "Customer"),
+        "customer_phone": db_payload.get("customer_phone", ""),
+        "shipping_address": db_payload.get("customer_address", ""),
+        "shipping_city": "Indore",
+        "shipping_pin_code": "452001",
+        "shipping_state": "Madhya Pradesh",
+        "shipping_country": "India"
+    }
+
+    sr_res = create_shiprocket_order(sr_order_data, sr_items)
+    if "error" in sr_res:
+        raise HTTPException(500, sr_res["error"])
+        
+    tracking_url = ""
+    if sr_res.get("awb_code"):
+        tracking_url = f"https://shiprocket.co/tracking/{sr_res['awb_code']}"
+        
+    update_payload = {
+        "status": "Out for Delivery",
+        "shiprocket_order_id": str(sr_res["shiprocket_order_id"]),
+        "shipment_id": str(sr_res.get("shipment_id", "")),
+        "tracking_url": tracking_url
+    }
+    supabase.table("photocopy_orders").update(update_payload).eq("id", order_id).execute()
+    
+    return {"status": "success", "tracking_url": tracking_url}
+
+@app.post("/shiprocket-webhook")
+async def shiprocket_webhook(request: Request):
+    try:
+        payload = await request.json()
+        status = payload.get("current_status")
+        awb = payload.get("awb")
+        
+        if status == "DELIVERED" and awb:
+            # We don't know if it's books or photocopy, so check both
+            books_res = supabase.table("orders").select("id").like("tracking_url", f"%{awb}%").execute()
+            if books_res.data:
+                supabase.table("orders").update({"status": "Delivered"}).eq("id", books_res.data[0]["id"]).execute()
+            else:
+                photo_res = supabase.table("photocopy_orders").select("id").like("tracking_url", f"%{awb}%").execute()
+                if photo_res.data:
+                    supabase.table("photocopy_orders").update({"status": "Delivered"}).eq("id", photo_res.data[0]["id"]).execute()
+                    
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return {"status": "error"}
 
 # --- Admin protected APIs ---
 

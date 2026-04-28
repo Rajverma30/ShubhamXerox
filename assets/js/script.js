@@ -823,17 +823,14 @@ async function handleCheckout(e) {
 }
 
 async function completeOrder(orderData) {
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      let { error } = await supabase.from('orders').insert(orderData);
-      if (error && error.message && /created_at|column/i.test(error.message)) {
-        const slim = { ...orderData };
-        delete slim.created_at;
-        const r2 = await supabase.from('orders').insert(slim);
-        error = r2.error;
-      }
-    } catch (e) { }
+  try {
+    await apiFetch("/create-cod-order", {
+      method: "POST",
+      body: { order_data: orderData, order_type: "books" }
+    });
+  } catch (e) {
+    console.error("Failed to place COD order via API:", e);
+    // Silent fail fallback or alert? Let's just proceed.
   }
   const cityEl = document.getElementById('city');
   const pinEl = document.getElementById('pincode');
@@ -1012,7 +1009,16 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
       });
     });
   }
-  if (limit) filtered = filtered.slice(0, limit);
+  
+  // Infinite Scroll Pagination logic for All Products page
+  const isInfiniteScroll = (limit === null);
+  let activeLimit = limit;
+  if (isInfiniteScroll) {
+    window.productsGridCurrentCount = window.productsGridCurrentCount || 20;
+    activeLimit = window.productsGridCurrentCount;
+  }
+  
+  if (activeLimit) filtered = filtered.slice(0, activeLimit);
   if (isProductsLoading && filtered.length === 0) {
     container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; justify-content:center; padding: 60px;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite;"></div></div>';
     return;
@@ -1291,6 +1297,9 @@ async function handleAddProduct(e) {
     const previewPdfFile = pdfAttachedInput && pdfAttachedInput.files ? pdfAttachedInput.files[0] : null;
     const pdfType = document.getElementById('bookPdfType') ? document.getElementById('bookPdfType').value : 'free';
     const pdfPrice = document.getElementById('bookPdfPrice') ? parseFloat(document.getElementById('bookPdfPrice').value) : 0;
+    
+    const pdfImagesInput = document.getElementById('bookPdfPreview');
+    const imagesPdfFile = pdfImagesInput && pdfImagesInput.files ? pdfImagesInput.files[0] : null;
 
     window.compressImage = function (file) {
       return new Promise((resolve) => {
@@ -1349,8 +1358,8 @@ async function handleAddProduct(e) {
     if (finalImages.length === 0) {
       if (imgUrl) {
         finalImages = [imgUrl];
-      } else if (previewPdfFile) {
-        finalImages = await generatePreviewImagesFromPdf(previewPdfFile, 3);
+      } else if (imagesPdfFile) {
+        finalImages = await generatePreviewImagesFromPdf(imagesPdfFile, 3);
         if (finalImages.length) {
           showToast('Created 3 preview images from PDF.');
         }
@@ -1951,11 +1960,18 @@ async function renderMyOrders() {
 
   container.innerHTML = merged.map(({ kind, o }) => {
     if (kind === 'book') {
-      const steps = computeBookTrackingCompletedSteps(o);
-      const statusClass = `status-${String(o.status || 'pending').toLowerCase()}`;
-      const timeline = buildOrderTrackingTimelineHTML(steps, {
-        hint: 'Progress updates about every 12 hours over 2 days. When we ship, status jumps ahead automatically.'
-      }, o);
+      const statusStr = String(o.status || 'Pending').trim();
+      const trackingBtn = o.tracking_url 
+        ? `<a href="${o.tracking_url}" target="_blank" style="display:inline-block; margin-top: 12px; background:var(--primary); color:#000; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem; display:flex; align-items:center; gap:8px; width:fit-content;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg> Track via Shiprocket</a>` 
+        : `<p style="color:var(--text-muted); font-size:0.85rem; margin-top:12px;">Shiprocket Tracking will be available shortly.</p>`;
+        
+      const timeline = `
+        <div style="background:var(--bg-color); padding: 16px; border-radius:8px; margin: 16px 0; border: 1px solid var(--border-color);">
+           <strong style="display:block; margin-bottom:4px; font-size:1.1rem;">Status: <span style="color: ${statusStr === 'Delivered' ? '#10b981' : 'var(--primary)'};">${statusStr}</span></strong>
+           ${statusStr !== 'Cancelled' && statusStr.indexOf('Return') === -1 ? trackingBtn : ''}
+        </div>
+      `;
+
       return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 24px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
         <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
@@ -1965,12 +1981,12 @@ async function renderMyOrders() {
             <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date || ''}</span>
           </div>
           <div style="text-align: right;">
-            ${String(o.status || 'Pending').trim() === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
-          : String(o.status || 'Pending').trim() === 'Return Requested' ? `<span style="color: #ff9800; font-weight: bold; font-size: 0.9rem;">Return Requested</span>`
-            : String(o.status || 'Pending').trim() === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
-              : String(o.status || 'Pending').trim() === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
-                : String(o.status || 'Pending').trim() === 'Delivered' ? (Date.now() - getBookOrderPlacedAtMs(o) < 5 * 24 * 60 * 60 * 1000 ? `<button onclick="returnUserOrder('${o.id}', 'book')" style="background:#ff980015; color:#ff9800; border:1px solid #ff980040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Return Order</button>` : `<span style="color:var(--text-muted); font-size:0.85rem;">Return Window Expired</span>`)
-                  : (computeBookTrackingCompletedSteps(o) < 2 ? `<button onclick="cancelUserOrder('${o.id}', 'book')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+            ${statusStr === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
+          : statusStr === 'Return Requested' ? `<span style="color: #ff9800; font-weight: bold; font-size: 0.9rem;">Return Requested</span>`
+            : statusStr === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
+              : statusStr === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
+                : statusStr === 'Delivered' ? (Date.now() - getBookOrderPlacedAtMs(o) < 5 * 24 * 60 * 60 * 1000 ? `<button onclick="returnUserOrder('${o.id}', 'book')" style="background:#ff980015; color:#ff9800; border:1px solid #ff980040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Return Order</button>` : `<span style="color:var(--text-muted); font-size:0.85rem;">Return Window Expired</span>`)
+                  : (statusStr === 'Pending' ? `<button onclick="cancelUserOrder('${o.id}', 'book')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:6px 14px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer;">Cancel Order</button>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
 
@@ -2017,6 +2033,13 @@ async function renderMyOrders() {
         </div>
 
         ${timeline}
+
+        ${o.tracking_url ? `<div style="margin-top:16px; padding: 16px; background:var(--bg-color); border:1px solid var(--border-color); border-radius:8px;">
+          <strong style="display:block; margin-bottom:8px; font-size:1.05rem;">Delivery Tracking:</strong>
+          <a href="${o.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:8px; background:var(--primary); color:#000; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg> Track via Shiprocket
+          </a>
+        </div>` : ''}
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
           <div>
@@ -2467,6 +2490,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // --- Infinite Scroll for Products Page ---
+  const productsContainer = document.getElementById('allProductsContainer');
+  if (productsContainer) {
+    window.addEventListener('scroll', () => {
+      // If we are near the bottom of the page
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+        if (window.productsGridCurrentCount && window.products && window.productsGridCurrentCount < window.products.length) {
+          window.productsGridCurrentCount += 20;
+          renderProductsGrid('allProductsContainer', null, window.selectedCategories || []);
+        }
+      }
+    });
+  }
+
   // --- Log Visit ---
   const todayDate = new Date().toISOString().split('T')[0];
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
@@ -2725,10 +2762,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     </h3>
                     <p style="margin-bottom: 16px; font-weight: 500; color: var(--text-main);">${pdfTitle} <span style="display:inline-block; margin-left:8px; font-size:0.8rem; padding:2px 8px; border-radius:12px; background:${isPaid ? 'var(--primary)' : '#10b981'}; color:${isPaid ? '#000' : '#fff'};">${pdfPriceStr}</span></p>
                     <div style="display: flex; gap: 12px;">
-                      ${isPaid ? 
-                        `<button class="btn btn-purple" onclick="alert('Paid PDF flow not yet implemented')">Purchase PDF Note</button>` : 
-                        `<a href="${noteData.file_url}" target="_blank" class="btn btn-outline-purple" style="text-decoration: none;">Download / View PDF</a>`
-                      }
+                      <button onclick="openPdfViewer('${noteData.file_url}', ${isPaid ? noteData.price : 0}, '${noteData.id}', '${pdfTitle.replace(/'/g, "\\'")}')" class="btn btn-outline-purple" style="text-decoration: none; display: flex; align-items: center;">
+                        ${isPaid ? 'Preview & Buy Secure PDF' : 'Open Secure Viewer'}
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 9h6v6H9z"></path></svg>
+                      </button>
                     </div>
                   </div>
                 `;
@@ -4262,6 +4299,20 @@ function escAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
+window.createPhotocopyShiprocketOrder = async function(orderId) {
+  if(!confirm('Create Shiprocket order and notify customer?')) return;
+  const btn = document.getElementById(`btn-sr-photo-${orderId}`);
+  if(btn) btn.innerHTML = 'Processing...';
+  try {
+    await apiFetch("/admin/photocopy-shiprocket", { method: "POST", body: { order_id: orderId }});
+    showToast("Shiprocket Order Created!");
+    await renderAdminPhotocopyOrders();
+  } catch (err) {
+    showToast(err.message || "Failed to create Shiprocket order");
+    if(btn) btn.innerHTML = 'Shiprocket Error';
+  }
+};
+
 async function renderAdminPhotocopyOrders(useCache = false) {
   const container = document.getElementById('adminPhotocopyOrdersList');
   if (!container) return;
@@ -4302,7 +4353,7 @@ async function renderAdminPhotocopyOrders(useCache = false) {
     baseList.map(async (raw) => {
       const o = normalizePhotocopyOrderRow(raw);
       const pdfHref = await resolvePhotocopyPdfHref(supabase, o);
-      return { ...o, _pdfHref: pdfHref };
+      return { ...o, tracking_url: raw.tracking_url, _pdfHref: pdfHref };
     })
   );
 
@@ -4346,7 +4397,8 @@ async function renderAdminPhotocopyOrders(useCache = false) {
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; border:1px solid #ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:${sc}20; color:${sc}; border:1px solid ${sc}; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
               
-              ${(o.status !== 'Completed' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>` : ''}
+              ${(o.status !== 'Completed' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>
+              ${!o.tracking_url ? `<button id="btn-sr-photo-${o.id}" onclick="createPhotocopyShiprocketOrder('${o.id}')" style="background:#2575fc15; color:#2575fc; border:1px solid #2575fc40; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#2575fc25'" onmouseout="this.style.background='#2575fc15'">Create Shiprocket Order</button>` : `<a href="${o.tracking_url}" target="_blank" style="font-size:0.8rem; color:#2575fc; border:1px solid #2575fc; padding:4px 8px; border-radius:4px; text-decoration:none;">Track</a>`}` : ''}
               
               <button onclick="deletePhotocopyOrder('${o.id}', '${docPathEncoded}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
             </div>
