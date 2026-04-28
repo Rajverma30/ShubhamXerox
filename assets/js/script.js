@@ -38,6 +38,37 @@ let cart = [];
 let currentUser = null;
 let reviews = {};
 let selectedCategories = [];
+const PRODUCTS_BATCH_SIZE = 20;
+let isLoadingMoreProducts = false;
+
+function resetProductsInfiniteScroll() {
+  window.productsGridCurrentCount = PRODUCTS_BATCH_SIZE;
+  window.productsGridTotalFilteredCount = 0;
+  isLoadingMoreProducts = false;
+}
+
+function setProductsLoadMoreIndicator(state = 'hidden') {
+  const indicator = document.getElementById('productsLoadMoreIndicator');
+  if (!indicator) return;
+
+  if (state === 'loading') {
+    indicator.style.display = 'flex';
+    indicator.innerHTML = `
+      <div class="products-load-spinner" aria-hidden="true"></div>
+      <span>Loading more books...</span>
+    `;
+    return;
+  }
+
+  if (state === 'end') {
+    indicator.style.display = 'flex';
+    indicator.innerHTML = '<span>All books loaded.</span>';
+    return;
+  }
+
+  indicator.style.display = 'none';
+  indicator.innerHTML = '';
+}
 
 function getAuthToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY) || "";
@@ -918,6 +949,7 @@ window.handleCategoryToggle = function (checkbox) {
   } else {
     selectedCategories = selectedCategories.filter(c => c !== val);
   }
+  resetProductsInfiniteScroll();
   updateActiveCategoryTags();
   renderProductsGrid('allProductsContainer', null, selectedCategories);
 };
@@ -926,6 +958,7 @@ window.resetCategories = function () {
   selectedCategories = [];
   const checkboxes = document.querySelectorAll('.multi-select-option input[type="checkbox"]');
   checkboxes.forEach(cb => cb.checked = false);
+  resetProductsInfiniteScroll();
   updateActiveCategoryTags();
   renderProductsGrid('allProductsContainer', null, selectedCategories);
 
@@ -1013,9 +1046,11 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   // Infinite Scroll Pagination logic for All Products page
   const isInfiniteScroll = (limit === null);
   let activeLimit = limit;
+  const totalFilteredCount = filtered.length;
   if (isInfiniteScroll) {
-    window.productsGridCurrentCount = window.productsGridCurrentCount || 20;
-    activeLimit = window.productsGridCurrentCount;
+    window.productsGridCurrentCount = window.productsGridCurrentCount || PRODUCTS_BATCH_SIZE;
+    activeLimit = Math.min(window.productsGridCurrentCount, totalFilteredCount);
+    window.productsGridTotalFilteredCount = totalFilteredCount;
   }
   
   if (activeLimit) filtered = filtered.slice(0, activeLimit);
@@ -1025,8 +1060,21 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   }
   if (filtered.length === 0) {
     container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 1.1rem; background: var(--card-bg); border-radius: var(--radius-md); border: 1px solid var(--border-color);"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg><br>No books or notes found for your selection.</div>';
+    setProductsLoadMoreIndicator('hidden');
   } else {
     container.innerHTML = filtered.map(createProductCard).join('');
+    if (isInfiniteScroll) {
+      const hasMoreProducts = activeLimit < totalFilteredCount;
+      if (isLoadingMoreProducts && hasMoreProducts) {
+        setProductsLoadMoreIndicator('loading');
+      } else if (!hasMoreProducts) {
+        setProductsLoadMoreIndicator('end');
+      } else {
+        setProductsLoadMoreIndicator('hidden');
+      }
+    } else {
+      setProductsLoadMoreIndicator('hidden');
+    }
   }
 }
 
@@ -2496,9 +2544,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('scroll', () => {
       // If we are near the bottom of the page
       if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
-        if (window.productsGridCurrentCount && window.products && window.productsGridCurrentCount < window.products.length) {
-          window.productsGridCurrentCount += 20;
-          renderProductsGrid('allProductsContainer', null, window.selectedCategories || []);
+        const totalFilteredCount = window.productsGridTotalFilteredCount || products.length;
+        if (
+          !isLoadingMoreProducts &&
+          window.productsGridCurrentCount &&
+          window.productsGridCurrentCount < totalFilteredCount
+        ) {
+          isLoadingMoreProducts = true;
+          setProductsLoadMoreIndicator('loading');
+          setTimeout(() => {
+            window.productsGridCurrentCount += PRODUCTS_BATCH_SIZE;
+            isLoadingMoreProducts = false;
+            renderProductsGrid('allProductsContainer', null, selectedCategories);
+          }, 300);
         }
       }
     });
@@ -2617,6 +2675,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('featuredProducts')) renderProductsGrid('featuredProducts', 4);
 
   if (document.getElementById('allProductsContainer')) {
+    resetProductsInfiniteScroll();
     selectedCategories = parseProductsCategoryParams();
 
     try {
@@ -2629,6 +2688,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
       searchInput.addEventListener('input', () => {
+        resetProductsInfiniteScroll();
         renderProductsGrid('allProductsContainer', null, selectedCategories);
         if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
       });
