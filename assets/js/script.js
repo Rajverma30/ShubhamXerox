@@ -1287,8 +1287,10 @@ async function handleAddProduct(e) {
     const exam = examValues.length > 0 ? examValues.join(', ') : null;
     
     let imgUrl = document.getElementById('img').value;
-    const pdfPreviewInput = document.getElementById('bookPdfPreview');
-    const previewPdfFile = pdfPreviewInput && pdfPreviewInput.files ? pdfPreviewInput.files[0] : null;
+    const pdfAttachedInput = document.getElementById('bookAttachedPdf');
+    const previewPdfFile = pdfAttachedInput && pdfAttachedInput.files ? pdfAttachedInput.files[0] : null;
+    const pdfType = document.getElementById('bookPdfType') ? document.getElementById('bookPdfType').value : 'free';
+    const pdfPrice = document.getElementById('bookPdfPrice') ? parseFloat(document.getElementById('bookPdfPrice').value) : 0;
 
     window.compressImage = function (file) {
       return new Promise((resolve) => {
@@ -1364,7 +1366,55 @@ async function handleAddProduct(e) {
       const payload = { name, price, category, img: imageSrc };
       if (original_price) payload.original_price = original_price;
       if (exam) payload.exam = exam;
+      
       try {
+        if (previewPdfFile) {
+          const supabase = getSupabase();
+          if (supabase) {
+            if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Uploading PDF...</span>';
+            const fileName = `${Date.now()}_${previewPdfFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+            const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, previewPdfFile, { cacheControl: '3600', upsert: false });
+            
+            if (!uploadError) {
+              fetch(window.API_BASE_URL + "/compress-pdf", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket: "free-notes", file_name: fileName })
+              }).catch(e => console.error(e));
+              
+              const { data: pubData } = supabase.storage.from('free-notes').getPublicUrl(fileName);
+              
+              const isPaid = pdfType === 'paid';
+              let notePayload = {
+                title: name,
+                file_url: pubData.publicUrl,
+                is_paid: isPaid,
+                price: isPaid ? pdfPrice : 0
+              };
+              let { data: noteData, error: dbError } = await supabase.from('free_notes').insert(notePayload).select().single();
+              
+              if (dbError && dbError.message && dbError.message.includes('is_paid')) {
+                 delete notePayload.is_paid;
+                 delete notePayload.price;
+                 const retry = await supabase.from('free_notes').insert(notePayload).select().single();
+                 noteData = retry.data;
+                 dbError = retry.error;
+              }
+              
+              if (!dbError && noteData) {
+                 payload.free_note_id = noteData.id;
+              } else {
+                 console.error("Failed to insert free_note:", dbError);
+                 showToast("PDF uploaded, but failed to link to database.");
+              }
+            } else {
+              console.error("PDF upload error:", uploadError);
+              showToast("Failed to upload PDF: " + uploadError.message);
+            }
+          }
+          if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Saving Product...</span>';
+        }
+
         await apiFetch("/admin/products", { method: "POST", body: payload });
         showToast("Product added successfully!");
       } catch (err) {
@@ -2656,6 +2706,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.buyNow = function (pid) { addToCart(pid); window.location.href = "checkout.html"; };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
+      let attachedPdfHtml = '';
+      if (product.free_note_id) {
+        try {
+          const supabase = getSupabase();
+          if (supabase) {
+             const { data: noteData } = await supabase.from('free_notes').select('*').eq('id', product.free_note_id).single();
+             if (noteData) {
+                const pdfTitle = noteData.title || product.name;
+                const isPaid = noteData.is_paid || (noteData.price && noteData.price > 0);
+                const pdfPriceStr = isPaid ? `(₹${noteData.price})` : 'Free';
+                
+                attachedPdfHtml = `
+                  <div style="margin-bottom: 40px; background: rgba(128, 42, 126, 0.05); border: 1px solid rgba(128, 42, 126, 0.2); padding: 20px; border-radius: 12px;">
+                    <h3 style="font-size: 1.3rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                      Attached PDF Note
+                    </h3>
+                    <p style="margin-bottom: 16px; font-weight: 500; color: var(--text-main);">${pdfTitle} <span style="display:inline-block; margin-left:8px; font-size:0.8rem; padding:2px 8px; border-radius:12px; background:${isPaid ? 'var(--primary)' : '#10b981'}; color:${isPaid ? '#000' : '#fff'};">${pdfPriceStr}</span></p>
+                    <div style="display: flex; gap: 12px;">
+                      ${isPaid ? 
+                        `<button class="btn btn-purple" onclick="alert('Paid PDF flow not yet implemented')">Purchase PDF Note</button>` : 
+                        `<a href="${noteData.file_url}" target="_blank" class="btn btn-outline-purple" style="text-decoration: none;">Download / View PDF</a>`
+                      }
+                    </div>
+                  </div>
+                `;
+             }
+          }
+        } catch (e) {
+          console.error("Failed to fetch attached PDF:", e);
+        }
+      }
+
       const imgs = product.img ? product.img.split('|') : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
       let imgGalleryHtml = '';
       if (imgs.length > 1) {
@@ -2708,6 +2791,8 @@ document.addEventListener('DOMContentLoaded', async () => {
               <h3 style="font-size: 1.5rem; margin-bottom: 16px;">Book Description</h3>
               <p style="color: var(--text-muted); font-size: 1.1rem; line-height: 1.8;">${pDesc}</p>
             </div>
+            
+            ${attachedPdfHtml}
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 40px;">
               <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="addToCart(${product.id})">
