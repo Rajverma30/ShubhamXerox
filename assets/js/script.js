@@ -3210,6 +3210,40 @@ function checkChatLogin() {
   }
 }
 
+window.handleChatFloatClick = function (e) {
+  try {
+    const btn = e && e.currentTarget ? e.currentTarget : null;
+    const isTouch = (typeof window !== 'undefined') && (('ontouchstart' in window) || (navigator && navigator.maxTouchPoints > 0));
+    if (!btn) {
+      checkChatLogin();
+      return false;
+    }
+
+    if (!isTouch) {
+      checkChatLogin();
+      return false;
+    }
+
+    const armed = btn.classList.contains('show-label');
+    if (!armed) {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      btn.classList.add('show-label');
+      window.clearTimeout(btn._tooltipTimer);
+      btn._tooltipTimer = window.setTimeout(() => {
+        btn.classList.remove('show-label');
+      }, 1800);
+      return false;
+    }
+
+    btn.classList.remove('show-label');
+    checkChatLogin();
+    return false;
+  } catch (err) {
+    checkChatLogin();
+    return false;
+  }
+};
+
 // User Chat Init
 let chatSubscription = null;
 let currentChatUserId = null;

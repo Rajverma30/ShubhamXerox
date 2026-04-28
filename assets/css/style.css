@@ -357,6 +357,31 @@ button {
   transform: scale(1.1);
 }
 
+.chat-float-tooltip {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(17, 20, 30, 0.92);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.chat-float:hover .chat-float-tooltip,
+.chat-float.show-label .chat-float-tooltip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(-2px);
+}
+
 /* --- Hero Section Premium Revamp --- */
 .hero {
   position: relative;
