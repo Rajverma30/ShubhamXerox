@@ -556,7 +556,7 @@ button {
 
 /* --- Home Extra Sections --- */
 .about-us-section {
-  background: color-mix(in srgb, var(--card-bg) 70%, #b178b9 30%);
+  background: transparent;
 }
 
 .about-us-card {
