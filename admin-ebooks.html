@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage E-Books | Admin | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display:flex; flex-direction:column; gap:2px; padding:4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size:0.75rem; letter-spacing:1px; color:var(--text-main); font-weight:800; margin-top:-6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-categories.html">Add/Edit Category</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Add</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-add-stationery.html">Add Stationery Item</a>
+            <a href="admin-add-combo.html">Add Combo Deal</a>
+          </div>
+        </div>
+        <a href="admin-products.html">Manage Books</a>
+        <a href="admin-ebooks.html" style="color: var(--primary);">Manage E-Books</a>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons"></div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+      <div style="margin-bottom: 22px;">
+        <h2 style="font-size: 1.5rem; margin-bottom: 8px;">Manage Study Notes & PDFs</h2>
+        <p style="color: var(--text-muted);">Upload, list, and delete PDFs shown in Free Notes (and paid PDFs if enabled).</p>
+      </div>
+
+      <div class="admin-card" style="margin-bottom: 24px;">
+        <h3 style="margin-bottom: 16px; font-size:1.1rem;">Upload New Note / PDF</h3>
+        <form id="addFreeNoteForm" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+          <div class="form-group" style="flex: 1; min-width:200px; margin:0;">
+            <label for="newNoteTitle">Note Title</label>
+            <input type="text" id="newNoteTitle" class="form-control" required placeholder="e.g. MPPSC Mains Unit 1 PDF">
+          </div>
+          <div class="form-group" style="min-width:100px; margin:0;">
+            <label for="newNoteType">Type</label>
+            <select id="newNoteType" class="form-control" onchange="document.getElementById('newNotePriceGroup').style.display = this.value === 'paid' ? 'block' : 'none'">
+              <option value="free">Free</option>
+              <option value="paid">Paid</option>
+            </select>
+          </div>
+          <div class="form-group" id="newNotePriceGroup" style="min-width:100px; margin:0; display:none;">
+            <label for="newNotePrice">Price (₹)</label>
+            <input type="number" id="newNotePrice" class="form-control" placeholder="50" min="1" step="1">
+          </div>
+          <div class="form-group" style="flex: 1; min-width:200px; margin:0;">
+            <label for="newNoteFile">Select PDF</label>
+            <input type="file" id="newNoteFile" class="form-control" required accept="application/pdf">
+          </div>
+          <button type="submit" class="btn btn-primary" id="btnUploadNote" style="padding:12px 24px;">
+            <span id="btnUploadNoteText">Upload Note</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="admin-list" id="adminFreeNotesList" style="display:grid; gap:16px;">
+        <!-- Injected via JS -->
+      </div>
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="assets/js/script.js"></script>
+</body>
+</html>
+

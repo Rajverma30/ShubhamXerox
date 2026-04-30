@@ -43,11 +43,61 @@ let selectedCategories = [];
 let featuredSelectedCategories = [];
 const PRODUCTS_BATCH_SIZE = 20;
 let isLoadingMoreProducts = false;
+const ADMIN_PRODUCTS_BATCH_SIZE = 20;
 
 function resetProductsInfiniteScroll() {
   window.productsGridCurrentCount = PRODUCTS_BATCH_SIZE;
   window.productsGridTotalFilteredCount = 0;
   isLoadingMoreProducts = false;
+}
+
+function resetAdminProductsPagination() {
+  window.adminProductsOffset = 0;
+  window.adminProductsHasMore = true;
+  window.adminProductsLoading = false;
+  window.adminProductsData = [];
+}
+
+function resetAdminCategoriesPagination() {
+  window.adminCategoriesCurrentCount = 20;
+  window.adminCategoriesTotalCount = 0;
+}
+
+function setAdminProductsLoadMoreIndicator(state = 'hidden') {
+  const indicator = document.getElementById('adminProductsLoadMoreIndicator');
+  if (!indicator) return;
+  if (state === 'loading') {
+    indicator.style.display = 'flex';
+    indicator.innerHTML = `
+      <div class="products-load-spinner" aria-hidden="true"></div>
+      <span>Loading more books...</span>
+    `;
+    return;
+  }
+  if (state === 'end') {
+    indicator.style.display = 'flex';
+    indicator.innerHTML = '<span>All books loaded.</span>';
+    return;
+  }
+  indicator.style.display = 'none';
+  indicator.innerHTML = '';
+}
+
+function setAdminCategoriesLoadMoreIndicator(state = 'hidden') {
+  const indicator = document.getElementById('adminCategoriesLoadMoreIndicator');
+  if (!indicator) return;
+  if (state === 'loading') {
+    indicator.style.display = 'block';
+    indicator.textContent = 'Loading more categories...';
+    return;
+  }
+  if (state === 'end') {
+    indicator.style.display = 'block';
+    indicator.textContent = 'All categories loaded.';
+    return;
+  }
+  indicator.style.display = 'none';
+  indicator.textContent = '';
 }
 
 function setProductsLoadMoreIndicator(state = 'hidden') {
@@ -368,12 +418,18 @@ function renderStoreProducts() {
 }
 
 async function fetchProducts() {
+  const sortProductsByLatest = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    // Ensure "latest" is always on top across cache/merge/fetch.
+    return [...arr].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+  };
+
   const cached = localStorage.getItem('shubham_real_products_cache');
   if (cached) {
     try {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        products = parsed;
+        products = sortProductsByLatest(parsed);
         renderStoreProducts();
       }
     } catch(e) {}
@@ -385,13 +441,49 @@ async function fetchProducts() {
   try {
     const supabase = getSupabase();
     if (!supabase) return;
-    // Download fresh data
-    const { data, error } = await supabase.from('products').select('*').order('id', { ascending: false });
-    
+    const mergeUniqueById = (primary = [], secondary = []) => {
+      const seen = new Set();
+      const out = [];
+      const addArr = (arr) => {
+        (Array.isArray(arr) ? arr : []).forEach(p => {
+          const id = Number(p?.id);
+          if (!Number.isFinite(id) || seen.has(id)) return;
+          seen.add(id);
+          out.push(p);
+        });
+      };
+      addArr(primary);
+      addArr(secondary);
+      return out;
+    };
+
+    // 1) Fetch a small "latest" slice first so newly added items appear ASAP.
+    // This makes refresh feel like "latest first", even if the full dataset is large/slow.
+    try {
+      const { data: latestData, error: latestError } = await supabase
+        .from('products')
+        .select('*')
+        .order('id', { ascending: false })
+        .range(0, 24);
+
+      if (!latestError && Array.isArray(latestData) && latestData.length > 0) {
+        products = sortProductsByLatest(mergeUniqueById(latestData, products));
+        renderStoreProducts();
+      }
+    } catch (e) {
+      // Non-blocking: fallback to full fetch below
+    }
+
+    // 2) Download full fresh data (authoritative), then cache it.
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('id', { ascending: false });
+
     if (error) throw error;
-    
-    if (data && data.length > 0) {
-      products = data;
+
+    if (Array.isArray(data) && data.length > 0) {
+      products = sortProductsByLatest(data);
       try {
         localStorage.setItem('shubham_real_products_cache', JSON.stringify(products));
       } catch(e) {}
@@ -1304,8 +1396,17 @@ function renderCart() {
 function renderAdminCategories() {
   const container = document.getElementById('adminCategoriesList');
   if (container) {
-    siteCategories.sort();
-    container.innerHTML = siteCategories.map(cat => `
+    const isPaged = container.dataset && container.dataset.paged === '1';
+    const allCats = [...(Array.isArray(siteCategories) ? siteCategories : [])].sort((a, b) => a.localeCompare(b));
+    window.adminCategoriesTotalCount = allCats.length;
+
+    let activeCats = allCats;
+    if (isPaged) {
+      window.adminCategoriesCurrentCount = window.adminCategoriesCurrentCount || 20;
+      activeCats = allCats.slice(0, Math.min(window.adminCategoriesCurrentCount, allCats.length));
+    }
+
+    container.innerHTML = activeCats.map(cat => `
       <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-bg); padding:12px; border-radius:6px; border:1px solid var(--border-color);">
         <div style="display:flex; align-items:center; gap:10px;">
           ${categoryMeta[cat] && categoryMeta[cat].image ? `<img src="${categoryMeta[cat].image}" alt="${cat}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);">` : `<div style="width:34px; height:34px; border-radius:50%; border:1px solid var(--border-color); display:grid; place-items:center; font-size:0.7rem; color:var(--text-muted);">CAT</div>`}
@@ -1320,6 +1421,13 @@ function renderAdminCategories() {
         </div>
       </div>
     `).join('');
+
+    if (isPaged) {
+      const hasMore = (window.adminCategoriesCurrentCount || 20) < allCats.length;
+      setAdminCategoriesLoadMoreIndicator(hasMore ? 'hidden' : 'end');
+    } else {
+      setAdminCategoriesLoadMoreIndicator('hidden');
+    }
   }
 
 
@@ -1840,8 +1948,13 @@ async function renderAdminList() {
     let success = false;
     
     try {
-      const res = await apiFetch("/admin/products", { method: "GET" });
-      products = (res && res.products) || [];
+      resetAdminProductsPagination();
+      const res = await apiFetch(`/admin/products?limit=${ADMIN_PRODUCTS_BATCH_SIZE}&offset=0`, { method: "GET" });
+      const page = (res && res.products) || [];
+      window.adminProductsData = Array.isArray(page) ? page : [];
+      window.adminProductsHasMore = !!(res && res.has_more);
+      window.adminProductsOffset = window.adminProductsData.length;
+      products = window.adminProductsData; // keep existing downstream logic
       success = true;
     } catch (err) {
       // might fail immediately if server is asleep
@@ -1851,17 +1964,26 @@ async function renderAdminList() {
     
     if (!success) {
       try {
-        const res = await apiFetch("/admin/products", { method: "GET" });
-        products = (res && res.products) || [];
+        resetAdminProductsPagination();
+        const res = await apiFetch(`/admin/products?limit=${ADMIN_PRODUCTS_BATCH_SIZE}&offset=0`, { method: "GET" });
+        const page = (res && res.products) || [];
+        window.adminProductsData = Array.isArray(page) ? page : [];
+        window.adminProductsHasMore = !!(res && res.has_more);
+        window.adminProductsOffset = window.adminProductsData.length;
+        products = window.adminProductsData;
         success = true;
       } catch (err) {
         products = [];
+        window.adminProductsData = [];
+        window.adminProductsHasMore = false;
+        window.adminProductsOffset = 0;
         showToast(err.message || "Failed to load products");
       }
     }
     
     if (products.length === 0) {
       container.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">No products found.</div>';
+      setAdminProductsLoadMoreIndicator('hidden');
       return;
     }
 
@@ -1880,6 +2002,8 @@ async function renderAdminList() {
         </div>
       </div>
     `).join('');
+
+    setAdminProductsLoadMoreIndicator(window.adminProductsHasMore ? 'hidden' : 'end');
   }
 }
 
@@ -3049,6 +3173,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // --- Infinite Scroll for Admin Products (Manage Books) ---
+  const adminProductsContainer = document.getElementById('adminProductsList');
+  if (adminProductsContainer) {
+    window.addEventListener('scroll', () => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+        if (window.adminProductsLoading || !window.adminProductsHasMore) return;
+        if (!isLoadingMoreProducts) {
+          window.adminProductsLoading = true;
+          isLoadingMoreProducts = true;
+          setAdminProductsLoadMoreIndicator('loading');
+
+          const offset = Number(window.adminProductsOffset || 0);
+          const url = `/admin/products?limit=${ADMIN_PRODUCTS_BATCH_SIZE}&offset=${encodeURIComponent(offset)}`;
+          apiFetch(url, { method: "GET" })
+            .then((res) => {
+              const nextPage = (res && res.products) || [];
+              const arr = Array.isArray(nextPage) ? nextPage : [];
+              window.adminProductsHasMore = !!(res && res.has_more);
+              window.adminProductsOffset = offset + arr.length;
+              window.adminProductsData = [...(window.adminProductsData || []), ...arr];
+              products = window.adminProductsData;
+              adminProductsContainer.innerHTML = products.map(p => `
+                <div class="admin-list-item">
+                  <div style="display:flex; gap:12px; align-items:center;">
+                    <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
+                    <div>
+                      <strong>${p.name}</strong> <br>
+                      <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${p.id})">Edit</button>
+                    <button class="remove-btn" onclick="removeProduct(${p.id}, '${p.name ? p.name.replace(/'/g, "\\'") : ''}')">Delete</button>
+                  </div>
+                </div>
+              `).join('');
+              setAdminProductsLoadMoreIndicator(window.adminProductsHasMore ? 'hidden' : 'end');
+            })
+            .catch((e) => {
+              console.error("Admin products load more failed", e);
+              setAdminProductsLoadMoreIndicator('hidden');
+            })
+            .finally(() => {
+              window.adminProductsLoading = false;
+              isLoadingMoreProducts = false;
+            });
+        }
+      }
+    });
+  }
+
   // --- Log Visit ---
   const todayDate = new Date().toISOString().split('T')[0];
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
@@ -3242,6 +3417,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  if (path.includes('admin-categories')) {
+    checkAdminAccess();
+    resetAdminCategoriesPagination();
+    const form = document.getElementById('addCategoryForm');
+    if (form) {
+      form.addEventListener('submit', handleAddCategory);
+      const cancelEditBtn = document.getElementById('cancelCategoryEditBtn');
+      if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', () => {
+          document.getElementById('addCategoryForm').reset();
+          resetCategoryFormMode();
+        });
+      }
+    }
+    renderAdminCategories();
+    const list = document.getElementById('adminCategoriesList');
+    if (list) {
+      list.addEventListener('scroll', () => {
+        const nearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 120;
+        if (!nearBottom) return;
+        const total = window.adminCategoriesTotalCount || (Array.isArray(siteCategories) ? siteCategories.length : 0);
+        const current = window.adminCategoriesCurrentCount || 20;
+        if (current < total) {
+          setAdminCategoriesLoadMoreIndicator('loading');
+          window.adminCategoriesCurrentCount = current + 20;
+          renderAdminCategories();
+        } else {
+          setAdminCategoriesLoadMoreIndicator('end');
+        }
+      }, { passive: true });
+    }
+  }
+
   if (path.includes('admin-add-stationery')) {
     checkAdminAccess();
     const form = document.getElementById('adminStationeryForm');
@@ -3269,6 +3477,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     renderAdminCategories();
     await renderAdminList();
+  }
+
+  if (path.includes('admin-ebooks')) {
+    checkAdminAccess();
+    // Free notes admin UI binds itself by element presence; ensure list loads
+    setTimeout(() => {
+      if (document.getElementById('adminFreeNotesList') && currentUser && currentUser.phone === ADMIN_PHONE) {
+        loadAdminFreeNotes();
+      }
+    }, 900);
   }
 
   if (path.includes('admin-orders')) {

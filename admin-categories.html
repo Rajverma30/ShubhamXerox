@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add / Edit Categories | Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display:flex; flex-direction:column; gap:2px; padding:4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size:0.75rem; letter-spacing:1px; color:var(--text-main); font-weight:800; margin-top:-6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display:none;">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-add.html">Add Books</a>
+        <a href="admin-categories.html" style="color: var(--primary);">Add/Edit Category</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Add</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-add-stationery.html">Add Stationery Item</a>
+            <a href="admin-add-combo.html">Add Combo Deal</a>
+          </div>
+        </div>
+        <a href="admin-products.html">Manage Books</a>
+        <a href="admin-ebooks.html">Manage E-Books</a>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons"></div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top:40px; min-height:80vh;">
+    <div class="container" style="max-width: 900px;">
+      <div class="admin-card">
+        <h1 style="font-size:1.45rem; margin-bottom:10px;">Add / Edit Categories</h1>
+        <p style="color:var(--text-muted); margin-bottom:18px;">Add a new category, rename, set section, and optionally upload an icon image. Categories load in 20-item batches.</p>
+
+        <form id="addCategoryForm" style="display: grid; gap: 12px; margin-bottom: 18px;">
+          <input type="hidden" id="editingCategoryOldName">
+          <input type="text" id="newCategoryName" class="form-control" required placeholder="New Category Name">
+          <select id="newCategorySection" class="form-control">
+            <option value="">General / Other</option>
+            <option value="mppsc">MPPSC</option>
+            <option value="ssc">SSC</option>
+            <option value="upsc">UPSC / IAS</option>
+          </select>
+          <input type="file" id="newCategoryImageFile" class="form-control" accept="image/*">
+          <input type="url" id="newCategoryImageUrl" class="form-control" placeholder="Or paste category image URL">
+          <div style="display:flex; gap:10px;">
+            <button id="addCategorySubmitBtn" type="submit" class="btn btn-primary" style="white-space: nowrap; flex:1;">Add</button>
+            <button id="cancelCategoryEditBtn" type="button" class="btn btn-secondary" style="display:none;">Cancel Edit</button>
+          </div>
+        </form>
+
+        <div id="adminCategoriesList" data-paged="1" style="display:flex; flex-direction:column; gap:8px; max-height: 420px; overflow-y:auto; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; background: rgba(255,255,255,0.02);">
+          <!-- Categories injected via JS -->
+        </div>
+        <div id="adminCategoriesLoadMoreIndicator" style="display:none; margin-top: 12px; color: var(--text-muted); text-align:center;"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="assets/js/script.js"></script>
+</body>
+</html>
+

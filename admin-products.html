@@ -22,6 +22,7 @@
       <div class="nav-links" id="adminNavLinks" style="display: none;">
         <a href="admin.html">Dashboard</a>
         <a href="admin-add.html">Add Books</a>
+        <a href="admin-categories.html">Add/Edit Category</a>
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-trigger">Quick Add</button>
           <div class="nav-dropdown-menu">
@@ -29,7 +30,8 @@
             <a href="admin-add-combo.html">Add Combo Deal</a>
           </div>
         </div>
-        <a href="admin-products.html" style="color: var(--primary);">Manage Books & Notes</a>
+        <a href="admin-products.html" style="color: var(--primary);">Manage Books</a>
+        <a href="admin-ebooks.html">Manage E-Books</a>
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-trigger">Orders</button>
           <div class="nav-dropdown-menu">
@@ -50,42 +52,6 @@
   <main class="section" style="padding-top: 40px; min-height: 80vh;">
     <div class="container">
       
-      <!-- Free Notes Section -->
-      <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 40px; margin-bottom: 40px;">
-        <h2 style="font-size: 1.5rem; margin-bottom: 24px;">Manage Study Notes & PDFs</h2>
-        <div class="admin-card" style="margin-bottom: 30px;">
-          <h3 style="margin-bottom: 16px; font-size:1.1rem;">Upload New Note / PDF</h3>
-          <form id="addFreeNoteForm" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
-            <div class="form-group" style="flex: 1; min-width:200px; margin:0;">
-              <label for="newNoteTitle">Note Title</label>
-              <input type="text" id="newNoteTitle" class="form-control" required placeholder="e.g. MPPSC Mains Unit 1 PDF">
-            </div>
-            <div class="form-group" style="min-width:100px; margin:0;">
-              <label for="newNoteType">Type</label>
-              <select id="newNoteType" class="form-control" onchange="document.getElementById('newNotePriceGroup').style.display = this.value === 'paid' ? 'block' : 'none'">
-                <option value="free">Free</option>
-                <option value="paid">Paid</option>
-              </select>
-            </div>
-            <div class="form-group" id="newNotePriceGroup" style="min-width:100px; margin:0; display:none;">
-              <label for="newNotePrice">Price (₹)</label>
-              <input type="number" id="newNotePrice" class="form-control" placeholder="50" min="1" step="1">
-            </div>
-            <div class="form-group" style="flex: 1; min-width:200px; margin:0;">
-              <label for="newNoteFile">Select PDF</label>
-              <input type="file" id="newNoteFile" class="form-control" required accept="application/pdf">
-            </div>
-            <button type="submit" class="btn btn-primary" id="btnUploadNote" style="padding:12px 24px;">
-              <span id="btnUploadNoteText">Upload Note</span>
-            </button>
-          </form>
-        </div>
-
-        <div class="admin-list" id="adminFreeNotesList" style="display:grid; gap:16px;">
-           <!-- Injected via JS -->
-        </div>
-      </div>
-
       <div style="margin-bottom: 30px;">
         <h2 style="font-size: 1.5rem;">Manage Paid Books</h2>
         <p style="color: var(--text-muted);">View, search, and delete books.</p>
@@ -96,6 +62,7 @@
         <div class="admin-list" id="adminProductsList">
           <!-- Injected via JS -->
         </div>
+        <div id="adminProductsLoadMoreIndicator" class="products-load-more-indicator" style="display:none;" aria-live="polite"></div>
       </div>
 
       </div>

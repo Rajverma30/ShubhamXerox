@@ -688,10 +688,34 @@ async def update_global_rates(req: AdminSettingsUpdate, _admin: Dict[str, Any] =
     return {"status": "ok", "rates": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}}
 
 @app.get("/admin/products")
-async def admin_list_products(_admin: Dict[str, Any] = Depends(verify_admin)):
+async def admin_list_products(
+    limit: int = 20,
+    offset: int = 0,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
+    """
+    Admin products list, paginated.
+    - limit: page size (max 100)
+    - offset: number of rows to skip
+    """
     sb = _require_supabase()
-    res = sb.table("products").select("*").order("id", desc=True).execute()
-    return {"products": res.data or []}
+    limit = int(limit or 20)
+    offset = int(offset or 0)
+    if limit < 1:
+        raise HTTPException(status_code=400, detail="limit must be >= 1")
+    if limit > 100:
+        limit = 100
+    if offset < 0:
+        offset = 0
+
+    # Fetch one extra row to determine has_more without an expensive count.
+    end = offset + limit  # inclusive index for range(); gives limit+1 rows
+    res = sb.table("products").select("*").order("id", desc=True).range(offset, end).execute()
+    rows = res.data or []
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
+    return {"products": rows, "has_more": has_more, "limit": limit, "offset": offset}
 
 @app.post("/admin/products")
 async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
