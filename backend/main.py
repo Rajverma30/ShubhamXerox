@@ -866,3 +866,8 @@ async def render_page(request: Request, page_name: str):
         return templates.TemplateResponse(f"{page_name}.html", {"request": request, "initial_products": json.dumps(products)})
     except Exception:
         raise HTTPException(status_code=404, detail="Page not found")
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    return HTMLResponse(content=f'<pre>{traceback.format_exc()}</pre>', status_code=500)
