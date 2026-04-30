@@ -3380,6 +3380,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('admin-add')) {
     checkAdminAccess();
     applyAdminCategoryPrefill();
+    renderAdminCategories();
     if (document.getElementById('adminForm')) {
       document.getElementById('adminForm').addEventListener('submit', handleAddProduct);
     }
@@ -3392,7 +3393,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           resetCategoryFormMode();
         });
       }
-      renderAdminCategories();
     }
   }
 
