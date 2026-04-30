@@ -154,7 +154,9 @@ button {
 
 .nav-links {
   display: flex;
-  gap: 32px;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: clamp(12px, 1.6vw, 26px);
 }
 
 .nav-links a {
@@ -162,6 +164,7 @@ button {
   font-weight: 500;
   color: var(--text-main);
   transition: color 0.2s ease;
+  white-space: nowrap;
 }
 
 .nav-links a:hover {
@@ -2267,7 +2270,7 @@ input:checked + .theme-slider:before {
   display: none;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .category-tiles-grid {
     display: none;
   }

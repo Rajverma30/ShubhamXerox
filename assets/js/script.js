@@ -43,10 +43,62 @@ let selectedCategories = [];
 let featuredSelectedCategories = [];
 const PRODUCTS_BATCH_SIZE = 20;
 let isLoadingMoreProducts = false;
-const ADMIN_PRODUCTS_BATCH_SIZE = 100;
+const ADMIN_PRODUCTS_BATCH_SIZE = 20;
+
+function getDynamicProductsBatchSize(containerId = 'allProductsContainer') {
+  // Force single-item initial reveal for ultra-smooth progressive load.
+  return 1;
+}
+
+function getDynamicProductsStepSize(containerId = 'allProductsContainer') {
+  // Load one card at a time while scrolling.
+  return 1;
+}
+
+function getDynamicAdminBatchSize() {
+  // Admin list is mostly single-column cards; keep 2-row feel.
+  return 2;
+}
+
+function smoothRevealProductCards(container) {
+  if (!container) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const cards = container.querySelectorAll('.product-card');
+  if (!cards || cards.length === 0) return;
+  cards.forEach((card, idx) => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(10px)';
+    card.style.willChange = 'opacity, transform';
+    card.style.transition = `opacity 220ms ease ${Math.min(idx * 20, 180)}ms, transform 220ms ease ${Math.min(idx * 20, 180)}ms`;
+  });
+  requestAnimationFrame(() => {
+    cards.forEach((card) => {
+      card.style.opacity = '1';
+      card.style.transform = 'translateY(0)';
+    });
+  });
+}
+
+function smoothRevealNodes(nodes, staggerMs = 16) {
+  if (!nodes || nodes.length === 0) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  nodes.forEach((node, idx) => {
+    node.style.opacity = '0';
+    node.style.transform = 'translateY(10px)';
+    node.style.willChange = 'opacity, transform';
+    const delay = Math.min(idx * staggerMs, 140);
+    node.style.transition = `opacity 200ms ease ${delay}ms, transform 200ms ease ${delay}ms`;
+  });
+  requestAnimationFrame(() => {
+    nodes.forEach((node) => {
+      node.style.opacity = '1';
+      node.style.transform = 'translateY(0)';
+    });
+  });
+}
 
 function resetProductsInfiniteScroll() {
-  window.productsGridCurrentCount = PRODUCTS_BATCH_SIZE;
+  window.productsGridCurrentCount = getDynamicProductsBatchSize('allProductsContainer');
   window.productsGridTotalFilteredCount = 0;
   isLoadingMoreProducts = false;
 }
@@ -56,6 +108,7 @@ function resetAdminProductsPagination() {
   window.adminProductsHasMore = true;
   window.adminProductsLoading = false;
   window.adminProductsData = [];
+  window.adminProductsPageSize = getDynamicAdminBatchSize();
 }
 
 function resetAdminCategoriesPagination() {
@@ -424,19 +477,9 @@ async function fetchProducts() {
     return [...arr].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
   };
 
-  const cached = localStorage.getItem('shubham_real_products_cache');
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        products = sortProductsByLatest(parsed);
-        renderStoreProducts();
-      }
-    } catch(e) {}
-  } else {
-    isProductsLoading = true;
-    renderStoreProducts();
-  }
+  // Always load fresh from database (no local products cache usage).
+  isProductsLoading = true;
+  renderStoreProducts();
 
   try {
     const supabase = getSupabase();
@@ -457,24 +500,39 @@ async function fetchProducts() {
       return out;
     };
 
-    // 1) Fetch a small "latest" slice first so newly added items appear ASAP.
-    // This makes refresh feel like "latest first", even if the full dataset is large/slow.
+    // 1) Fetch latest single book first for instant first paint.
+    try {
+      const { data: firstData, error: firstError } = await supabase
+        .from('products')
+        .select('*')
+        .order('id', { ascending: false })
+        .range(0, 0);
+
+      if (!firstError && Array.isArray(firstData) && firstData.length > 0) {
+        products = sortProductsByLatest(mergeUniqueById(firstData, products));
+        renderStoreProducts();
+      }
+    } catch (e) {
+      // Non-blocking: continue below
+    }
+
+    // 2) Then fetch next latest slice so list starts filling quickly.
     try {
       const { data: latestData, error: latestError } = await supabase
         .from('products')
         .select('*')
         .order('id', { ascending: false })
-        .range(0, 24);
+        .range(1, 24);
 
       if (!latestError && Array.isArray(latestData) && latestData.length > 0) {
-        products = sortProductsByLatest(mergeUniqueById(latestData, products));
+        products = sortProductsByLatest(mergeUniqueById(products, latestData));
         renderStoreProducts();
       }
     } catch (e) {
       // Non-blocking: fallback to full fetch below
     }
 
-    // 2) Download full fresh data (authoritative), then cache it.
+    // 3) Download full fresh data (authoritative).
     const { data, error } = await supabase
       .from('products')
       .select('*')
@@ -484,15 +542,14 @@ async function fetchProducts() {
 
     if (Array.isArray(data) && data.length > 0) {
       products = sortProductsByLatest(data);
-      try {
-        localStorage.setItem('shubham_real_products_cache', JSON.stringify(products));
-      } catch(e) {}
     } else {
       products = [];
     }
   } catch (e) {
     console.error("Products fetch exception:", e);
-    if (!products.length) products = [];
+    if (!products.length) {
+      products = [];
+    }
   } finally {
     isProductsLoading = false;
     renderStoreProducts();
@@ -1237,32 +1294,89 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   let activeLimit = limit;
   const totalFilteredCount = filtered.length;
   if (isInfiniteScroll) {
-    window.productsGridCurrentCount = window.productsGridCurrentCount || PRODUCTS_BATCH_SIZE;
+    window.productsGridCurrentCount = window.productsGridCurrentCount || getDynamicProductsBatchSize(containerId);
     activeLimit = Math.min(window.productsGridCurrentCount, totalFilteredCount);
     window.productsGridTotalFilteredCount = totalFilteredCount;
   }
   
   if (activeLimit) filtered = filtered.slice(0, activeLimit);
-  if (isProductsLoading && filtered.length === 0) {
-    container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; justify-content:center; padding: 60px;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite;"></div></div>';
-    return;
-  }
+  const gridStateKey = JSON.stringify({
+    containerId,
+    categories: Array.isArray(filterCategories) ? [...filterCategories].sort() : [],
+    search: (searchInput ? searchInput.value : '') || '',
+    exam: examFilter || '',
+    format: formatFilter || '',
+    strict: new URLSearchParams(window.location.search).get('strict') || '',
+  });
+
   if (filtered.length === 0) {
+    // While data is still loading, avoid flashing a false "No books" state.
+    // Show a lightweight loader until first item arrives.
+    if (isProductsLoading) {
+      setProductsLoadMoreIndicator('hidden');
+      if (!container.querySelector('.product-card')) {
+        container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 44px 10px; color: var(--text-muted);"><div class="loader" style="width:34px; height:34px; border:3px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:10px;"></div><div style="font-size:0.92rem; font-weight:600;">Please wait...</div></div>';
+      }
+      return;
+    }
     container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 1.1rem; background: var(--card-bg); border-radius: var(--radius-md); border: 1px solid var(--border-color);"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg><br>No books or notes found for your selection.</div>';
     setProductsLoadMoreIndicator('hidden');
+    window.productsGridLastKey = gridStateKey;
+    window.productsGridLastRenderedCount = 0;
   } else {
-    container.innerHTML = filtered.map(createProductCard).join('');
+    const prevKey = window.productsGridLastKey || '';
+    const prevCount = Number(window.productsGridLastRenderedCount || 0);
+    const canAppend =
+      isInfiniteScroll &&
+      containerId === 'allProductsContainer' &&
+      prevKey === gridStateKey &&
+      prevCount > 0 &&
+      filtered.length > prevCount &&
+      container.querySelector('.product-card');
+
+    if (canAppend) {
+      const nextItems = filtered.slice(prevCount);
+      if (nextItems.length > 0) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = nextItems.map(createProductCard).join('');
+        const newNodes = Array.from(wrapper.children);
+        newNodes.forEach(node => container.appendChild(node));
+        smoothRevealNodes(newNodes, 12);
+      }
+    } else {
+      container.innerHTML = filtered.map(createProductCard).join('');
+      smoothRevealProductCards(container);
+    }
+    window.productsGridLastKey = gridStateKey;
+    window.productsGridLastRenderedCount = filtered.length;
+
     if (isInfiniteScroll) {
       const hasMoreProducts = activeLimit < totalFilteredCount;
-      if (isLoadingMoreProducts && hasMoreProducts) {
-        setProductsLoadMoreIndicator('loading');
-      } else if (!hasMoreProducts) {
+      // Keep infinite loading visually silent to avoid blinking/jumping.
+      if (!hasMoreProducts) {
         setProductsLoadMoreIndicator('end');
       } else {
         setProductsLoadMoreIndicator('hidden');
       }
     } else {
       setProductsLoadMoreIndicator('hidden');
+    }
+
+    // Auto-prefill on first paint: if page is still shorter than viewport,
+    // keep revealing next cards without requiring user to scroll first.
+    if (
+      isInfiniteScroll &&
+      containerId === 'allProductsContainer' &&
+      !isLoadingMoreProducts &&
+      activeLimit < totalFilteredCount &&
+      document.body.offsetHeight <= (window.innerHeight + 120)
+    ) {
+      isLoadingMoreProducts = true;
+      setTimeout(() => {
+        window.productsGridCurrentCount += getDynamicProductsStepSize('allProductsContainer');
+        isLoadingMoreProducts = false;
+        renderProductsGrid('allProductsContainer', null, selectedCategories);
+      }, 80);
     }
   }
 }
@@ -1942,22 +2056,45 @@ async function removeProduct(id, name) {
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
-    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading books...</div></div>';
+    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Waking up server and loading products...<br><span style="font-size:0.85rem; font-weight:normal;">(This may take up to 5 seconds)</span></div></div>';
+    
+    const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
+    let success = false;
     
     try {
       resetAdminProductsPagination();
-      const res = await apiFetch(`/admin/products?limit=${ADMIN_PRODUCTS_BATCH_SIZE}&offset=0`, { method: "GET" });
+      const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
+      const res = await apiFetch(`/admin/products?limit=${firstPageSize}&offset=0`, { method: "GET" });
       const page = (res && res.products) || [];
       window.adminProductsData = Array.isArray(page) ? page : [];
       window.adminProductsHasMore = !!(res && res.has_more);
       window.adminProductsOffset = window.adminProductsData.length;
       products = window.adminProductsData; // keep existing downstream logic
+      success = true;
     } catch (err) {
-      products = [];
-      window.adminProductsData = [];
-      window.adminProductsHasMore = false;
-      window.adminProductsOffset = 0;
-      showToast(err.message || "Failed to load products");
+      // might fail immediately if server is asleep
+    }
+    
+    await minLoadTime;
+    
+    if (!success) {
+      try {
+        resetAdminProductsPagination();
+        const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
+        const res = await apiFetch(`/admin/products?limit=${firstPageSize}&offset=0`, { method: "GET" });
+        const page = (res && res.products) || [];
+        window.adminProductsData = Array.isArray(page) ? page : [];
+        window.adminProductsHasMore = !!(res && res.has_more);
+        window.adminProductsOffset = window.adminProductsData.length;
+        products = window.adminProductsData;
+        success = true;
+      } catch (err) {
+        products = [];
+        window.adminProductsData = [];
+        window.adminProductsHasMore = false;
+        window.adminProductsOffset = 0;
+        showToast(err.message || "Failed to load products");
+      }
     }
     
     if (products.length === 0) {
@@ -2913,7 +3050,7 @@ function initCategoryMobileSlider() {
   const pager = document.getElementById('categoryMobilePagination');
   if (!desktopGrid || !track || !prevBtn || !nextBtn || !pager) return;
 
-  const isMobile = window.matchMedia('(max-width: 600px)').matches;
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
   if (!isMobile) {
     track.innerHTML = '';
     pager.textContent = '';
@@ -3009,7 +3146,7 @@ function initPremiumCategoryTileInteractions() {
 
 window.addEventListener('resize', () => {
   const track = document.getElementById('categoryMobileTrack');
-  const isMobile = window.matchMedia('(max-width: 600px)').matches;
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
   if (!track) return;
   if (!isMobile) {
     track.innerHTML = '';
@@ -3068,6 +3205,12 @@ function initMobileNavDrawer() {
   window.addEventListener('resize', () => {
     if (!window.matchMedia('(max-width: 768px)').matches) closeDrawer();
   });
+
+  // Guard: some admin pages keep nav hidden inline until auth check.
+  // On mobile, ensure drawer stays operable once links are available.
+  if (window.matchMedia('(max-width: 768px)').matches && navLinks.children.length > 0 && navLinks.style.display === 'none') {
+    navLinks.style.display = 'flex';
+  }
 }
 
 async function renderReviews(productId) {
@@ -3098,16 +3241,19 @@ async function renderReviews(productId) {
 // --- Main Bootstrap ---
 document.addEventListener('DOMContentLoaded', async () => {
   // --- Global Loader Injection ---
-  const globalLoader = document.createElement('div');
-  globalLoader.id = 'shubham-global-loader';
-  globalLoader.innerHTML = `
-    <div style="position: fixed; inset: 0; background: var(--bg-main, #111113); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s ease;">
-      <div style="width: 48px; height: 48px; border: 4px solid rgba(255, 255, 255, 0.1); border-top-color: var(--primary, #007aff); border-radius: 50%; animation: s-spin 1s linear infinite; margin-bottom: 20px;"></div>
-      <div style="color: var(--text-muted); font-size: 0.95rem; font-weight: 600; font-family: 'Inter', sans-serif; letter-spacing: 0.5px;">Please wait...</div>
-      <style>@keyframes s-spin { 100% { transform: rotate(360deg); } }</style>
-    </div>
-  `;
-  document.body.appendChild(globalLoader);
+  const productsPage = !!document.getElementById('allProductsContainer');
+  if (!productsPage) {
+    const globalLoader = document.createElement('div');
+    globalLoader.id = 'shubham-global-loader';
+    globalLoader.innerHTML = `
+      <div style="position: fixed; inset: 0; background: var(--bg-main, #111113); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s ease;">
+        <div style="width: 48px; height: 48px; border: 4px solid rgba(255, 255, 255, 0.1); border-top-color: var(--primary, #007aff); border-radius: 50%; animation: s-spin 1s linear infinite; margin-bottom: 20px;"></div>
+        <div style="color: var(--text-muted); font-size: 0.95rem; font-weight: 600; font-family: 'Inter', sans-serif; letter-spacing: 0.5px;">Please wait...</div>
+        <style>@keyframes s-spin { 100% { transform: rotate(360deg); } }</style>
+      </div>
+    `;
+    document.body.appendChild(globalLoader);
+  }
 
   // --- Click toggle for nav dropdowns ---
   document.querySelectorAll('.nav-dropdown-trigger').forEach(trigger => {
@@ -3132,8 +3278,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const productsContainer = document.getElementById('allProductsContainer');
   if (productsContainer) {
     window.addEventListener('scroll', () => {
-      // If we are near the bottom of the page
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+      // Preload next row a bit before the user reaches the end.
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 1100) {
         const totalFilteredCount = window.productsGridTotalFilteredCount || products.length;
         if (
           !isLoadingMoreProducts &&
@@ -3143,10 +3289,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           isLoadingMoreProducts = true;
           setProductsLoadMoreIndicator('loading');
           setTimeout(() => {
-            window.productsGridCurrentCount += PRODUCTS_BATCH_SIZE;
+            window.productsGridCurrentCount += getDynamicProductsStepSize('allProductsContainer');
             isLoadingMoreProducts = false;
             renderProductsGrid('allProductsContainer', null, selectedCategories);
-          }, 300);
+          }, 120);
         }
       }
     });
@@ -3156,7 +3302,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const adminProductsContainer = document.getElementById('adminProductsList');
   if (adminProductsContainer) {
     window.addEventListener('scroll', () => {
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900) {
         if (window.adminProductsLoading || !window.adminProductsHasMore) return;
         if (!isLoadingMoreProducts) {
           window.adminProductsLoading = true;
@@ -3164,7 +3310,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           setAdminProductsLoadMoreIndicator('loading');
 
           const offset = Number(window.adminProductsOffset || 0);
-          const url = `/admin/products?limit=${ADMIN_PRODUCTS_BATCH_SIZE}&offset=${encodeURIComponent(offset)}`;
+          const pageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
+          const url = `/admin/products?limit=${pageSize}&offset=${encodeURIComponent(offset)}`;
           apiFetch(url, { method: "GET" })
             .then((res) => {
               const nextPage = (res && res.products) || [];
@@ -3380,7 +3527,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('admin-add')) {
     checkAdminAccess();
     applyAdminCategoryPrefill();
-    renderAdminCategories();
     if (document.getElementById('adminForm')) {
       document.getElementById('adminForm').addEventListener('submit', handleAddProduct);
     }
@@ -3393,6 +3539,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           resetCategoryFormMode();
         });
       }
+      renderAdminCategories();
     }
   }
 
