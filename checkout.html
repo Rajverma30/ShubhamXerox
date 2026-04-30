@@ -44,6 +44,10 @@
                 <input type="text" id="fullName" class="form-control" required placeholder="Name">
               </div>
               <div class="form-group" style="grid-column: span 2;">
+                <label for="phoneNumber">Phone Number</label>
+                <input type="tel" id="phoneNumber" class="form-control" required pattern="[0-9]{10}" placeholder="10-digit mobile number">
+              </div>
+              <div class="form-group" style="grid-column: span 2;">
                 <label for="address">Street Address / Hostel</label>
                 <textarea id="address" class="form-control" rows="3" required
                   placeholder="E.g., Room 102, Bhawarkua..."></textarea>

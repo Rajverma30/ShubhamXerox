@@ -1,8 +1,10 @@
 // Theme Initialization (Instant to prevent flash)
 (function () {
-  const savedTheme = localStorage.getItem('shubham_theme') || 'dark';
-  if (savedTheme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
+  const savedTheme = localStorage.getItem('shubham_theme') || 'light';
+  if (savedTheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme'); // light is default
   }
 })();
 
@@ -79,11 +81,12 @@ function getAllProductCategories() {
 function getFilteredProducts(filterCategories = [], searchValue = '') {
   let filtered = [...products];
   const selectedCats = Array.isArray(filterCategories) ? filterCategories.filter(Boolean) : [];
+  const strictCategoryFilter = new URLSearchParams(window.location.search).get('strict') === '1';
 
   if (selectedCats.length > 0) {
     const categorySet = new Set(selectedCats);
     const byCategory = filtered.filter(p => categorySet.has(p.category));
-    filtered = byCategory.length > 0 ? byCategory : filtered;
+    filtered = (strictCategoryFilter || byCategory.length > 0) ? byCategory : filtered;
   }
 
   if (searchValue && searchValue.trim()) {
@@ -137,7 +140,7 @@ function renderFeaturedProducts() {
 
   const searchInput = document.getElementById('featuredSearchInput');
   const searchValue = searchInput ? searchInput.value : '';
-  const filtered = getFilteredProducts(featuredSelectedCategories, searchValue).slice(0, 8);
+  const filtered = getFilteredProducts(featuredSelectedCategories, searchValue).slice(0, 10);
 
   if (isProductsLoading && filtered.length === 0) {
     container.innerHTML = '<div style="grid-column: 1 / -1; display:flex; justify-content:center; padding: 60px;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite;"></div></div>';
@@ -217,10 +220,11 @@ async function apiFetch(path, options = {}) {
 }
 
 const defaultSiteCategories = [
-  "AKAR IAS HINDI MEDIUM PRE", "Arihant", "Champion Square English Medium", "Champion Square Hindi Medium", "CIVIL JOB", "Cosmos Publication", "Darpan Civil Services", "DEVANAGARI", "Exam Pedia", "Gagan Pratap Sir", "Ghatna Chakra", "KARMA IAS", "lucent", "MAINSWALA", "MGICS", "MPPSC MAINS TEST SERIES", "MPPSC PRE TEST 2026", "NEW BOOKS 📚", "NIRMAN IAS", "Omkar Publication", "Pariksha Portal", "Parikshadham", "Parmar SSC", "PT 365", "Punekar Publication", "Rakesh Yadav", "Saransh Ics", "Satyamev Jayate institute", "Selection Tak", "Shivaan Educations", "SHREE KABIR PUBLICATION", "SHUBHAM GUPTA SIR", "Stationery", "Tathyabaan", "Upsc Test Series", "UTKARSH CLASSESS", "XEROX"
+  "AKAR IAS HINDI MEDIUM PRE", "Arihant", "ARIHANT PUBLICATION UGC NTA", "Champion Square English Medium", "Champion Square Hindi Medium", "CIVIL JOB", "Combos", "Cosmos Publication", "Darpan Civil Services", "DEVANAGARI", "Disha Publication", "DRISHTI IAS NOTES", "Exam Pedia", "Gagan Pratap Sir", "Ghatna Chakra", "IGNITE UPSC ARIHANT PUBLICATION", "KARMA IAS", "lucent", "MAINSWALA", "MGICS", "MPGK (SPECIAL COLLECTION)", "MPPSC MAINS TEST SERIES", "MPPSC PRE TEST 2026", "NEW BOOKS 📚", "NIRMAN IAS", "Omkar Publication", "Pariksha Portal", "Parikshadham", "Parmar SSC", "PEB (व्यापम) सभी परीक्षो बुक्स", "PT 365", "Punekar Publication", "Rakesh Yadav", "Saransh Ics", "Satyamev Jayate institute", "Selection Tak", "Shivaan Educations", "SHREE KABIR PUBLICATION", "SHUBHAM GUPTA SIR", "Stationery", "Tathyabaan", "Upsc Test Series", "UTKARSH CLASSESS", "Winners Institute", "XEROX", "Youth Competition Publication"
 ];
 
 let siteCategories = [];
+let categoryMeta = {};
 
 // Safe Storage Initialization
 try {
@@ -228,6 +232,7 @@ try {
   currentUser = loadCurrentUserFromToken();
   reviews = JSON.parse(localStorage.getItem('shubham_reviews')) || {};
   siteCategories = JSON.parse(localStorage.getItem('shubham_categories')) || defaultSiteCategories;
+  categoryMeta = JSON.parse(localStorage.getItem('shubham_category_meta')) || {};
 } catch (e) {
   console.error("Storage parse error:", e);
 }
@@ -555,23 +560,11 @@ async function handleRegister(e) {
   }
   const name = document.getElementById('regName').value;
   const phone = document.getElementById('regPhone').value;
-  const email = document.getElementById('regEmail').value;
-  const otp = document.getElementById('regOtp').value;
   const password = document.getElementById('regPassword').value;
   const confirmPassword = document.getElementById('regConfirmPassword').value;
-
+  const generatedEmail = `${phone}@shubhamxerox.local`;
   try {
-    await apiFetch("/verify-otp", { method: "POST", body: { email, otp }, auth: false });
-  } catch (err) {
-    showToast(err.message || "Invalid OTP");
-    if (btn) {
-      btn.classList.remove('loading');
-      btn.innerHTML = originalBtnText;
-    }
-    return;
-  }
-  try {
-    const data = await apiFetch("/register", { method: "POST", body: { phone, email, name, password }, auth: false });
+    const data = await apiFetch("/register", { method: "POST", body: { phone, name, password, email: generatedEmail }, auth: false });
     setAuthToken(data.token);
     currentUser = data.user || loadCurrentUserFromToken();
     window.location.href = "index.html";
@@ -888,12 +881,6 @@ function buildOrderTrackingTimelineHTML(completedSteps, opts, orderObj) {
 async function handleCheckout(e) {
   e.preventDefault();
 
-  if (!currentUser) {
-    showToast("Please login to place an order.");
-    setTimeout(() => window.location.href = "login.html", 1500);
-    return;
-  }
-
   if (cart.length === 0) {
     showToast("Your cart is empty!");
     setTimeout(() => window.location.href = "products.html", 1500);
@@ -901,13 +888,14 @@ async function handleCheckout(e) {
   }
 
   const name = document.getElementById('fullName').value;
+  const phone = (document.getElementById('phoneNumber') || {}).value;
   const address = document.getElementById('address').value;
   const paymentMethod = document.querySelector('input[name="payment"]:checked').value;
 
   const orderData = {
     id: "ORD" + Date.now(),
-    customer: currentUser.name,
-    customerphone: currentUser.phone,
+    customer: name,
+    customerphone: phone,
     address: address,
     items: cart,
     total: getCartTotal() + DELIVERY_FEE,
@@ -971,35 +959,30 @@ async function completeOrder(orderData) {
 
 // --- Rendering Data UI ---
 function createProductCard(product) {
+  const imgSrc = (product.img && product.img.split('|')[0]) || 'default-book.png';
+  const hasDiscount = product.original_price && product.original_price > product.price;
+  const discountPct = hasDiscount
+    ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
+    : 0;
+
   return `
-    <div class="product-card">
-      <a href="product.html?id=${product.id}" class="product-link-wrapper" style="display: contents;">
-        <div class="product-img-wrapper" style="background:white; position:relative;">
-          <div style="position:absolute; top:8px; right:8px; background:linear-gradient(135deg, #ffc107, #ff9800); color:#fff; font-size:0.65rem; font-weight:800; padding:4px 8px; border-radius:4px; box-shadow:0 2px 4px rgba(0,0,0,0.2); letter-spacing:0.5px; z-index:2;">BEST SELLER</div>
-          <img src="${(product.img && product.img.split('|')[0]) || 'default-book.png'}" alt="${product.name}" loading="lazy">
+    <div class="product-card catalog-card">
+      <a href="product.html?id=${product.id}" class="product-link-wrapper" style="display:block;">
+        <div class="product-img-wrapper" style="position:relative;">
+          ${hasDiscount ? `<div class="catalog-discount-ribbon">${discountPct}% OFF</div>` : ``}
+          <img src="${imgSrc}" alt="${product.name}" loading="lazy">
         </div>
-        <div class="category-tag">${product.category}</div>
-        <h3 class="product-title">${product.name}</h3>
-      </a>
-      </a>
-      <div class="product-footer">
-        <div class="product-price">
-          ${(() => {
-      if (product.original_price && product.original_price > product.price) {
-        const diff = product.original_price - product.price;
-        const disc = Math.round((diff / product.original_price) * 100);
-        return `<span class="price-selling">${formatPrice(product.price)}</span>
-                      <span class="price-original">${formatPrice(product.original_price)}</span>
-                      <span class="price-discount">${disc}% Off</span>`;
-      } else {
-        return `<span class="price-selling">${formatPrice(product.price)}</span>`;
-      }
-    })()}
+        <div class="catalog-card-body">
+          <div class="catalog-card-title">${product.name}</div>
+          <div class="catalog-card-prices">
+            <span class="catalog-price-selling">${formatPrice(product.price)}</span>
+            ${hasDiscount ? `<span class="catalog-price-original">${formatPrice(product.original_price)}</span>` : ``}
+          </div>
         </div>
-        <button class="add-to-cart-btn" onclick="addToCart(${product.id})" aria-label="Add to cart">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M20 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
-        </button>
-      </div>
+      </a>
+      <button class="catalog-add-btn" onclick="addToCart(${product.id})" aria-label="Add to cart">
+        Add to cart
+      </button>
     </div>
   `;
 }
@@ -1324,8 +1307,17 @@ function renderAdminCategories() {
     siteCategories.sort();
     container.innerHTML = siteCategories.map(cat => `
       <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-bg); padding:12px; border-radius:6px; border:1px solid var(--border-color);">
-        <span style="font-weight: 500; color: var(--text-main);">${cat}</span>
-        <button class="remove-btn" onclick="removeAdminCategory('${cat.replace(/'/g, "\\'")}')">Remove</button>
+        <div style="display:flex; align-items:center; gap:10px;">
+          ${categoryMeta[cat] && categoryMeta[cat].image ? `<img src="${categoryMeta[cat].image}" alt="${cat}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);">` : `<div style="width:34px; height:34px; border-radius:50%; border:1px solid var(--border-color); display:grid; place-items:center; font-size:0.7rem; color:var(--text-muted);">CAT</div>`}
+          <div>
+            <div style="font-weight: 500; color: var(--text-main);">${cat}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">${(categoryMeta[cat] && categoryMeta[cat].section) ? categoryMeta[cat].section.toUpperCase() : 'GENERAL'}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-secondary" style="padding:6px 10px; font-size:0.8rem;" onclick="openEditCategory('${cat.replace(/'/g, "\\'")}')">Edit</button>
+          <button class="remove-btn" onclick="removeAdminCategory('${cat.replace(/'/g, "\\'")}')">Remove</button>
+        </div>
       </div>
     `).join('');
   }
@@ -1338,27 +1330,88 @@ function renderAdminCategories() {
   }
 }
 
+function applyAdminCategoryPrefill() {
+  const categoryInput = document.getElementById('category');
+  if (!categoryInput) return;
+  const params = new URLSearchParams(window.location.search);
+  const prefillCategory = (params.get('category') || '').trim();
+  if (!prefillCategory) return;
+  categoryInput.value = prefillCategory;
+}
+
 window.removeAdminCategory = function (cat) {
   siteCategories = siteCategories.filter(c => c !== cat);
   localStorage.setItem('shubham_categories', JSON.stringify(siteCategories));
+  if (categoryMeta[cat]) {
+    delete categoryMeta[cat];
+    localStorage.setItem('shubham_category_meta', JSON.stringify(categoryMeta));
+  }
   renderAdminCategories();
   showToast(`Category removed`);
 };
+
+window.openEditCategory = function (cat) {
+  const oldNameInput = document.getElementById('editingCategoryOldName');
+  const nameInput = document.getElementById('newCategoryName');
+  const sectionInput = document.getElementById('newCategorySection');
+  const imageUrlInput = document.getElementById('newCategoryImageUrl');
+  const submitBtn = document.getElementById('addCategorySubmitBtn');
+  const cancelBtn = document.getElementById('cancelCategoryEditBtn');
+  if (!oldNameInput || !nameInput) return;
+
+  oldNameInput.value = cat;
+  nameInput.value = cat;
+  if (sectionInput) sectionInput.value = (categoryMeta[cat] && categoryMeta[cat].section) || '';
+  if (imageUrlInput) imageUrlInput.value = (categoryMeta[cat] && categoryMeta[cat].image) || '';
+  if (submitBtn) submitBtn.textContent = 'Update';
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+};
+
+function resetCategoryFormMode() {
+  const oldNameInput = document.getElementById('editingCategoryOldName');
+  const submitBtn = document.getElementById('addCategorySubmitBtn');
+  const cancelBtn = document.getElementById('cancelCategoryEditBtn');
+  const imageFileInput = document.getElementById('newCategoryImageFile');
+  if (oldNameInput) oldNameInput.value = '';
+  if (submitBtn) submitBtn.textContent = 'Add';
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (imageFileInput) imageFileInput.value = '';
+}
 
 async function handleAddCategory(e) {
   e.preventDefault();
   const newCat = document.getElementById('newCategoryName').value.trim();
   if (!newCat) return;
+  const oldCat = (document.getElementById('editingCategoryOldName')?.value || '').trim();
+  const section = (document.getElementById('newCategorySection')?.value || '').trim();
+  const imgUrlInput = (document.getElementById('newCategoryImageUrl')?.value || '').trim();
+  const imgFile = document.getElementById('newCategoryImageFile')?.files?.[0] || null;
+  const compressedImg = await compressImageFileToDataUrl(imgFile);
+  const prevMeta = oldCat ? (categoryMeta[oldCat] || {}) : (categoryMeta[newCat] || {});
+  const image = compressedImg || imgUrlInput || prevMeta.image || '';
 
-  if (!siteCategories.includes(newCat)) {
+  if (oldCat && oldCat !== newCat) {
+    siteCategories = siteCategories.map(c => c === oldCat ? newCat : c);
+    if (categoryMeta[oldCat]) delete categoryMeta[oldCat];
+    showToast(`Category renamed`);
+  } else if (!siteCategories.includes(newCat)) {
     siteCategories.push(newCat);
-    localStorage.setItem('shubham_categories', JSON.stringify(siteCategories));
     showToast(`Category added!`);
   } else {
-    showToast(`Category already exists`);
+    showToast(`Category updated`);
   }
 
+  localStorage.setItem('shubham_categories', JSON.stringify(siteCategories));
+
+  categoryMeta[newCat] = {
+    ...(prevMeta || {}),
+    section,
+    image
+  };
+  localStorage.setItem('shubham_category_meta', JSON.stringify(categoryMeta));
+
   document.getElementById('addCategoryForm').reset();
+  resetCategoryFormMode();
   renderAdminCategories();
 }
 function checkAdminAccess() {
@@ -1431,6 +1484,161 @@ async function generatePreviewImagesFromPdf(file, pageLimit = 3) {
     }
   }
   return images;
+}
+
+function compressImageFileToDataUrl(file) {
+  return new Promise((resolve) => {
+    if (!file) return resolve(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 900;
+        const MAX_HEIGHT = 900;
+        let width = img.width;
+        let height = img.height;
+        if (width > height && width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        } else if (height >= width && height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/webp', 0.75));
+      };
+      img.onerror = () => resolve(null);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
+function addComboManualItemRow(name = '', qty = 1) {
+  const container = document.getElementById('comboManualItems');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'combo-manual-item-row';
+  row.style.cssText = 'display:grid; grid-template-columns: 1fr 110px auto; gap:8px; margin-bottom:8px;';
+  row.innerHTML = `
+    <input type="text" class="form-control combo-manual-name" placeholder="Item name" value="${name}">
+    <input type="number" class="form-control combo-manual-qty" min="1" step="1" value="${qty}">
+    <button type="button" class="btn btn-outline-purple combo-manual-remove">x</button>
+  `;
+  row.querySelector('.combo-manual-remove').addEventListener('click', () => row.remove());
+  container.appendChild(row);
+}
+
+function renderComboBooksOptions() {
+  const list = document.getElementById('comboBooksList');
+  if (!list) return;
+  const baseProducts = (products || []).filter(p => {
+    const cat = (p.category || '').toLowerCase();
+    return !cat.includes('combo');
+  });
+  if (!baseProducts.length) {
+    list.innerHTML = '<div style="padding:8px; color:var(--text-muted);">No books found yet.</div>';
+    return;
+  }
+
+  list.innerHTML = baseProducts.map(p => `
+    <label style="display:grid; grid-template-columns: auto 1fr 90px; gap:10px; align-items:center; padding:8px; border-bottom:1px solid var(--border-color);">
+      <input type="checkbox" class="combo-book-check" value="${p.id}">
+      <span style="font-size:0.92rem;">${p.name}</span>
+      <input type="number" class="form-control combo-book-qty" data-book-id="${p.id}" min="1" step="1" value="1" style="padding:6px 8px;">
+    </label>
+  `).join('');
+}
+
+async function handleAddStationeryItem(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Adding...';
+  try {
+    const name = document.getElementById('stationeryName').value.trim();
+    const price = parseFloat(document.getElementById('stationeryPrice').value);
+    const imgUrlInput = document.getElementById('stationeryImageUrl').value.trim();
+    const imgFile = document.getElementById('stationeryImageFile').files[0];
+    const imgCompressed = await compressImageFileToDataUrl(imgFile);
+    const img = imgCompressed || imgUrlInput || "https://images.unsplash.com/photo-1456086272160-b28b0645b729?auto=format&fit=crop&w=800&q=80";
+    await apiFetch("/admin/products", {
+      method: "POST",
+      body: { name, price, category: "Stationery", img }
+    });
+    showToast('Stationery item added.');
+    form.reset();
+  } catch (err) {
+    showToast(err.message || 'Failed to add stationery item');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Add Stationery Item';
+  }
+}
+
+async function handleAddComboDeal(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Adding...';
+  try {
+    const name = document.getElementById('comboName').value.trim();
+    const price = parseFloat(document.getElementById('comboPrice').value);
+    const imgUrlInput = document.getElementById('comboImageUrl').value.trim();
+    const imgFile = document.getElementById('comboImageFile').files[0];
+    const imgCompressed = await compressImageFileToDataUrl(imgFile);
+    const img = imgCompressed || imgUrlInput || "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=800&q=80";
+
+    const selectedBooks = Array.from(document.querySelectorAll('.combo-book-check:checked')).map(chk => {
+      const pid = Number(chk.value);
+      const qtyEl = document.querySelector(`.combo-book-qty[data-book-id="${pid}"]`);
+      const qty = Math.max(1, parseInt(qtyEl ? qtyEl.value : '1', 10) || 1);
+      const p = (products || []).find(x => Number(x.id) === pid);
+      return p ? { id: p.id, name: p.name, qty, price: p.price } : null;
+    }).filter(Boolean);
+
+    const manualItems = Array.from(document.querySelectorAll('.combo-manual-item-row')).map(row => {
+      const itemName = row.querySelector('.combo-manual-name')?.value.trim();
+      const qtyRaw = row.querySelector('.combo-manual-qty')?.value;
+      const qty = Math.max(1, parseInt(qtyRaw || '1', 10) || 1);
+      if (!itemName) return null;
+      return { name: itemName, qty };
+    }).filter(Boolean);
+
+    const descPayload = {
+      combo_books: selectedBooks,
+      manual_items: manualItems
+    };
+
+    await apiFetch("/admin/products", {
+      method: "POST",
+      body: {
+        name,
+        price,
+        category: "Combos",
+        img,
+        desc: `COMBO_DETAILS:${JSON.stringify(descPayload)}`
+      }
+    });
+
+    showToast('Combo deal added.');
+    form.reset();
+    document.getElementById('comboManualItems').innerHTML = '';
+    addComboManualItemRow();
+    renderComboBooksOptions();
+  } catch (err) {
+    showToast(err.message || 'Failed to add combo deal');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Add Combo Deal';
+  }
 }
 
 async function handleAddProduct(e) {
@@ -2594,6 +2802,171 @@ function initSlider() {
   resetInterval();
 }
 
+function initCategoryMobileSlider() {
+  const desktopGrid = document.querySelector('.category-tiles-grid');
+  const track = document.getElementById('categoryMobileTrack');
+  const prevBtn = document.getElementById('categoryMobilePrev');
+  const nextBtn = document.getElementById('categoryMobileNext');
+  const pager = document.getElementById('categoryMobilePagination');
+  if (!desktopGrid || !track || !prevBtn || !nextBtn || !pager) return;
+
+  const isMobile = window.matchMedia('(max-width: 600px)').matches;
+  if (!isMobile) {
+    track.innerHTML = '';
+    pager.textContent = '';
+    return;
+  }
+
+  if (track.children.length > 0) return; // already built
+
+  const cards = Array.from(desktopGrid.querySelectorAll('.category-tile'));
+  const chunkSize = 4; // 4 cards per slide
+  const slides = [];
+  for (let i = 0; i < cards.length; i += chunkSize) {
+    slides.push(cards.slice(i, i + chunkSize));
+  }
+
+  track.innerHTML = slides.map(group => `
+    <div class="category-mobile-slide">
+      ${group.map(card => card.outerHTML).join('')}
+    </div>
+  `).join('');
+
+  let current = 0;
+  const total = slides.length || 1;
+
+  const update = () => {
+    track.style.transform = `translateX(calc(${current * -100}% - ${current * 20}px))`;
+    pager.textContent = `${current + 1}/${total}`;
+    prevBtn.style.opacity = current === 0 ? '0.45' : '1';
+    nextBtn.style.opacity = current === total - 1 ? '0.45' : '1';
+  };
+
+  prevBtn.onclick = () => {
+    if (current > 0) {
+      current -= 1;
+      update();
+    }
+  };
+  nextBtn.onclick = () => {
+    if (current < total - 1) {
+      current += 1;
+      update();
+    }
+  };
+
+  update();
+}
+
+function initPremiumCategoryTileInteractions() {
+  let activeEl = null;
+
+  const clearPressed = () => {
+    if (activeEl) activeEl.classList.remove('is-pressed');
+    activeEl = null;
+  };
+
+  const spawnRipple = (el, clientX, clientY) => {
+    if (!el) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const rect = el.getBoundingClientRect();
+    const size = Math.ceil(Math.max(rect.width, rect.height) * 1.25);
+    const x = clientX - rect.left - size / 2;
+    const y = clientY - rect.top - size / 2;
+
+    const ripple = document.createElement('span');
+    ripple.className = 'tap-ripple';
+    ripple.style.width = `${size}px`;
+    ripple.style.height = `${size}px`;
+    ripple.style.left = `${x}px`;
+    ripple.style.top = `${y}px`;
+    ripple.style.position = 'absolute';
+
+    el.appendChild(ripple);
+
+    const cleanup = () => ripple.remove();
+    ripple.addEventListener('animationend', cleanup, { once: true });
+    window.setTimeout(cleanup, 900);
+  };
+
+  document.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return; // left click / primary touch
+    const el = e.target && e.target.closest ? e.target.closest('.category-tile, .product-card, .catalog-card, .note-card') : null;
+    if (!el) return;
+    activeEl = el;
+    el.classList.add('is-pressed');
+    spawnRipple(el, e.clientX, e.clientY);
+  }, { passive: true });
+
+  document.addEventListener('pointerup', clearPressed, { passive: true });
+  document.addEventListener('pointercancel', clearPressed, { passive: true });
+  window.addEventListener('blur', clearPressed);
+}
+
+window.addEventListener('resize', () => {
+  const track = document.getElementById('categoryMobileTrack');
+  const isMobile = window.matchMedia('(max-width: 600px)').matches;
+  if (!track) return;
+  if (!isMobile) {
+    track.innerHTML = '';
+  }
+  if (isMobile && track.children.length === 0) {
+    initCategoryMobileSlider();
+  }
+});
+
+function initMobileNavDrawer() {
+  const navbarContainer = document.querySelector('.navbar .container');
+  const navLinks = document.querySelector('.navbar .nav-links');
+  if (!navbarContainer || !navLinks) return;
+
+  let menuBtn = navbarContainer.querySelector('.mobile-menu-btn');
+  if (!menuBtn) {
+    menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'mobile-menu-btn';
+    menuBtn.setAttribute('aria-label', 'Open navigation menu');
+    menuBtn.innerHTML = '<span></span>';
+    const navIcons = navbarContainer.querySelector('.nav-icons');
+    if (navIcons) {
+      navbarContainer.insertBefore(menuBtn, navIcons);
+    } else {
+      navbarContainer.appendChild(menuBtn);
+    }
+  }
+
+  let backdrop = document.querySelector('.mobile-nav-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'mobile-nav-backdrop';
+    document.body.appendChild(backdrop);
+  }
+
+  const closeDrawer = () => {
+    navLinks.classList.remove('mobile-open');
+    backdrop.classList.remove('show');
+    document.body.style.overflow = '';
+  };
+
+  menuBtn.onclick = () => {
+    const isOpen = navLinks.classList.contains('mobile-open');
+    if (isOpen) {
+      closeDrawer();
+      return;
+    }
+    navLinks.classList.add('mobile-open');
+    backdrop.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  };
+
+  backdrop.onclick = closeDrawer;
+  navLinks.querySelectorAll('a').forEach(a => a.addEventListener('click', closeDrawer));
+  window.addEventListener('resize', () => {
+    if (!window.matchMedia('(max-width: 768px)').matches) closeDrawer();
+  });
+}
+
 async function renderReviews(productId) {
   const container = document.getElementById('existingReviews');
   if (!container) return;
@@ -2695,12 +3068,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const themeSwitchWrapper = document.createElement('div');
     themeSwitchWrapper.className = 'theme-switch-wrapper';
 
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
     themeSwitchWrapper.innerHTML = `
-      <span class="theme-switch-label" id="themeLabel">${isLight ? 'LIGHT' : 'DARK'}</span>
+      <span class="theme-switch-label" id="themeLabel">${isDark ? 'DARK' : 'LIGHT'}</span>
       <label class="theme-switch">
-        <input type="checkbox" id="themeToggleCheckbox" ${isLight ? 'checked' : ''}>
+        <input type="checkbox" id="themeToggleCheckbox" ${isDark ? 'checked' : ''}>
         <span class="theme-slider"></span>
       </label>
     `;
@@ -2711,19 +3084,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     checkbox.addEventListener('change', (e) => {
       const root = document.documentElement;
-      let textColor = '#e0e0e0';
-      let gridColor = '#333';
+      let textColor = '#333';
+      let gridColor = '#ddd';
 
       if (e.target.checked) {
-        root.setAttribute('data-theme', 'light');
-        localStorage.setItem('shubham_theme', 'light');
-        label.innerText = 'LIGHT';
-        textColor = '#333';
-        gridColor = '#ddd';
-      } else {
-        root.removeAttribute('data-theme');
+        root.setAttribute('data-theme', 'dark');
         localStorage.setItem('shubham_theme', 'dark');
         label.innerText = 'DARK';
+        textColor = '#e0e0e0';
+        gridColor = '#333';
+      } else {
+        root.removeAttribute('data-theme');
+        localStorage.setItem('shubham_theme', 'light');
+        label.innerText = 'LIGHT';
       }
 
       // Update Chart Colors if present
@@ -2740,7 +3113,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   updateCartBadge();
   updateNavForUser();
+  initMobileNavDrawer();
   initSlider();
+  initCategoryMobileSlider();
+  initPremiumCategoryTileInteractions();
 
   // Handle mobile nav dropdown toggle
   document.querySelectorAll('.nav-dropdown-trigger').forEach(trigger => {
@@ -2765,10 +3141,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (document.getElementById('checkoutForm')) {
-    if (!currentUser) { showToast("Please login first."); setTimeout(() => window.location.href = "login.html", 1500); }
     renderCheckoutSummary();
     if (currentUser) {
       document.getElementById('fullName').value = currentUser.name || "";
+      const phoneEl = document.getElementById('phoneNumber');
+      if (phoneEl && currentUser.phone) phoneEl.value = currentUser.phone;
       const d = getSavedDeliveryDetails();
       const ad = document.getElementById('address');
       const ct = document.getElementById('city');
@@ -2848,13 +3225,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (path.includes('admin-add')) {
     checkAdminAccess();
+    applyAdminCategoryPrefill();
     if (document.getElementById('adminForm')) {
       document.getElementById('adminForm').addEventListener('submit', handleAddProduct);
     }
     if (document.getElementById('addCategoryForm')) {
       document.getElementById('addCategoryForm').addEventListener('submit', handleAddCategory);
+      const cancelEditBtn = document.getElementById('cancelCategoryEditBtn');
+      if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', () => {
+          document.getElementById('addCategoryForm').reset();
+          resetCategoryFormMode();
+        });
+      }
       renderAdminCategories();
     }
+  }
+
+  if (path.includes('admin-add-stationery')) {
+    checkAdminAccess();
+    const form = document.getElementById('adminStationeryForm');
+    if (form) form.addEventListener('submit', handleAddStationeryItem);
+  }
+
+  if (path.includes('admin-add-combo')) {
+    checkAdminAccess();
+    await fetchPromise;
+    renderComboBooksOptions();
+    addComboManualItemRow();
+    const addManualBtn = document.getElementById('addComboManualItemBtn');
+    if (addManualBtn) addManualBtn.addEventListener('click', () => addComboManualItemRow());
+    const form = document.getElementById('adminComboForm');
+    if (form) form.addEventListener('submit', handleAddComboDeal);
   }
 
   if (path.includes('admin-products')) {
@@ -4847,7 +5249,7 @@ window.openPdfViewer = async function (url, price, id, title) {
   const modal = document.getElementById('pdfViewerModal');
   if (!modal) return;
 
-  if (!currentUser) {
+  if (Number(price) > 0 && !currentUser) {
     showToast("Please login first to preview and purchase notes.");
     setTimeout(() => window.location.href = "login.html", 1500);
     return;

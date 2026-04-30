@@ -22,6 +22,13 @@
       <div class="nav-links" id="adminNavLinks" style="display: none;">
         <a href="admin.html">Dashboard</a>
         <a href="admin-add.html" style="color: var(--primary);">Add Books</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Add</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-add-stationery.html">Add Stationery Item</a>
+            <a href="admin-add-combo.html">Add Combo Deal</a>
+          </div>
+        </div>
         <a href="admin-products.html">Manage Books & Notes</a>
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-trigger">Orders</button>
@@ -141,9 +148,21 @@
           
           <div class="admin-card" style="margin-top: 24px;">
             <h2 style="margin-bottom: 24px; font-size: 1.25rem;">Manage Categories</h2>
-            <form id="addCategoryForm" style="display: flex; gap: 12px; margin-bottom: 24px;">
+            <form id="addCategoryForm" style="display: grid; gap: 12px; margin-bottom: 24px;">
+              <input type="hidden" id="editingCategoryOldName">
               <input type="text" id="newCategoryName" class="form-control" required placeholder="New Category Name">
-              <button type="submit" class="btn btn-primary" style="white-space: nowrap;">Add</button>
+              <select id="newCategorySection" class="form-control">
+                <option value="">General / Other</option>
+                <option value="mppsc">MPPSC</option>
+                <option value="ssc">SSC</option>
+                <option value="upsc">UPSC / IAS</option>
+              </select>
+              <input type="file" id="newCategoryImageFile" class="form-control" accept="image/*">
+              <input type="url" id="newCategoryImageUrl" class="form-control" placeholder="Or paste category image URL">
+              <div style="display:flex; gap:10px;">
+                <button id="addCategorySubmitBtn" type="submit" class="btn btn-primary" style="white-space: nowrap; flex:1;">Add</button>
+                <button id="cancelCategoryEditBtn" type="button" class="btn btn-secondary" style="display:none;">Cancel Edit</button>
+              </div>
             </form>
             <div id="adminCategoriesList" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
               <!-- Categories injected via JS -->

@@ -30,6 +30,7 @@
         <a href="index.html">Home</a>
 
         <a href="products.html">Books & Notes</a>
+        <a href="e-books.html">E-Books</a>
         <a href="index.html#services">Services</a>
         <!-- Auth link injected by JS -->
         <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
@@ -106,29 +107,110 @@
     </div>
   </header>
 
-
-  <!-- Study Notes Hub -->
-  <section class="section" id="free-notes-hub"
-    style="background-color: var(--card-bg); border-bottom: 1px solid var(--border-color);">
+  <!-- Shop By Category -->
+  <section class="section" style="padding-top: 56px; padding-bottom: 56px;">
     <div class="container">
-      <h2 class="section-title">Study Notes & PDFs</h2>
-      <p class="section-subtitle">Explore high-quality study notes, available for free or as paid premium PDFs.</p>
+      <h2 class="section-title" style="margin-bottom: 18px;">Shop by Category</h2>
+      <p class="section-subtitle" style="margin: 0 auto 26px;">Quickly find what you need — notes, books, stationery and more.</p>
 
-      <div style="max-width: 500px; margin: 0 auto 32px;">
-        <input type="text" id="freeNotesSearch" class="form-control"
-          placeholder="Search notes... (e.g. MPPSC Syllabus)" onkeyup="filterFreeNotes()"
-          style="border-radius: var(--radius-full); padding: 14px 24px; text-align: center; box-shadow: var(--shadow-sm);">
+      <div class="category-tiles-grid">
+        <a class="category-tile" href="stationery.html" style="--tile-accent:#ef4444;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 7h20"></path><path d="M6 7V4h12v3"></path><path d="M6 11h12"></path><path d="M6 15h12"></path><path d="M6 19h12"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">Stationery</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
+
+        <a class="category-tile" href="exam-hub.html" style="--tile-accent:#22c55e;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20"></path><path d="M5 7h14"></path><path d="M7 17h10"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">MPPSC / SSC / UPSC / IAS</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
+
+        <a class="category-tile" href="combo-deals.html" style="--tile-accent:#ef4444;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16"></path><path d="M6 7l2-3h8l2 3"></path><path d="M6 7v13h12V7"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">Combos</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
+
+        <a class="category-tile" href="products.html?category=Novels" style="--tile-accent:#06b6d4;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">Novels</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
+
+        <a class="category-tile" href="products.html?category=New%20Arrivals" style="--tile-accent:#22c55e;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v18"></path><path d="M3 12h18"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">New Arrivals</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
+
+        <a class="category-tile" href="products.html?category=Study%20Material" style="--tile-accent:#3b82f6;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">Xerox Notes</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
+
+        <a class="category-tile" href="products.html?category=Deal%20of%20the%20Day" style="--tile-accent:#f59e0b;">
+          <div class="category-tile-body">
+            <div class="category-tile-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+              </svg>
+            </div>
+            <div class="category-tile-title">Deal of the Day</div>
+          </div>
+          <div class="category-tile-btn">Order Now</div>
+        </a>
       </div>
 
-      <div class="free-notes-slider-wrap">
-        <button id="freeNotesPrevBtn" class="free-notes-nav free-notes-nav-left" type="button" onclick="scrollFreeNotes('left')" aria-label="Previous notes">&#10094;</button>
-        <div class="free-notes-slider" id="freeNotesContainer">
-          <!-- Injected via JS -->
+      <div class="category-mobile-slider" id="categoryMobileSlider">
+        <button type="button" class="category-mobile-nav" id="categoryMobilePrev" aria-label="Previous categories">&#10094;</button>
+        <div class="category-mobile-viewport">
+          <div class="category-mobile-track" id="categoryMobileTrack"></div>
         </div>
-        <button id="freeNotesNextBtn" class="free-notes-nav free-notes-nav-right" type="button" onclick="scrollFreeNotes('right')" aria-label="Next notes">&#10095;</button>
+        <button type="button" class="category-mobile-nav" id="categoryMobileNext" aria-label="Next categories">&#10095;</button>
       </div>
+      <div class="category-mobile-pagination" id="categoryMobilePagination">1/1</div>
     </div>
   </section>
+
 
   <!-- Featured Products -->
   <section class="section">
