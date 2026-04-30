@@ -43,7 +43,7 @@ let selectedCategories = [];
 let featuredSelectedCategories = [];
 const PRODUCTS_BATCH_SIZE = 20;
 let isLoadingMoreProducts = false;
-const ADMIN_PRODUCTS_BATCH_SIZE = 20;
+const ADMIN_PRODUCTS_BATCH_SIZE = 100;
 
 function resetProductsInfiniteScroll() {
   window.productsGridCurrentCount = PRODUCTS_BATCH_SIZE;
@@ -1942,10 +1942,7 @@ async function removeProduct(id, name) {
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
-    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Waking up server and loading products...<br><span style="font-size:0.85rem; font-weight:normal;">(This may take up to 5 seconds)</span></div></div>';
-    
-    const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
-    let success = false;
+    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading books...</div></div>';
     
     try {
       resetAdminProductsPagination();
@@ -1955,30 +1952,12 @@ async function renderAdminList() {
       window.adminProductsHasMore = !!(res && res.has_more);
       window.adminProductsOffset = window.adminProductsData.length;
       products = window.adminProductsData; // keep existing downstream logic
-      success = true;
     } catch (err) {
-      // might fail immediately if server is asleep
-    }
-    
-    await minLoadTime;
-    
-    if (!success) {
-      try {
-        resetAdminProductsPagination();
-        const res = await apiFetch(`/admin/products?limit=${ADMIN_PRODUCTS_BATCH_SIZE}&offset=0`, { method: "GET" });
-        const page = (res && res.products) || [];
-        window.adminProductsData = Array.isArray(page) ? page : [];
-        window.adminProductsHasMore = !!(res && res.has_more);
-        window.adminProductsOffset = window.adminProductsData.length;
-        products = window.adminProductsData;
-        success = true;
-      } catch (err) {
-        products = [];
-        window.adminProductsData = [];
-        window.adminProductsHasMore = false;
-        window.adminProductsOffset = 0;
-        showToast(err.message || "Failed to load products");
-      }
+      products = [];
+      window.adminProductsData = [];
+      window.adminProductsHasMore = false;
+      window.adminProductsOffset = 0;
+      showToast(err.message || "Failed to load products");
     }
     
     if (products.length === 0) {
