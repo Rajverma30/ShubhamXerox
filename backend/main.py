@@ -8,6 +8,9 @@ import random
 import time
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -38,7 +41,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("shubhamxerox.api")
 
 OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
-PRODUCTS_CACHE: Dict[str, Any] = {"data": [], "expires_at": 0.0}
+PRODUCTS_CACHE: Dict[str, Dict[str, Any]] = {}
 PRODUCTS_CACHE_TTL_SECONDS = 20
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
 GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0}
@@ -62,6 +65,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+templates = Jinja2Templates(directory=FRONTEND_DIR)
+
+# Mount static files if they exist in the root directory
+if os.path.isdir(os.path.join(FRONTEND_DIR, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+if os.path.isdir(os.path.join(FRONTEND_DIR, "images")):
+    app.mount("/images", StaticFiles(directory=os.path.join(FRONTEND_DIR, "images")), name="images")
+
+@app.get("/healthz")
+async def healthz():
+    return {
+        "ok": True,
+        "build_marker": APP_BUILD_MARKER,
+        "railway_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
+        "railway_deployment": os.getenv("RAILWAY_DEPLOYMENT_ID", ""),
+    }
 
 # Initialize Razorpay Client
 try:
@@ -640,11 +662,27 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
     return {"status": "ok"}
 
 @app.get("/products")
-async def list_public_products():
+async def list_public_products(limit: int = 40, offset: int = 0):
     logger.info("GET /products build=%s", APP_BUILD_MARKER)
+    limit = int(limit or 40)
+    offset = int(offset or 0)
+    if limit < 1:
+        raise HTTPException(status_code=400, detail="limit must be >= 1")
+    if limit > 100:
+        limit = 100
+    if offset < 0:
+        offset = 0
+
+    cache_key = f"{limit}:{offset}"
     now = time.time()
-    if PRODUCTS_CACHE["data"] and now < PRODUCTS_CACHE["expires_at"]:
-        return {"products": PRODUCTS_CACHE["data"]}
+    cached = PRODUCTS_CACHE.get(cache_key)
+    if cached and now < float(cached.get("expires_at", 0.0)):
+        return {
+            "products": cached.get("data", []),
+            "has_more": bool(cached.get("has_more", False)),
+            "limit": limit,
+            "offset": offset,
+        }
 
     try:
         base_url = str(SUPABASE_URL or "").rstrip("/")
@@ -653,7 +691,8 @@ async def list_public_products():
 
         url = (
             f"{base_url}/rest/v1/products"
-            "?select=id,name,category,price,original_price,img,desc,exam&order=id.desc"
+            "?select=id,name,category,price,original_price,img,exam,free_note_id"
+            f"&order=id.desc&offset={offset}&limit={limit + 1}"
         )
         headers = {
             "apikey": SUPABASE_KEY,
@@ -663,14 +702,30 @@ async def list_public_products():
         resp = requests.get(url, headers=headers, timeout=(5, 20))
         resp.raise_for_status()
         data = resp.json() if resp.content else []
-        products = data if isinstance(data, list) else []
-        PRODUCTS_CACHE["data"] = products
-        PRODUCTS_CACHE["expires_at"] = time.time() + PRODUCTS_CACHE_TTL_SECONDS
-        return {"products": products}
+        rows = data if isinstance(data, list) else []
+        has_more = len(rows) > limit
+        products = rows[:limit] if has_more else rows
+        
+        # Strip all but the main image to drastically reduce payload size for list views
+        for p in products:
+            if p.get("img") and isinstance(p["img"], str):
+                p["img"] = p["img"].split("|")[0]
+                
+        PRODUCTS_CACHE[cache_key] = {
+            "data": products,
+            "has_more": has_more,
+            "expires_at": time.time() + PRODUCTS_CACHE_TTL_SECONDS,
+        }
+        return {"products": products, "has_more": has_more, "limit": limit, "offset": offset}
     except Exception as e:
         logger.exception("Error fetching products")
-        if PRODUCTS_CACHE["data"]:
-            return {"products": PRODUCTS_CACHE["data"]}
+        if cached and cached.get("data"):
+            return {
+                "products": cached.get("data", []),
+                "has_more": bool(cached.get("has_more", False)),
+                "limit": limit,
+                "offset": offset,
+            }
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/settings/rates")
@@ -787,3 +842,27 @@ async def razorpay_webhook(request: Request):
     # event_type = event_data.get('event')
     
     return {"status": "ok"}
+
+
+import json
+
+# --- SSR Routes (Serving HTML with Jinja2) ---
+
+@app.get('/', response_class=HTMLResponse)
+async def render_home(request: Request):
+    # Fetch top 10 products to inject into initial HTML
+    products_resp = await list_public_products(limit=10, offset=0)
+    products = products_resp.get("products", [])
+    return templates.TemplateResponse("index.html", {"request": request, "initial_products": json.dumps(products)})
+
+@app.get('/{page_name}.html', response_class=HTMLResponse)
+async def render_page(request: Request, page_name: str):
+    products = []
+    if page_name in ["products", "index"]:
+        products_resp = await list_public_products(limit=10, offset=0)
+        products = products_resp.get("products", [])
+        
+    try:
+        return templates.TemplateResponse(f"{page_name}.html", {"request": request, "initial_products": json.dumps(products)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="Page not found")
