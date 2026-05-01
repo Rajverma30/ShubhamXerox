@@ -226,35 +226,35 @@ async function performDatabaseSearch(query, categories, isFeatured) {
   try {
     const supabase = getSupabase();
     if (!supabase) return;
-
+    
     let dbQuery = supabase.from('products').select('*');
-
+    
     const q = (query || '').trim().toLowerCase();
     const hasQuery = q.length >= 2;
     const hasCats = Array.isArray(categories) && categories.length > 0;
-
+    
     if (!hasQuery && !hasCats) return;
-
+    
     if (hasQuery) {
       dbQuery = dbQuery.ilike('name', \%\%\);
     }
     if (hasCats) {
       dbQuery = dbQuery.in('category', categories);
     }
-
+    
     const { data, error } = await dbQuery.limit(100);
-
+    
     if (data && data.length > 0) {
       const existingIds = new Set((products || []).map(p => Number(p?.id)));
       let added = false;
-
+      
       data.forEach(item => {
         if (!existingIds.has(Number(item.id))) {
           products.push(item);
           added = true;
         }
       });
-
+      
       if (added) {
         products.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
         if (isFeatured) {
@@ -279,10 +279,10 @@ function getFilteredProducts(filterCategories = [], searchValue = '') {
     const categorySet = new Set(selectedCats);
     filtered = filtered.filter(p => categorySet.has(p.category));
   });
-});
+    });
   }
 
-return filtered;
+  return filtered;
 }
 
 function renderFeaturedMultiSelect() {
@@ -2297,7 +2297,7 @@ async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
     container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading products...</div></div>';
-
+    
     try {
       resetAdminProductsPagination();
       const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
@@ -3697,7 +3697,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         resetProductsInfiniteScroll();
         renderProductsGrid('allProductsContainer', null, selectedCategories);
         if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
-
+        
         if (typeof globalDbSearchTimeout !== 'undefined' && globalDbSearchTimeout) clearTimeout(globalDbSearchTimeout);
         globalDbSearchTimeout = setTimeout(() => {
           if (typeof performDatabaseSearch === 'function') performDatabaseSearch(searchInput.value, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false);
