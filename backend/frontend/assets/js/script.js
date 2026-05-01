@@ -236,7 +236,7 @@ async function performDatabaseSearch(query, categories, isFeatured) {
     if (!hasQuery && !hasCats) return;
     
     if (hasQuery) {
-      dbQuery = dbQuery.ilike('name', \%\%\);
+      dbQuery = dbQuery.ilike('name', `%${q}%`);
     }
     if (hasCats) {
       dbQuery = dbQuery.in('category', categories);
