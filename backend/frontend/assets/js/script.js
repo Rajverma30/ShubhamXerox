@@ -700,21 +700,51 @@ async function fetchMoreProductsPage(limitOverride = null) {
   productsServerLoading = true;
   try {
     const limitToUse = limitOverride || PRODUCTS_SERVER_PAGE_SIZE;
-    const res = await apiFetch(
-      `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
-      { auth: false }
-    );
-    const rows = Array.isArray(res?.products) ? res.products : [];
-    if (rows.length > 0) {
+    let loaded = null;
+    let hasMoreFlag = false;
+
+    try {
+      const fetchPromise = apiFetch(
+        `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
+        { auth: false }
+      );
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
+      loaded = Array.isArray(res?.products) ? res.products : null;
+      hasMoreFlag = !!res?.has_more;
+    } catch (e) {
+      console.warn("fetchMoreProductsPage backend failed, falling back to Supabase", e);
+      loaded = null;
+    }
+
+    if (!Array.isArray(loaded)) {
+      const supabase = getSupabase();
+      if (!supabase) {
+        productsServerLoading = false;
+        return false;
+      }
+      const endRange = productsServerOffset + limitToUse - 1;
+      const { data, error } = await supabase
+        .table("products")
+        .select("*")
+        .order("id", { ascending: false })
+        .range(productsServerOffset, endRange);
+        
+      if (error) throw error;
+      loaded = data || [];
+      hasMoreFlag = loaded.length === limitToUse;
+    }
+
+    if (loaded.length > 0) {
       const byId = new Set((products || []).map((p) => Number(p?.id)));
-      const toAdd = rows.filter((p) => !byId.has(Number(p?.id)));
+      const toAdd = loaded.filter((p) => !byId.has(Number(p?.id)));
       if (toAdd.length > 0) {
         products = [...products, ...toAdd].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
       }
-      productsServerOffset += rows.length;
+      productsServerOffset += loaded.length;
     }
-    productsServerHasMore = !!res?.has_more;
-    return rows.length > 0;
+    productsServerHasMore = hasMoreFlag;
+    return loaded.length > 0;
   } catch (e) {
     console.error("Fetch more products failed:", e);
     return false;
