@@ -59,7 +59,7 @@ const ADMIN_PRODUCTS_BATCH_SIZE = 20;
 let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
-const PRODUCTS_SERVER_PAGE_SIZE = 10;
+const PRODUCTS_SERVER_PAGE_SIZE = 40;
 let featuredRevealCount = 0;
 let featuredRevealTimer = null;
 let featuredRevealKey = "";
@@ -3423,14 +3423,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (productsContainer) {
     window.addEventListener('scroll', () => {
       // Preload next row a bit before the user reaches the end.
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 1200) {
         if (
           !isLoadingMoreProducts &&
           !productsServerLoading &&
           productsServerHasMore
         ) {
           isLoadingMoreProducts = true;
-          setProductsLoadMoreIndicator('loading');
+          // Silent background fetching
           fetchMoreProductsPage()
             .then((added) => {
               if (added) {
