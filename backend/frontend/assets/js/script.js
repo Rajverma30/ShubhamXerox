@@ -220,25 +220,65 @@ function getAllProductCategories() {
   return [...new Set([...safeSiteCategories, ...products.map(p => p.category).filter(Boolean)])].sort();
 }
 
+let globalDbSearchTimeout = null;
+
+async function performDatabaseSearch(query, categories, isFeatured) {
+  try {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    
+    let dbQuery = supabase.from('products').select('*');
+    
+    const q = (query || '').trim().toLowerCase();
+    const hasQuery = q.length >= 2;
+    const hasCats = Array.isArray(categories) && categories.length > 0;
+    
+    if (!hasQuery && !hasCats) return;
+    
+    if (hasQuery) {
+      dbQuery = dbQuery.ilike('name', \%\%\);
+    }
+    if (hasCats) {
+      dbQuery = dbQuery.in('category', categories);
+    }
+    
+    const { data, error } = await dbQuery.limit(100);
+    
+    if (data && data.length > 0) {
+      const existingIds = new Set((products || []).map(p => Number(p?.id)));
+      let added = false;
+      
+      data.forEach(item => {
+        if (!existingIds.has(Number(item.id))) {
+          products.push(item);
+          added = true;
+        }
+      });
+      
+      if (added) {
+        products.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+        if (isFeatured) {
+          if (typeof renderFeaturedProducts === 'function') renderFeaturedProducts();
+        } else {
+          if (typeof resetProductsInfiniteScroll === 'function') resetProductsInfiniteScroll();
+          if (typeof renderProductsGrid === 'function') renderProductsGrid('allProductsContainer', null, selectedCategories);
+          if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Database search error:", err);
+  }
+}
+
 function getFilteredProducts(filterCategories = [], searchValue = '') {
   let filtered = [...products];
   const selectedCats = Array.isArray(filterCategories) ? filterCategories.filter(Boolean) : [];
-  const strictCategoryFilter = new URLSearchParams(window.location.search).get('strict') === '1';
 
   if (selectedCats.length > 0) {
     const categorySet = new Set(selectedCats);
-    const byCategory = filtered.filter(p => categorySet.has(p.category));
-    filtered = (strictCategoryFilter || byCategory.length > 0) ? byCategory : filtered;
-  }
-
-  if (searchValue && searchValue.trim()) {
-    const spaceTokens = searchValue.toLowerCase().split(/\s+/).filter(t => t);
-    filtered = filtered.filter(p => {
-      const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
-      return spaceTokens.every(spaceToken => {
-        const slashTokens = spaceToken.split('/').filter(t => t);
-        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
-      });
+    filtered = filtered.filter(p => categorySet.has(p.category));
+  });
     });
   }
 
@@ -2256,11 +2296,8 @@ async function removeProduct(id, name) {
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
-    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Waking up server and loading products...<br><span style="font-size:0.85rem; font-weight:normal;">(This may take up to 5 seconds)</span></div></div>';
-
-    const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
-    let success = false;
-
+    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading products...</div></div>';
+    
     try {
       resetAdminProductsPagination();
       const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
@@ -2269,32 +2306,13 @@ async function renderAdminList() {
       window.adminProductsData = Array.isArray(page) ? page : [];
       window.adminProductsHasMore = !!(res && res.has_more);
       window.adminProductsOffset = window.adminProductsData.length;
-      products = window.adminProductsData; // keep existing downstream logic
-      success = true;
+      products = window.adminProductsData;
     } catch (err) {
-      // might fail immediately if server is asleep
-    }
-
-    await minLoadTime;
-
-    if (!success) {
-      try {
-        resetAdminProductsPagination();
-        const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
-        const res = await apiFetch(`/admin/products?limit=${firstPageSize}&offset=0`, { method: "GET" });
-        const page = (res && res.products) || [];
-        window.adminProductsData = Array.isArray(page) ? page : [];
-        window.adminProductsHasMore = !!(res && res.has_more);
-        window.adminProductsOffset = window.adminProductsData.length;
-        products = window.adminProductsData;
-        success = true;
-      } catch (err) {
-        products = [];
-        window.adminProductsData = [];
-        window.adminProductsHasMore = false;
-        window.adminProductsOffset = 0;
-        showToast(err.message || "Failed to load products");
-      }
+      products = [];
+      window.adminProductsData = [];
+      window.adminProductsHasMore = false;
+      window.adminProductsOffset = 0;
+      showToast(err.message || "Failed to load products");
     }
 
     if (products.length === 0) {
@@ -3646,6 +3664,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (featuredSearchInput) {
       featuredSearchInput.addEventListener('input', () => {
         renderFeaturedProducts();
+        if (typeof globalDbSearchTimeout !== 'undefined' && globalDbSearchTimeout) clearTimeout(globalDbSearchTimeout);
+        globalDbSearchTimeout = setTimeout(() => {
+          if (typeof performDatabaseSearch === 'function') performDatabaseSearch(featuredSearchInput.value, typeof featuredSelectedCategories !== 'undefined' ? featuredSelectedCategories : [], true);
+        }, 400);
       });
     }
 
@@ -3675,6 +3697,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         resetProductsInfiniteScroll();
         renderProductsGrid('allProductsContainer', null, selectedCategories);
         if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
+        
+        if (typeof globalDbSearchTimeout !== 'undefined' && globalDbSearchTimeout) clearTimeout(globalDbSearchTimeout);
+        globalDbSearchTimeout = setTimeout(() => {
+          if (typeof performDatabaseSearch === 'function') performDatabaseSearch(searchInput.value, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false);
+        }, 400);
       });
     }
 
@@ -6076,3 +6103,11 @@ window.scrollDynamicCategories = function (direction) {
     container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
   }
 };
+
+
+
+
+
+
+
+
