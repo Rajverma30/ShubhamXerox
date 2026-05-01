@@ -59,6 +59,7 @@ const ADMIN_PRODUCTS_BATCH_SIZE = 20;
 let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
+let isBackendDown = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
 let featuredRevealCount = 0;
 let featuredRevealTimer = null;
@@ -644,15 +645,18 @@ async function fetchProducts() {
     // Prefer backend endpoint with server cache to reduce Supabase egress.
     // Progressive 1-by-1 card reveal still works via renderProductsGrid logic.
     let loaded = null;
-    try {
-      const fetchPromise = apiFetch(`/products?limit=${PRODUCTS_SERVER_PAGE_SIZE}&offset=0`, { auth: false });
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500));
-      const res = await Promise.race([fetchPromise, timeoutPromise]);
-      loaded = Array.isArray(res?.products) ? res.products : null;
-      productsServerOffset = Array.isArray(loaded) ? loaded.length : 0;
-      productsServerHasMore = !!res?.has_more;
-    } catch (e) {
-      loaded = null; // Timeout or error, fallback to Supabase
+    if (!isBackendDown) {
+      try {
+        const fetchPromise = apiFetch(`/products?limit=${PRODUCTS_SERVER_PAGE_SIZE}&offset=0`, { auth: false });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500));
+        const res = await Promise.race([fetchPromise, timeoutPromise]);
+        loaded = Array.isArray(res?.products) ? res.products : null;
+        productsServerOffset = Array.isArray(loaded) ? loaded.length : 0;
+        productsServerHasMore = !!res?.has_more;
+      } catch (e) {
+        isBackendDown = true;
+        loaded = null; // Timeout or error, fallback to Supabase
+      }
     }
 
     if (!Array.isArray(loaded)) {
@@ -703,18 +707,21 @@ async function fetchMoreProductsPage(limitOverride = null) {
     let loaded = null;
     let hasMoreFlag = false;
 
-    try {
-      const fetchPromise = apiFetch(
-        `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
-        { auth: false }
-      );
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
-      const res = await Promise.race([fetchPromise, timeoutPromise]);
-      loaded = Array.isArray(res?.products) ? res.products : null;
-      hasMoreFlag = !!res?.has_more;
-    } catch (e) {
-      console.warn("fetchMoreProductsPage backend failed, falling back to Supabase", e);
-      loaded = null;
+    if (!isBackendDown) {
+      try {
+        const fetchPromise = apiFetch(
+          `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
+          { auth: false }
+        );
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1000));
+        const res = await Promise.race([fetchPromise, timeoutPromise]);
+        loaded = Array.isArray(res?.products) ? res.products : null;
+        hasMoreFlag = !!res?.has_more;
+      } catch (e) {
+        console.warn("fetchMoreProductsPage backend failed, falling back to Supabase", e);
+        isBackendDown = true;
+        loaded = null;
+      }
     }
 
     if (!Array.isArray(loaded)) {
