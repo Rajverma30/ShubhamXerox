@@ -278,7 +278,16 @@ function getFilteredProducts(filterCategories = [], searchValue = '') {
   if (selectedCats.length > 0) {
     const categorySet = new Set(selectedCats);
     filtered = filtered.filter(p => categorySet.has(p.category));
-  });
+  }
+
+  if (searchValue && searchValue.trim()) {
+    const spaceTokens = searchValue.toLowerCase().split(/\s+/).filter(t => t);
+    filtered = filtered.filter(p => {
+      const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
+      return spaceTokens.every(spaceToken => {
+        const slashTokens = spaceToken.split('/').filter(t => t);
+        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
+      });
     });
   }
 
@@ -6103,6 +6112,7 @@ window.scrollDynamicCategories = function (direction) {
     container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
   }
 };
+
 
 
 
