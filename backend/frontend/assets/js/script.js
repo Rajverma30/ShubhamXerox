@@ -709,43 +709,66 @@ async function fetchMoreProductsPage(limitOverride = null) {
     const rows = Array.isArray(res?.products) ? res.products : [];
     
     if (rows.length > 0) {
-      const byId = new Set((products || []).map((p) => Number(p?.id)));
-      const toAdd = rows.filter((p) => !byId.has(Number(p?.id)));
-      if (toAdd.length > 0) {
-        products = [...products, ...toAdd].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
-      }
       productsServerOffset += rows.length;
     }
     productsServerHasMore = !!res?.has_more;
-    return rows.length > 0;
+    
+    const byId = new Set((products || []).map((p) => Number(p?.id)));
+    const toAdd = rows.filter((p) => !byId.has(Number(p?.id)));
+    
+    return toAdd;
   } catch (e) {
     console.error("Fetch more products failed:", e);
-    return false;
+    return [];
   } finally {
     productsServerLoading = false;
   }
 }
 
-async function startBackgroundAutoFetch() {
-  const container = document.getElementById('allProductsContainer');
-  if (!container) return;
+let backgroundRenderQueue = [];
 
+async function backgroundFetchLoop() {
   while (productsServerHasMore) {
     if (productsServerLoading) {
       await new Promise(r => setTimeout(r, 100));
       continue;
     }
     
-    // Fetch in small batches of 5 to maximize network speed without blocking
-    const added = await fetchMoreProductsPage(5);
+    // Fetch in batches of 10 for efficiency
+    const newItems = await fetchMoreProductsPage(10);
     
-    if (added) {
-      renderProductsGrid('allProductsContainer', null, selectedCategories);
+    if (newItems && newItems.length > 0) {
+      backgroundRenderQueue.push(...newItems);
     }
     
-    // Tiny delay between background batches
-    await new Promise(r => setTimeout(r, 20));
+    // Yield to let render loop process
+    await new Promise(r => setTimeout(r, 50));
   }
+}
+
+async function backgroundRenderLoop() {
+  const container = document.getElementById('allProductsContainer');
+  if (!container) return;
+
+  while (productsServerHasMore || backgroundRenderQueue.length > 0) {
+    if (backgroundRenderQueue.length > 0) {
+      // Pop one item and render it to create a real-time, one-by-one feel
+      const item = backgroundRenderQueue.shift();
+      products = [...products, item].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      renderProductsGrid('allProductsContainer', null, selectedCategories);
+      
+      // 150ms delay perfectly balances speed with a visible "arriving" animation
+      await new Promise(r => setTimeout(r, 150));
+    } else {
+      // Wait for more items to be fetched
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+}
+
+function startBackgroundAutoFetch() {
+  backgroundFetchLoop();
+  backgroundRenderLoop();
 }
 
 // --- Authentication Logic ---
