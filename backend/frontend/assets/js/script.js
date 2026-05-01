@@ -3853,19 +3853,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Always fetch the FULL product details directly from Supabase so we get ALL images 
     // instead of just the main thumbnail from the list API
-    if (product) {
-      try {
-        const supabase = getSupabase();
-        if (supabase) {
-          const { data, error } = await supabase.from('products').select('*').eq('id', productId).single();
-          if (data && !error) {
+    try {
+      const supabase = getSupabase();
+      if (supabase && productId) {
+        if (!product) detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product details...</div>';
+        const { data, error } = await supabase.from('products').select('*').eq('id', productId).single();
+        if (data && !error) {
+          if (!product) {
+            product = data;
+          } else {
             product.img = data.img; // Get all images
             product.desc = data.desc; // Get full description
           }
         }
-      } catch (e) {
-        console.error("Failed to load full product images", e);
       }
+    } catch (e) {
+      console.error("Failed to load full product images", e);
     }
 
     if (product) {
@@ -6050,7 +6053,7 @@ function renderHomeDynamicCategories() {
     const meta = categoryMeta[cat] || {};
     // Use a default placeholder icon if no image is set
     const imgSrc = meta.image || 'images/logo.png'; 
-    const searchUrl = 'products.html?strict=true&search=' + encodeURIComponent(cat);
+    const searchUrl = 'products.html?strict=1&category=' + encodeURIComponent(cat);
     
     return `
       <a class="dynamic-category-item" href="${searchUrl}">
