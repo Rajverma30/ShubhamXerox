@@ -59,7 +59,7 @@ const ADMIN_PRODUCTS_BATCH_SIZE = 20;
 let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
-const PRODUCTS_SERVER_PAGE_SIZE = 40;
+const PRODUCTS_SERVER_PAGE_SIZE = 10;
 let featuredRevealCount = 0;
 let featuredRevealTimer = null;
 let featuredRevealKey = "";
@@ -695,12 +695,13 @@ async function fetchProducts() {
   }
 }
 
-async function fetchMoreProductsPage() {
+async function fetchMoreProductsPage(limitOverride = null) {
   if (productsServerLoading || !productsServerHasMore) return false;
   productsServerLoading = true;
   try {
+    const limitToUse = limitOverride || PRODUCTS_SERVER_PAGE_SIZE;
     const res = await apiFetch(
-      `/products?limit=${PRODUCTS_SERVER_PAGE_SIZE}&offset=${encodeURIComponent(productsServerOffset)}`,
+      `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
       { auth: false }
     );
     const rows = Array.isArray(res?.products) ? res.products : [];
@@ -719,6 +720,28 @@ async function fetchMoreProductsPage() {
     return false;
   } finally {
     productsServerLoading = false;
+  }
+}
+
+async function startBackgroundAutoFetch() {
+  const container = document.getElementById('allProductsContainer');
+  if (!container) return;
+
+  while (productsServerHasMore) {
+    if (productsServerLoading) {
+      await new Promise(r => setTimeout(r, 100));
+      continue;
+    }
+    
+    // Fetch 1 book at a time
+    const added = await fetchMoreProductsPage(1);
+    
+    if (added) {
+      renderProductsGrid('allProductsContainer', null, selectedCategories);
+    }
+    
+    // Delay to avoid spamming the server
+    await new Promise(r => setTimeout(r, 50));
   }
 }
 
@@ -3395,6 +3418,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   let fetchPromise = Promise.resolve();
   if (document.getElementById('featuredProducts') || document.getElementById('allProductsContainer') || document.getElementById('productDetailContainer')) {
     fetchPromise = fetchProducts().catch(e => console.error("fetchProducts error", e));
+    fetchPromise.then(() => {
+      if (document.getElementById('allProductsContainer')) {
+        startBackgroundAutoFetch();
+      }
+    });
   }
 
   // --- Global Loader Injection Removed (Using Skeletons Instead) ---
@@ -3418,34 +3446,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // --- Infinite Scroll for Products Page ---
-  const productsContainer = document.getElementById('allProductsContainer');
-  if (productsContainer) {
-    window.addEventListener('scroll', () => {
-      // Preload next row a bit before the user reaches the end.
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 1200) {
-        if (
-          !isLoadingMoreProducts &&
-          !productsServerLoading &&
-          productsServerHasMore
-        ) {
-          isLoadingMoreProducts = true;
-          // Silent background fetching
-          fetchMoreProductsPage()
-            .then((added) => {
-              if (added) {
-                renderProductsGrid('allProductsContainer', null, selectedCategories);
-              } else {
-                setProductsLoadMoreIndicator(productsServerHasMore ? 'hidden' : 'end');
-              }
-            })
-            .finally(() => {
-              isLoadingMoreProducts = false;
-            });
-        }
-      }
-    });
-  }
+  // --- Automatic Background Fetch for Products Page replaces infinite scroll ---
+  // Started via startBackgroundAutoFetch() after fetchProducts().
 
   // --- Infinite Scroll for Admin Products (Manage Books) ---
   const adminProductsContainer = document.getElementById('adminProductsList');
