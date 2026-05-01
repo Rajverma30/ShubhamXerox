@@ -59,7 +59,7 @@ const ADMIN_PRODUCTS_BATCH_SIZE = 20;
 let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
-const PRODUCTS_SERVER_PAGE_SIZE = 10;
+const PRODUCTS_SERVER_PAGE_SIZE = 100;
 let featuredRevealCount = 0;
 let featuredRevealTimer = null;
 let featuredRevealKey = "";
@@ -87,9 +87,8 @@ function getDynamicProductsStepSize(containerId = 'allProductsContainer') {
 }
 
 function getDynamicAdminBatchSize() {
-  // Admin list is mostly single-column cards; keep 2-row feel.
-  return 2;
-}
+    return 100;
+  }
 
 function smoothRevealProductCards(container) {
   if (!container) return;
@@ -735,7 +734,7 @@ async function backgroundFetchLoop() {
     }
     
     // Fetch in batches of 10 for efficiency
-    const newItems = await fetchMoreProductsPage(10);
+    const newItems = await fetchMoreProductsPage(100);
     
     if (newItems && newItems.length > 0) {
       backgroundRenderQueue.push(...newItems);
@@ -747,26 +746,20 @@ async function backgroundFetchLoop() {
 }
 
 async function backgroundRenderLoop() {
-  const container = document.getElementById('allProductsContainer');
-  if (!container) return;
-
-  while (productsServerHasMore || backgroundRenderQueue.length > 0) {
-    if (backgroundRenderQueue.length > 0) {
-      // Pop one item and render it to create a real-time, one-by-one feel
-      const item = backgroundRenderQueue.shift();
-      products = [...products, item].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
-      renderProductsGrid('allProductsContainer', null, selectedCategories);
-      
-      // 150ms delay perfectly balances speed with a visible "arriving" animation
-      await new Promise(r => setTimeout(r, 150));
-    } else {
-      // Wait for more items to be fetched
+    const container = document.getElementById('allProductsContainer');
+    if (!container) return;
+  
+    while (productsServerHasMore || backgroundRenderQueue.length > 0) {
+      if (backgroundRenderQueue.length > 0) {
+        const items = backgroundRenderQueue.splice(0, backgroundRenderQueue.length);
+        products = [...products, ...items].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+        renderProductsGrid('allProductsContainer', null, selectedCategories);
+      }
       await new Promise(r => setTimeout(r, 100));
     }
   }
-}
-
-function startBackgroundAutoFetch() {
+  
+  function startBackgroundAutoFetch() {
   backgroundFetchLoop();
   backgroundRenderLoop();
 }
@@ -2256,10 +2249,7 @@ async function removeProduct(id, name) {
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
-    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Waking up server and loading products...<br><span style="font-size:0.85rem; font-weight:normal;">(This may take up to 5 seconds)</span></div></div>';
-    
-    const minLoadTime = new Promise(resolve => setTimeout(resolve, 5000));
-    let success = false;
+    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading products...</div></div>';
     
     try {
       resetAdminProductsPagination();
@@ -2270,31 +2260,12 @@ async function renderAdminList() {
       window.adminProductsHasMore = !!(res && res.has_more);
       window.adminProductsOffset = window.adminProductsData.length;
       products = window.adminProductsData; // keep existing downstream logic
-      success = true;
     } catch (err) {
-      // might fail immediately if server is asleep
-    }
-    
-    await minLoadTime;
-    
-    if (!success) {
-      try {
-        resetAdminProductsPagination();
-        const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
-        const res = await apiFetch(`/admin/products?limit=${firstPageSize}&offset=0`, { method: "GET" });
-        const page = (res && res.products) || [];
-        window.adminProductsData = Array.isArray(page) ? page : [];
-        window.adminProductsHasMore = !!(res && res.has_more);
-        window.adminProductsOffset = window.adminProductsData.length;
-        products = window.adminProductsData;
-        success = true;
-      } catch (err) {
-        products = [];
-        window.adminProductsData = [];
-        window.adminProductsHasMore = false;
-        window.adminProductsOffset = 0;
-        showToast(err.message || "Failed to load products");
-      }
+      products = [];
+      window.adminProductsData = [];
+      window.adminProductsHasMore = false;
+      window.adminProductsOffset = 0;
+      showToast(err.message || "Failed to load products");
     }
     
     if (products.length === 0) {
@@ -6076,3 +6047,9 @@ window.scrollDynamicCategories = function(direction) {
     container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
   }
 };
+
+
+
+
+
+
