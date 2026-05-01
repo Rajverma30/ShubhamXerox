@@ -129,9 +129,6 @@ function smoothRevealNodes(nodes, staggerMs = 16) {
 }
 
 function resetProductsInfiniteScroll() {
-  // Start with one card, then reveal remaining first-row cards quickly.
-  window.productsGridCurrentCount = 1;
-  window.productsGridFirstRowTarget = getDynamicProductsBatchSize('allProductsContainer');
   window.productsGridBootstrapped = false;
   window.productsGridTotalFilteredCount = 0;
   isLoadingMoreProducts = false;
@@ -1465,9 +1462,6 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   let activeLimit = limit;
   const totalFilteredCount = filtered.length;
   if (isInfiniteScroll) {
-    // Restore local pagination but strictly in blocks of 10
-    window.productsGridCurrentCount = window.productsGridCurrentCount || 10;
-    activeLimit = Math.min(window.productsGridCurrentCount, totalFilteredCount);
     window.productsGridTotalFilteredCount = totalFilteredCount;
   }
   
@@ -1522,7 +1516,7 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
     window.productsGridLastRenderedCount = filtered.length;
 
     if (isInfiniteScroll) {
-      const hasMoreProducts = (activeLimit < totalFilteredCount) || (typeof productsServerHasMore !== 'undefined' && productsServerHasMore);
+      const hasMoreProducts = (typeof productsServerHasMore !== 'undefined' && productsServerHasMore);
       // Keep infinite loading visually silent to avoid blinking/jumping.
       if (!hasMoreProducts) {
         setProductsLoadMoreIndicator('end');
@@ -3430,35 +3424,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('scroll', () => {
       // Preload next row a bit before the user reaches the end.
       if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {
-        const totalFilteredCount = window.productsGridTotalFilteredCount || products.length;
-        if (
-          !isLoadingMoreProducts &&
-          window.productsGridCurrentCount &&
-          window.productsGridCurrentCount < totalFilteredCount
-        ) {
-          isLoadingMoreProducts = true;
-          setProductsLoadMoreIndicator('loading');
-          setTimeout(() => {
-            window.productsGridCurrentCount += 10;
-            isLoadingMoreProducts = false;
-            renderProductsGrid('allProductsContainer', null, selectedCategories);
-          }, 120);
-          return;
-        }
-
         if (
           !isLoadingMoreProducts &&
           !productsServerLoading &&
-          productsServerHasMore &&
-          (!window.productsGridCurrentCount || window.productsGridCurrentCount >= totalFilteredCount)
+          productsServerHasMore
         ) {
           isLoadingMoreProducts = true;
           setProductsLoadMoreIndicator('loading');
           fetchMoreProductsPage()
             .then((added) => {
               if (added) {
-                const step = 10;
-                window.productsGridCurrentCount = Math.min(products.length, (window.productsGridCurrentCount || 0) + step);
                 renderProductsGrid('allProductsContainer', null, selectedCategories);
               } else {
                 setProductsLoadMoreIndicator(productsServerHasMore ? 'hidden' : 'end');
