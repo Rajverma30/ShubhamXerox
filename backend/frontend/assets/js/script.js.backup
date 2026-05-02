@@ -791,6 +791,201 @@ async function backgroundFetchLoop() {
     // Fetch in batches of 10 for efficiency
     const newItems = await fetchMoreProductsPage(10);
 
+    const onEsc = (event) => {
+      if (event.key === 'Escape') {
+        onCancel();
+      }
+    };
+
+    cancelBtn.addEventListener('click', onCancel);
+    okBtn.addEventListener('click', onConfirm);
+    overlay.addEventListener('click', onOverlayClick);
+    document.addEventListener('keydown', onEsc);
+  });
+}
+
+// --- Data Fetching logic ---
+function normalizeProductRecord(raw, index = 0) {
+  const idNum = Number(raw?.id);
+  const priceNum = Number(raw?.price);
+  const originalPriceNum = Number(raw?.original_price);
+  return {
+    id: Number.isFinite(idNum) ? idNum : index + 1,
+    name: (raw?.name || "").toString().trim() || `Product ${index + 1}`,
+    category: (raw?.category || "").toString().trim() || "General",
+    price: Number.isFinite(priceNum) ? priceNum : 0,
+    original_price: Number.isFinite(originalPriceNum) ? originalPriceNum : null,
+    img: (raw?.img || "").toString(),
+    desc: (raw?.desc || "").toString(),
+    exam: (raw?.exam || "").toString(),
+  };
+}
+
+function getProductsEndpoint() {
+  return `${supabaseUrl}/rest/v1/products?select=id,name,category,price,img,desc,original_price,exam&order=id.desc`;
+}
+
+function parseProductsCategoryParams() {
+  const params = new URLSearchParams(window.location.search);
+  const categoryRaw = params.get('category');
+  if (!categoryRaw) return [];
+  return categoryRaw
+    .split(',')
+    .map(v => decodeURIComponent(v).trim())
+    .filter(Boolean);
+}
+
+function renderStoreProducts() {
+  if (document.getElementById('featuredProducts')) {
+    renderFeaturedMultiSelect();
+    renderFeaturedProducts();
+  }
+  if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
+    renderMultiSelect();
+    renderProductsGrid('allProductsContainer', null, selectedCategories);
+  }
+  populateProductNameSuggestions();
+}
+
+async function fetchProducts() {
+  const sortProductsByLatest = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    // Ensure "latest" is always on top across cache/merge/fetch.
+    return [...arr].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+  };
+
+  let hasLocalCache = false;
+
+  // Hydrate from Server-Side Rendering (SSR) if available
+  if (window.__INITIAL_PRODUCTS__ && Array.isArray(window.__INITIAL_PRODUCTS__) && window.__INITIAL_PRODUCTS__.length > 0) {
+    products = sortProductsByLatest(window.__INITIAL_PRODUCTS__);
+    hasLocalCache = true;
+    isProductsLoading = false;
+    renderStoreProducts();
+    // Also save to cache
+    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+  } else {
+    // Try to load from localStorage first for near-instant rendering
+    const cachedProductsStr = localStorage.getItem('shubham_products_cache');
+    if (cachedProductsStr) {
+      try {
+        const cachedProducts = JSON.parse(cachedProductsStr);
+        if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
+          products = sortProductsByLatest(cachedProducts);
+          hasLocalCache = true;
+          isProductsLoading = false; // We have data, so stop skeleton
+          renderStoreProducts(); // Render instantly
+        }
+      } catch (e) {
+        console.warn("Invalid products cache", e);
+      }
+    }
+  }
+
+  if (!hasLocalCache) {
+    isProductsLoading = true;
+    renderStoreProducts();
+  }
+
+  resetProductsServerPagination();
+
+  try {
+    // Prefer backend endpoint with server cache to reduce Supabase egress.
+    // Progressive 1-by-1 card reveal still works via renderProductsGrid logic.
+    try {
+      const fetchPromise = apiFetch(`/products?limit=${PRODUCTS_SERVER_PAGE_SIZE}&offset=0`, { auth: false });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500));
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
+      loaded = Array.isArray(res?.products) ? res.products : null;
+      productsServerOffset = Array.isArray(loaded) ? loaded.length : 0;
+      productsServerHasMore = !!res?.has_more;
+    } catch (e) {
+      loaded = null; // Timeout or error, fallback to Supabase
+    }
+
+    if (!Array.isArray(loaded)) {
+      const supabase = getSupabase();
+      if (!supabase) return;
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('id', { ascending: false })
+        .range(0, 9);
+      loaded = Array.isArray(data) ? data : [];
+      productsServerHasMore = false;
+      productsServerOffset = loaded.length;
+    }
+
+    if (Array.isArray(loaded) && loaded.length > 0) {
+      // Always strip extra images for the main list view to save memory/cache
+      const strippedProducts = loaded.map(p => ({
+        ...p,
+        img: p.img ? p.img.split('|')[0] : ''
+      }));
+      const newProducts = sortProductsByLatest(strippedProducts);
+      try {
+        localStorage.setItem('shubham_products_cache', JSON.stringify(newProducts));
+      } catch (cacheErr) {
+        console.warn('LocalStorage quota exceeded or cache save failed:', cacheErr);
+      }
+      products = newProducts;
+    } else {
+      if (!hasLocalCache) products = [];
+    }
+  } catch (e) {
+    console.error("Products fetch exception:", e);
+    if (!products.length) {
+      products = [];
+    }
+  } finally {
+    isProductsLoading = false;
+    renderStoreProducts();
+  }
+}
+
+async function fetchMoreProductsPage(limitOverride = null) {
+  if (productsServerLoading || !productsServerHasMore) return false;
+  productsServerLoading = true;
+  try {
+    const limitToUse = limitOverride || PRODUCTS_SERVER_PAGE_SIZE;
+
+    const fetchPromise = apiFetch(
+      `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
+      { auth: false }
+    );
+    // Background fetches shouldn't timeout aggressively, let them finish naturally.
+    const res = await fetchPromise;
+    const rows = Array.isArray(res?.products) ? res.products : [];
+
+    if (rows.length > 0) {
+      productsServerOffset += rows.length;
+    }
+    productsServerHasMore = !!res?.has_more;
+
+    const byId = new Set((products || []).map((p) => Number(p?.id)));
+    const toAdd = rows.filter((p) => !byId.has(Number(p?.id)));
+
+    return toAdd;
+  } catch (e) {
+    console.error("Fetch more products failed:", e);
+    return [];
+  } finally {
+    productsServerLoading = false;
+  }
+}
+
+let backgroundRenderQueue = [];
+
+async function backgroundFetchLoop() {
+  while (productsServerHasMore) {
+    if (productsServerLoading) {
+      await new Promise(r => setTimeout(r, 100));
+      continue;
+    }
+
+    // Fetch in batches of 10 for efficiency
+    const newItems = await fetchMoreProductsPage(10);
+
     if (newItems && newItems.length > 0) {
       backgroundRenderQueue.push(...newItems);
     }
@@ -809,20 +1004,6 @@ async function backgroundRenderLoop() {
     if (backgroundRenderQueue.length > 0) {
       // Pop one item and render it to create a real-time, one-by-one feel
       const item = backgroundRenderQueue.shift();
-      products = [...products, item].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
-      
-      if (allProductsContainer) {
-        renderProductsGrid('allProductsContainer', null, selectedCategories);
-      }
-
-      // 150ms delay perfectly balances speed with a visible "arriving" animation
-      await new Promise(r => setTimeout(r, 150));
-    } else {
-      // Wait for more items to be fetched
-      await new Promise(r => setTimeout(r, 100));
-    }
-  }
-}
 
 function startBackgroundAutoFetch() {
   backgroundFetchLoop();
@@ -2375,6 +2556,7 @@ async function renderAdminList() {
   }
 
   const itemsToAppend = filtered.slice(adminLastRenderedCount, adminLastRenderedCount + 10);
+  console.log('renderAdminList:', { adminLastRenderedCount, filteredLen: filtered.length, itemsToAppendLen: itemsToAppend.length, queueLen: backgroundRenderQueue.length, productsLen: products.length });
 
   if (itemsToAppend.length > 0) {
     const html = itemsToAppend.map(p => `
