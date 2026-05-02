@@ -2329,6 +2329,8 @@ async function removeProduct(id, name) {
   showGlobalLoader(false);
 }
 
+let adminProgressiveTimer = null;
+
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (!container) return;
@@ -2338,12 +2340,13 @@ async function renderAdminList() {
 
   let filtered = getFilteredProducts([], searchValue);
 
-  const limit = 20;
+  const limit = 10;
   const page = window.adminProductsCurrentPage || 1;
   const activeLimit = limit * page;
 
   if (page === 1) {
     container.innerHTML = '';
+    if (adminProgressiveTimer) clearTimeout(adminProgressiveTimer);
   }
 
   const currentBatch = filtered.slice(0, activeLimit);
@@ -2373,9 +2376,20 @@ async function renderAdminList() {
   container.innerHTML = html;
 
   if (activeLimit >= filtered.length) {
-    setAdminProductsLoadMoreIndicator('hidden');
+    if (typeof productsServerHasMore !== 'undefined' && productsServerHasMore) {
+      setAdminProductsLoadMoreIndicator('loading');
+      adminProgressiveTimer = setTimeout(() => {
+        renderAdminList();
+      }, 1000);
+    } else {
+      setAdminProductsLoadMoreIndicator('end');
+    }
   } else {
-    setAdminProductsLoadMoreIndicator('visible');
+    setAdminProductsLoadMoreIndicator('loading');
+    adminProgressiveTimer = setTimeout(() => {
+      window.adminProductsCurrentPage++;
+      renderAdminList();
+    }, 150);
   }
 }
 
@@ -3530,58 +3544,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Automatic Background Fetch for Products Page replaces infinite scroll ---
   // Started via startBackgroundAutoFetch() after fetchProducts().
-
-  // --- Infinite Scroll for Admin Products (Manage Books) ---
-  const adminProductsContainer = document.getElementById('adminProductsList');
-  if (adminProductsContainer) {
-    window.addEventListener('scroll', () => {
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900) {
-        if (window.adminProductsLoading || !window.adminProductsHasMore) return;
-        if (!isLoadingMoreProducts) {
-          window.adminProductsLoading = true;
-          isLoadingMoreProducts = true;
-          setAdminProductsLoadMoreIndicator('loading');
-
-          const offset = Number(window.adminProductsOffset || 0);
-          const pageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
-          const url = `/admin/products?limit=${pageSize}&offset=${encodeURIComponent(offset)}`;
-          apiFetch(url, { method: "GET" })
-            .then((res) => {
-              const nextPage = (res && res.products) || [];
-              const arr = Array.isArray(nextPage) ? nextPage : [];
-              window.adminProductsHasMore = !!(res && res.has_more);
-              window.adminProductsOffset = offset + arr.length;
-              window.adminProductsData = [...(window.adminProductsData || []), ...arr];
-              products = window.adminProductsData;
-              adminProductsContainer.innerHTML = products.map(p => `
-                <div class="admin-list-item">
-                  <div style="display:flex; gap:12px; align-items:center;">
-                    <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
-                    <div>
-                      <strong>${p.name}</strong> <br>
-                      <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
-                    </div>
-                  </div>
-                  <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${p.id})">Edit</button>
-                    <button class="remove-btn" onclick="removeProduct(${p.id}, '${p.name ? p.name.replace(/'/g, "\\'") : ''}')">Delete</button>
-                  </div>
-                </div>
-              `).join('');
-              setAdminProductsLoadMoreIndicator(window.adminProductsHasMore ? 'hidden' : 'end');
-            })
-            .catch((e) => {
-              console.error("Admin products load more failed", e);
-              setAdminProductsLoadMoreIndicator('hidden');
-            })
-            .finally(() => {
-              window.adminProductsLoading = false;
-              isLoadingMoreProducts = false;
-            });
-        }
-      }
-    });
-  }
 
   // --- Log Visit ---
   const todayDate = new Date().toISOString().split('T')[0];
