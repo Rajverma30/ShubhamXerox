@@ -12,7 +12,17 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="icon" type="image/png" href="images/logo.png">
-  <script>window.__INITIAL_PRODUCTS__ = {{ initial_products | default('null') | safe }};</script>
+  <script id="ssr-data" type="application/json">
+    {{ initial_products | default('null') | safe }}
+  </script>
+  <script>
+    try {
+      const raw = document.getElementById('ssr-data').textContent.trim();
+      window.__INITIAL_PRODUCTS__ = raw.startsWith('{{') ? null : JSON.parse(raw);
+    } catch (e) {
+      window.__INITIAL_PRODUCTS__ = null;
+    }
+  </script>
 </head>
 
 <body>

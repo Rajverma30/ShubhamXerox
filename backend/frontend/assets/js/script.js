@@ -222,40 +222,40 @@ function getAllProductCategories() {
 
 let globalDbSearchTimeout = null;
 
-async function performDatabaseSearch(query, categories, isFeatured) {
+async function performDatabaseSearch(query, categories, isFeatured, skipRender = false) {
   try {
     const supabase = getSupabase();
     if (!supabase) return;
-    
+
     let dbQuery = supabase.from('products').select('*');
-    
+
     const q = (query || '').trim().toLowerCase();
     const hasQuery = q.length >= 2;
     const hasCats = Array.isArray(categories) && categories.length > 0;
-    
+
     if (!hasQuery && !hasCats) return;
-    
+
     if (hasQuery) {
       dbQuery = dbQuery.ilike('name', `%${q}%`);
     }
     if (hasCats) {
       dbQuery = dbQuery.in('category', categories);
     }
-    
+
     const { data, error } = await dbQuery.limit(100);
-    
+
     if (data && data.length > 0) {
       const existingIds = new Set((products || []).map(p => Number(p?.id)));
       let added = false;
-      
+
       data.forEach(item => {
         if (!existingIds.has(Number(item.id))) {
           products.push(item);
           added = true;
         }
       });
-      
-      if (added) {
+
+      if (added && !skipRender) {
         products.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
         if (isFeatured) {
           if (typeof renderFeaturedProducts === 'function') renderFeaturedProducts();
@@ -278,6 +278,9 @@ function getFilteredProducts(filterCategories = [], searchValue = '') {
   if (selectedCats.length > 0) {
     const categorySet = new Set(selectedCats);
     filtered = filtered.filter(p => categorySet.has(p.category));
+  } else {
+    // Hide 'Stationery' by default if no category is explicitly selected
+    filtered = filtered.filter(p => p.category !== 'Stationery');
   }
 
   if (searchValue && searchValue.trim()) {
@@ -1374,18 +1377,30 @@ async function completeOrder(orderData) {
 const DEFAULT_BOOK_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='260' viewBox='0 0 200 260'><rect width='200' height='260' fill='%23f3f4f6'/><path d='M40 40h120v180H40z' fill='%23e5e7eb'/><rect x='60' y='60' width='80' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='90' width='60' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='120' width='70' height='15' fill='%23d1d5db' rx='4'/></svg>`;
 
 function createProductCard(product) {
-  const imgSrc = (product.img && product.img.split('|')[0]) || DEFAULT_BOOK_SVG;
+  const images = product.img ? product.img.split('|').filter(i => i.trim() !== '') : [];
   const hasDiscount = product.original_price && product.original_price > product.price;
   const discountPct = hasDiscount
     ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
     : 0;
 
+  let imagesHtml = '';
+  if (images.length > 1) {
+    const maxImages = Math.min(images.length, 4);
+    const gridCols = maxImages <= 2 ? 2 : 2;
+    imagesHtml = `<div style="display: grid; grid-template-columns: repeat(${gridCols}, 1fr); gap: 4px; padding: 4px; width: 100%; height: 100%; align-content: center; background: #f8f9fa;">` +
+      images.slice(0, 4).map(img => `<img src="${img}" style="width: 100%; height: auto; aspect-ratio: 3/4; object-fit: cover; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);" loading="lazy">`).join('') +
+      `</div>`;
+  } else {
+    const imgSrc = images[0] || DEFAULT_BOOK_SVG;
+    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" loading="lazy">`;
+  }
+
   return `
     <div class="product-card catalog-card">
       <a href="product.html?id=${product.id}" class="product-link-wrapper" style="display:block;">
-        <div class="product-img-wrapper" style="position:relative;">
+        <div class="product-img-wrapper" style="position:relative; overflow: hidden;">
           ${hasDiscount ? `<div class="catalog-discount-ribbon">${discountPct}% OFF</div>` : ``}
-          <img src="${imgSrc}" alt="${product.name}" loading="lazy">
+          ${imagesHtml}
         </div>
         <div class="catalog-card-body">
           <div class="catalog-card-title">${product.name}</div>
@@ -2306,7 +2321,7 @@ async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (container) {
     container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading products...</div></div>';
-    
+
     try {
       resetAdminProductsPagination();
       const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
@@ -3671,11 +3686,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const featuredSearchInput = document.getElementById('featuredSearchInput');
     if (featuredSearchInput) {
+      let featuredSearchTimeout;
       featuredSearchInput.addEventListener('input', () => {
-        renderFeaturedProducts();
-        if (typeof globalDbSearchTimeout !== 'undefined' && globalDbSearchTimeout) clearTimeout(globalDbSearchTimeout);
-        globalDbSearchTimeout = setTimeout(() => {
-          if (typeof performDatabaseSearch === 'function') performDatabaseSearch(featuredSearchInput.value, typeof featuredSelectedCategories !== 'undefined' ? featuredSelectedCategories : [], true);
+        if (featuredSearchTimeout) clearTimeout(featuredSearchTimeout);
+        featuredSearchTimeout = setTimeout(async () => {
+          if (typeof performDatabaseSearch === 'function') {
+            await performDatabaseSearch(featuredSearchInput.value, typeof featuredSelectedCategories !== 'undefined' ? featuredSelectedCategories : [], true, true);
+          }
+          renderFeaturedProducts();
         }, 400);
       });
     }
@@ -3702,14 +3720,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
+      let localSearchTimeout;
       searchInput.addEventListener('input', () => {
-        resetProductsInfiniteScroll();
-        renderProductsGrid('allProductsContainer', null, selectedCategories);
-        if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
-        
-        if (typeof globalDbSearchTimeout !== 'undefined' && globalDbSearchTimeout) clearTimeout(globalDbSearchTimeout);
-        globalDbSearchTimeout = setTimeout(() => {
-          if (typeof performDatabaseSearch === 'function') performDatabaseSearch(searchInput.value, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false);
+        if (localSearchTimeout) clearTimeout(localSearchTimeout);
+        localSearchTimeout = setTimeout(async () => {
+          if (typeof performDatabaseSearch === 'function') {
+            await performDatabaseSearch(searchInput.value, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false, true);
+          }
+          resetProductsInfiniteScroll();
+          renderProductsGrid('allProductsContainer', null, selectedCategories);
+          if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
         }, 400);
       });
     }
