@@ -2359,7 +2359,7 @@ async function renderAdminList() {
     
     if (typeof productsServerHasMore !== 'undefined' && productsServerHasMore) {
       if (adminProgressiveTimer) clearTimeout(adminProgressiveTimer);
-      adminProgressiveTimer = setTimeout(renderAdminList, 1000);
+      adminProgressiveTimer = setTimeout(renderAdminList, 200);
     }
     return;
   }
@@ -2398,7 +2398,7 @@ async function renderAdminList() {
       setAdminProductsLoadMoreIndicator('loading');
       adminProgressiveTimer = setTimeout(() => {
         renderAdminList();
-      }, 1000);
+      }, 200);
     } else {
       setAdminProductsLoadMoreIndicator('end');
     }
