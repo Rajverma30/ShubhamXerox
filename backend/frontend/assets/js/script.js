@@ -802,7 +802,7 @@ async function backgroundFetchLoop() {
 
 async function backgroundRenderLoop() {
   const allProductsContainer = document.getElementById('allProductsContainer');
-  const adminProductsContainer = document.getElementById('adminProductsList');
+  const adminProductsContainer = document.getElementById('adminProductsList'); // used for both books and stationery since they share the same layout ID
   if (!allProductsContainer && !adminProductsContainer) return;
 
   while (productsServerHasMore || backgroundRenderQueue.length > 0) {
@@ -2355,7 +2355,15 @@ async function renderAdminList() {
     adminLastSearchValue = searchValue;
   }
 
-  let filtered = getFilteredProducts([], searchValue);
+    let filtered;
+  if (window.location.pathname.includes('admin-stationery.html')) {
+    filtered = getFilteredProducts(['Stationery'], searchValue);
+  } else {
+    // Admin products (books) implicitly excludes Stationery because we pass empty array, 
+    // BUT we should verify how getFilteredProducts handles empty arrays.
+    // getFilteredProducts hides 'Stationery' by default if no category is selected.
+    filtered = getFilteredProducts([], searchValue);
+  }
 
   if (filtered.length === 0) {
     if (adminLastRenderedCount === 0) {
@@ -3553,18 +3561,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.nav-dropdown-trigger').forEach(trigger => {
     trigger.addEventListener('click', (e) => {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       const dropdown = e.target.closest('.nav-dropdown');
-      dropdown.classList.toggle('is-open');
+      const wasOpen = dropdown.classList.contains('is-open') || dropdown.classList.contains('mobile-open');
+      
       document.querySelectorAll('.nav-dropdown').forEach(d => {
-        if (d !== dropdown) d.classList.remove('is-open');
+        d.classList.remove('is-open');
+        d.classList.remove('mobile-open');
       });
+
+      if (!wasOpen) {
+        dropdown.classList.add('is-open');
+        dropdown.classList.add('mobile-open');
+      }
     });
   });
 
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.nav-dropdown')) {
-      document.querySelectorAll('.nav-dropdown').forEach(d => d.classList.remove('is-open'));
+      document.querySelectorAll('.nav-dropdown').forEach(d => {
+        d.classList.remove('is-open');
+        d.classList.remove('mobile-open');
+      });
     }
   });
 
@@ -3640,13 +3658,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initCategoryMobileSlider();
   initPremiumCategoryTileInteractions();
 
-  // Handle mobile nav dropdown toggle
-  document.querySelectorAll('.nav-dropdown-trigger').forEach(trigger => {
-    trigger.addEventListener('click', (e) => {
-      e.preventDefault();
-      trigger.parentElement.classList.toggle('mobile-open');
-    });
-  });
+  // Handle mobile nav dropdown toggle (now handled by unified listener above)
 
   // Attach priority listeners BEFORE blocking network fetches
   if (document.getElementById('loginForm')) document.getElementById('loginForm').addEventListener('submit', handleLogin);
