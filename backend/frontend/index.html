@@ -18,7 +18,7 @@
   <script>
     try {
       const raw = document.getElementById('ssr-data').textContent.trim();
-      window.__INITIAL_PRODUCTS__ = raw.startsWith('{{') ? null : JSON.parse(raw);
+      window.__INITIAL_PRODUCTS__ = raw.startsWith('\x7B\x7B') ? null : JSON.parse(raw);
     } catch (e) {
       window.__INITIAL_PRODUCTS__ = null;
     }
