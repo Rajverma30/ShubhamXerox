@@ -643,7 +643,7 @@ function renderStoreProducts() {
     renderFeaturedMultiSelect();
     renderFeaturedProducts();
   }
-  if (document.getElementById('allProductsContainer')) {
+  if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
     renderMultiSelect();
     renderProductsGrid('allProductsContainer', null, selectedCategories);
   }
@@ -2331,49 +2331,51 @@ async function removeProduct(id, name) {
 
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
-  if (container) {
-    container.innerHTML = '<div style="padding: 60px; text-align: center;"><div class="loader" style="width:40px; height:40px; border:4px solid var(--border-color); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin: 0 auto;"></div><div style="margin-top: 16px; color: var(--text-muted); font-weight: 600;">Loading products...</div></div>';
+  if (!container) return;
 
-    try {
-      resetAdminProductsPagination();
-      const firstPageSize = Number(window.adminProductsPageSize || getDynamicAdminBatchSize());
-      const res = await apiFetch(`/admin/products?limit=${firstPageSize}&offset=0`, { method: "GET" });
-      const page = (res && res.products) || [];
-      window.adminProductsData = Array.isArray(page) ? page : [];
-      window.adminProductsHasMore = !!(res && res.has_more);
-      window.adminProductsOffset = window.adminProductsData.length;
-      products = window.adminProductsData;
-    } catch (err) {
-      products = [];
-      window.adminProductsData = [];
-      window.adminProductsHasMore = false;
-      window.adminProductsOffset = 0;
-      showToast(err.message || "Failed to load products");
-    }
+  const searchInput = document.getElementById('adminSearchInput');
+  const searchValue = searchInput ? searchInput.value : '';
 
-    if (products.length === 0) {
-      container.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">No products found.</div>';
-      setAdminProductsLoadMoreIndicator('hidden');
-      return;
-    }
+  let filtered = getFilteredProducts([], searchValue);
 
-    container.innerHTML = products.map(p => `
-      <div class="admin-list-item">
-        <div style="display:flex; gap:12px; align-items:center;">
-          <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
-          <div>
-            <strong>${p.name}</strong> <br>
-            <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
-          </div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${p.id})">Edit</button>
-          <button class="remove-btn" onclick="removeProduct(${p.id}, '${p.name ? p.name.replace(/'/g, "\\'") : ''}')">Delete</button>
+  const limit = 20;
+  const page = window.adminProductsCurrentPage || 1;
+  const activeLimit = limit * page;
+
+  if (page === 1) {
+    container.innerHTML = '';
+  }
+
+  const currentBatch = filtered.slice(0, activeLimit);
+
+  if (currentBatch.length === 0) {
+    container.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">No products found.</div>';
+    setAdminProductsLoadMoreIndicator('hidden');
+    return;
+  }
+
+  const html = currentBatch.map(p => `
+    <div class="admin-list-item">
+      <div style="display:flex; gap:12px; align-items:center;">
+        <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
+        <div>
+          <strong>${p.name}</strong> <br>
+          <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
         </div>
       </div>
-    `).join('');
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${p.id})">Edit</button>
+        <button class="remove-btn" onclick="removeProduct(${p.id}, '${p.name ? p.name.replace(/'/g, "\\'") : ''}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
 
-    setAdminProductsLoadMoreIndicator(window.adminProductsHasMore ? 'hidden' : 'end');
+  container.innerHTML = html;
+
+  if (activeLimit >= filtered.length) {
+    setAdminProductsLoadMoreIndicator('hidden');
+  } else {
+    setAdminProductsLoadMoreIndicator('visible');
   }
 }
 
@@ -3496,10 +3498,10 @@ async function renderReviews(productId) {
 document.addEventListener('DOMContentLoaded', async () => {
   // Kick off products fetch as early as possible.
   let fetchPromise = Promise.resolve();
-  if (document.getElementById('featuredProducts') || document.getElementById('allProductsContainer') || document.getElementById('productDetailContainer')) {
+  if (document.getElementById('featuredProducts') || document.getElementById('allProductsContainer') || document.getElementById('productDetailContainer') || document.getElementById('adminProductsList')) {
     fetchPromise = fetchProducts().catch(e => console.error("fetchProducts error", e));
     fetchPromise.then(() => {
-      if (document.getElementById('allProductsContainer')) {
+      if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
         startBackgroundAutoFetch();
       }
     });
@@ -3719,7 +3721,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  if (document.getElementById('allProductsContainer')) {
+  if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
     resetProductsInfiniteScroll();
     selectedCategories = parseProductsCategoryParams();
 
@@ -3843,7 +3845,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       editForm.addEventListener('submit', handleEditProduct);
     }
 
+    const adminSearchInput = document.getElementById('adminSearchInput');
+    if (adminSearchInput) {
+      let adminSearchTimeout;
+      adminSearchInput.addEventListener('input', () => {
+        if (adminSearchTimeout) clearTimeout(adminSearchTimeout);
+        adminSearchTimeout = setTimeout(async () => {
+          if (typeof performDatabaseSearch === 'function') {
+            await performDatabaseSearch(adminSearchInput.value, [], false, true);
+          }
+          window.adminProductsCurrentPage = 1;
+          renderAdminList();
+        }, 400);
+      });
+    }
+
     renderAdminCategories();
+    window.adminProductsCurrentPage = 1;
     await renderAdminList();
   }
 
