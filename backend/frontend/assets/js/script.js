@@ -1623,7 +1623,9 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
       }
     } else {
       container.innerHTML = filtered.map(createProductCard).join('');
-      smoothRevealProductCards(container);
+      if (!window.productsGridBootstrapped) {
+        smoothRevealProductCards(container);
+      }
     }
     window.productsGridLastKey = gridStateKey;
     window.productsGridLastRenderedCount = filtered.length;
@@ -1905,7 +1907,17 @@ function checkAdminAccess() {
     showToast("Access Denied");
     setTimeout(() => window.location.href = "index.html", 1000);
   } else {
-    document.getElementById('adminNavLinks').style.display = 'flex';
+    const navLinks = document.getElementById('adminNavLinks');
+    if (navLinks) {
+      navLinks.style.display = 'flex';
+      const path = window.location.pathname.split('/').pop() || 'admin.html';
+      const links = navLinks.querySelectorAll('a');
+      links.forEach(link => {
+        if (link.getAttribute('href') === path) {
+          link.style.color = 'var(--primary)';
+        }
+      });
+    }
   }
 }
 
