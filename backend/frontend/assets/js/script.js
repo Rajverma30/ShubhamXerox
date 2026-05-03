@@ -652,6 +652,20 @@ function renderStoreProducts() {
   populateProductNameSuggestions();
 }
 
+/** Persist product list for fast reload; strips extra gallery images to reduce quota use. */
+function saveProductsToCache(productList) {
+  if (!Array.isArray(productList)) return;
+  try {
+    const forCache = productList.map((p) => ({
+      ...p,
+      img: p.img ? String(p.img).split('|')[0] : '',
+    }));
+    localStorage.setItem('shubham_products_cache', JSON.stringify(forCache));
+  } catch (e) {
+    console.warn('LocalStorage quota exceeded or cache save failed:', e);
+  }
+}
+
 async function fetchProducts() {
   const sortProductsByLatest = (arr) => {
     if (!Array.isArray(arr)) return [];
