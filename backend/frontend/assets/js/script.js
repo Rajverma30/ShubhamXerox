@@ -668,7 +668,7 @@ async function fetchProducts() {
     isProductsLoading = false;
     renderStoreProducts();
     // Also save to cache
-    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+    saveProductsToCache(products);
   } else {
     // Try to load from localStorage first for near-instant rendering
     const cachedProductsStr = localStorage.getItem('shubham_products_cache');
@@ -729,7 +729,7 @@ async function fetchProducts() {
       }));
       const newProducts = sortProductsByLatest(strippedProducts);
       try {
-        localStorage.setItem('shubham_products_cache', JSON.stringify(newProducts));
+        saveProductsToCache(newProducts);
       } catch (cacheErr) {
         console.warn('LocalStorage quota exceeded or cache save failed:', cacheErr);
       }
@@ -1818,10 +1818,11 @@ function renderAdminCategories() {
   }
 
 
-  // Also update datalist for Add Product
+  // Also update datalist for Add / Edit Product (merge saved categories + categories from loaded products)
   const dataList = document.getElementById('categoryOptions');
   if (dataList) {
-    dataList.innerHTML = siteCategories.map(cat => `<option value="${cat}">`).join('');
+    const opts = getAllProductCategories();
+    dataList.innerHTML = opts.map(cat => `<option value="${String(cat).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">`).join('');
   }
 }
 
@@ -2329,7 +2330,7 @@ async function removeProduct(id, name) {
     await apiFetch(`/admin/products/${id}`, { method: "DELETE" });
     const idx = products.findIndex(p => p.id === id);
     if (idx > -1) products.splice(idx, 1);
-    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+    saveProductsToCache(products);
 
     if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
   } catch (err) {
@@ -2371,7 +2372,7 @@ async function bulkDeleteProducts() {
       body: { product_ids: ids }
     });
     products = products.filter(p => !ids.includes(p.id));
-    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+    saveProductsToCache(products);
 
     if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
     
@@ -3598,11 +3599,24 @@ async function renderReviews(productId) {
 document.addEventListener('DOMContentLoaded', async () => {
   // Kick off products fetch as early as possible.
   let fetchPromise = Promise.resolve();
-  if (document.getElementById('featuredProducts') || document.getElementById('allProductsContainer') || document.getElementById('productDetailContainer') || document.getElementById('adminProductsList')) {
+  const needsBooksForCategoryList =
+    document.getElementById('adminForm') &&
+    document.getElementById('category') &&
+    document.getElementById('categoryOptions');
+  if (
+    document.getElementById('featuredProducts') ||
+    document.getElementById('allProductsContainer') ||
+    document.getElementById('productDetailContainer') ||
+    document.getElementById('adminProductsList') ||
+    needsBooksForCategoryList
+  ) {
     fetchPromise = fetchProducts().catch(e => console.error("fetchProducts error", e));
     fetchPromise.then(() => {
       if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
         startBackgroundAutoFetch();
+      }
+      if (needsBooksForCategoryList && typeof renderAdminCategories === 'function') {
+        renderAdminCategories();
       }
     });
   }
@@ -3820,12 +3834,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await renderAdminUsers();
   }
 
-  if (path.includes('admin-add')) {
+  // Add Books page only (not admin-add-stationery / admin-add-combo — those also match path "admin-add")
+  if (document.getElementById('adminForm') && document.getElementById('category') && document.getElementById('categoryOptions')) {
     checkAdminAccess();
     applyAdminCategoryPrefill();
-    if (document.getElementById('adminForm')) {
-      document.getElementById('adminForm').addEventListener('submit', handleAddProduct);
-    }
+    document.getElementById('adminForm').addEventListener('submit', handleAddProduct);
     if (document.getElementById('addCategoryForm')) {
       document.getElementById('addCategoryForm').addEventListener('submit', handleAddCategory);
       const cancelEditBtn = document.getElementById('cancelCategoryEditBtn');
@@ -3835,8 +3848,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           resetCategoryFormMode();
         });
       }
-      renderAdminCategories();
     }
+    await fetchPromise;
+    renderAdminCategories();
   }
 
   if (path.includes('admin-categories')) {
@@ -6340,7 +6354,7 @@ window.bulkAssignCategory = async function() {
       }
       return p;
     });
-    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+    saveProductsToCache(products);
     
     showToast(`Successfully assigned ${ids.length} products to ${activeManageCategoryName}`);
     
