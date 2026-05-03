@@ -1263,7 +1263,7 @@ function computeBookTrackingCompletedSteps(o) {
   completed = Math.min(5, Math.max(1, completed));
   const st = String(o.status || 'Pending').trim();
   if (st === 'Delivered') completed = 5;
-  else if (st === 'Shipped') completed = Math.max(completed, 4);
+  else if (st === 'Shipped' || /^out for delivery$/i.test(st)) completed = Math.max(completed, 4);
   return completed;
 }
 
@@ -1350,9 +1350,15 @@ async function handleCheckout(e) {
     return;
   }
 
-  const name = document.getElementById('fullName').value;
-  const phone = (document.getElementById('phoneNumber') || {}).value;
-  const address = document.getElementById('address').value;
+  const name = document.getElementById('fullName').value.trim();
+  const phone = ((document.getElementById('phoneNumber') || {}).value || '').trim();
+  const street = (document.getElementById('address').value || '').trim();
+  const cityEl = document.getElementById('city');
+  const pinEl = document.getElementById('pincode');
+  const city = cityEl ? cityEl.value.trim() : '';
+  const pincode = pinEl ? pinEl.value.trim() : '';
+  const cityPinLine = [city, pincode].filter(Boolean).join(', ');
+  const address = [street, cityPinLine].filter(Boolean).join('\n');
   const paymentMethod = document.querySelector('input[name="payment"]:checked').value;
 
   const orderData = {
@@ -2662,6 +2668,38 @@ function getTrimmedInputValue(id) {
   return el ? String(el.value || '').trim() : '';
 }
 
+function adminEscapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Full delivery block for book orders (supports multiline address from checkout). */
+function formatAdminBookOrderDeliveryHtml(o) {
+  const name = adminEscapeHtml((o.customer || o.customer_name || '').trim() || '—');
+  const rawPhone = String(o.customerphone || o.customer_phone || '').replace(/\D/g, '');
+  const phoneDisplay = adminEscapeHtml((o.customerphone || o.customer_phone || '').trim() || '—');
+  const telHref = rawPhone.length >= 10 ? `tel:+91${rawPhone.slice(-10)}` : '';
+  const addr = adminEscapeHtml((o.address || '').trim() || '—');
+  const tracking = (o.tracking_url || '').trim();
+  const shipNote = (o.shiprocket_order_id || o.shipment_id)
+    ? `<div style="font-size:0.8rem; color:var(--text-muted); margin-top:8px;">Shiprocket: ${adminEscapeHtml(String(o.shiprocket_order_id || ''))}</div>`
+    : '';
+  const trackLink = tracking
+    ? `<a href="${adminEscapeHtml(tracking)}" target="_blank" rel="noopener" style="display:inline-block; margin-top:8px; font-size:0.85rem; font-weight:600; color:var(--primary);">Open tracking link</a>`
+    : '';
+  return `
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div><span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">Name</span><div style="font-size:0.95rem; font-weight:600; margin-top:2px;">${name}</div></div>
+      <div><span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">Phone</span><div style="font-size:0.95rem; margin-top:2px;">${telHref ? `<a href="${telHref}" style="color:var(--primary); font-weight:600;">${phoneDisplay}</a>` : phoneDisplay}</div></div>
+      <div><span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">Full address</span><div style="font-size:0.92rem; margin-top:4px; line-height:1.45; white-space:pre-line; color:var(--text-main);">${addr}</div></div>
+      ${trackLink}
+      ${shipNote}
+    </div>`;
+}
+
 async function renderAdminOrders(useCache = false) {
   const container = document.getElementById('adminOrdersList');
   if (!container) return;
@@ -2710,7 +2748,14 @@ async function renderAdminOrders(useCache = false) {
     return;
   }
 
-  const filteredOrders = q ? physicalOrders.filter(o => String(o.id || '').toLowerCase().includes(q)) : physicalOrders;
+  const filteredOrders = q
+    ? physicalOrders.filter((o) => {
+        const idM = String(o.id || '').toLowerCase().includes(q);
+        const phoneM = String(o.customerphone || o.customer_phone || '').toLowerCase().includes(q);
+        const nameM = String(o.customer || o.customer_name || '').toLowerCase().includes(q);
+        return idM || phoneM || nameM;
+      })
+    : physicalOrders;
   if (!filteredOrders.length) {
     container.innerHTML = `<div style="padding: 24px; color: var(--text-muted); text-align:center;">No orders match this Order ID.</div>`;
     return;
@@ -2733,22 +2778,23 @@ async function renderAdminOrders(useCache = false) {
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:var(--bg-color); color:var(--text-main); border:1px solid var(--border-color); padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
             
-            ${(o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button onclick="updateOrderStatus('${o.id}', 'Delivered')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Delivered</button>` : ''}
+            ${(o.status !== 'Delivered' && o.status !== 'Cancelled' && o.status !== 'Shipped' && !String(o.status || '').includes('Return')) ? `<button type="button" onclick="sendOrderForDelivery('${String(o.id).replace(/'/g, "\\'")}')" style="background:#3b82f615; color:#2563eb; border:1px solid #3b82f640; padding:6px 14px; border-radius:6px; font-size:0.8rem; font-weight:700; cursor:pointer;" onmouseover="this.style.background='#3b82f625'" onmouseout="this.style.background='#3b82f615'">Send for delivery</button>` : ''}
+            ${(o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button type="button" onclick="updateOrderStatus('${String(o.id).replace(/'/g, "\\'")}', 'Delivered')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Delivered</button>` : ''}
             
-            <button onclick="deleteOrder('${o.id}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
+            <button type="button" onclick="deleteOrder('${String(o.id).replace(/'/g, "\\'")}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
           </div>
         </div>
         
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-          <div>
-            <strong>Customer Details</strong>
-            <p style="font-size: 0.9rem; margin-top: 4px;">${o.customer} (${o.customerphone})</p>
-            <p style="font-size: 0.9rem; color: var(--text-muted);">${o.address}</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px;">
+          <div style="background:var(--bg-color); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:16px;">
+            <strong style="display:block; margin-bottom:10px;">Delivery details</strong>
+            ${formatAdminBookOrderDeliveryHtml(o)}
           </div>
-          <div>
-            <strong>Payment Info</strong>
-            <p style="font-size: 0.9rem; margin-top: 4px;">Method: ${o.method}</p>
-            <p style="font-size: 0.9rem; font-weight: 700;">Total: ${formatPrice(o.total)}</p>
+          <div style="background:var(--bg-color); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:16px;">
+            <strong style="display:block; margin-bottom:10px;">Payment</strong>
+            <p style="font-size: 0.9rem; margin-top: 4px;">Method: ${adminEscapeHtml(o.method || '—')}</p>
+            <p style="font-size: 0.9rem; font-weight: 700; margin-top:8px;">Total: ${formatPrice(o.total)}</p>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 10px;">Order ID: ${adminEscapeHtml(o.id)}</p>
           </div>
         </div>
 
@@ -2877,6 +2923,18 @@ window.updateOrderStatus = async function (orderId, newStatus) {
   await renderAdminOrders();
 };
 
+window.sendOrderForDelivery = async function (orderId) {
+  if (!orderId) return;
+  try {
+    await apiFetch(`/admin/orders/${encodeURIComponent(orderId)}?order_type=books`, { method: "PATCH", body: { status: 'Shipped' } });
+    showToast('Order marked as sent for delivery.');
+    window._adminOrdersRaw = null;
+    await renderAdminOrders();
+  } catch (err) {
+    showToast(err.message || 'Could not update order');
+  }
+};
+
 window.handleReturnAction = async function (orderId, table, action) {
   if (!confirm(`Are you sure you want to ${action === 'Return Accepted' ? 'Accept' : 'Reject'} this return?`)) return;
   const orderType = table === "orders" ? "books" : "photocopy";
@@ -3003,7 +3061,7 @@ async function renderMyOrders() {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; margin-bottom: 20px;">
           <div>
             <strong>Delivery Address</strong>
-            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted);">${o.address || ''}</p>
+            <p style="font-size: 0.9rem; margin-top: 4px; color: var(--text-muted); white-space: pre-line;">${adminEscapeHtml(o.address || '')}</p>
           </div>
           <div>
             <strong>Payment Info</strong>
