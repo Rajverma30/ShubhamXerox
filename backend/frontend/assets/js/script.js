@@ -273,14 +273,14 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
   }
 }
 
-function getFilteredProducts(filterCategories = [], searchValue = '') {
+function getFilteredProducts(filterCategories = [], searchValue = '', includeStationery = false) {
   let filtered = [...products];
   const selectedCats = Array.isArray(filterCategories) ? filterCategories.filter(Boolean) : [];
 
   if (selectedCats.length > 0) {
     const categorySet = new Set(selectedCats);
     filtered = filtered.filter(p => categorySet.has(p.category));
-  } else {
+  } else if (!includeStationery) {
     // Hide 'Stationery' by default if no category is explicitly selected
     filtered = filtered.filter(p => p.category !== 'Stationery');
   }
@@ -1802,6 +1802,7 @@ function renderAdminCategories() {
           </div>
         </div>
         <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline-purple" style="padding:6px 10px; font-size:0.8rem; background: transparent; border-color: var(--primary); color: var(--primary);" onclick="openManageCategoryModal('${cat.replace(/'/g, "\\'")}')">Manage Items</button>
           <button class="btn btn-secondary" style="padding:6px 10px; font-size:0.8rem;" onclick="openEditCategory('${cat.replace(/'/g, "\\'")}')">Edit</button>
           <button class="remove-btn" onclick="removeAdminCategory('${cat.replace(/'/g, "\\'")}')">Remove</button>
         </div>
@@ -2338,6 +2339,48 @@ async function removeProduct(id, name) {
   showGlobalLoader(false);
 }
 
+function updateBulkDeleteBtn() {
+  const checkboxes = document.querySelectorAll('.product-select-checkbox:checked');
+  const btn = document.getElementById('bulkDeleteBtn');
+  if (!btn) return;
+  if (checkboxes.length > 0) {
+    btn.style.display = 'inline-block';
+    btn.textContent = `Delete Selected (${checkboxes.length})`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+async function bulkDeleteProducts() {
+  const checkboxes = document.querySelectorAll('.product-select-checkbox:checked');
+  const ids = Array.from(checkboxes).map(cb => Number(cb.value));
+  if (ids.length === 0) return;
+
+  const shouldDelete = await showConfirmDialog(`Are you sure you want to delete ${ids.length} products?`, 'Bulk Delete');
+  if (!shouldDelete) return;
+
+  showGlobalLoader(true, `Deleting ${ids.length} products...`);
+  try {
+    await apiFetch('/admin/products/bulk-delete', {
+      method: 'POST',
+      body: { product_ids: ids }
+    });
+    products = products.filter(p => !ids.includes(p.id));
+    if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
+    
+    // Uncheck all just in case
+    const allCheckboxes = document.querySelectorAll('.product-select-checkbox');
+    allCheckboxes.forEach(cb => cb.checked = false);
+    updateBulkDeleteBtn();
+
+    await renderAdminList();
+  } catch (err) {
+    showToast(err.message || "Bulk delete failed");
+  } finally {
+    showGlobalLoader(false);
+  }
+}
+
 let adminProgressiveTimer = null;
 let adminLastRenderedCount = 0;
 let adminLastSearchValue = null;
@@ -2359,10 +2402,7 @@ async function renderAdminList() {
   if (window.location.pathname.includes('admin-stationery.html')) {
     filtered = getFilteredProducts(['Stationery'], searchValue);
   } else {
-    // Admin products (books) implicitly excludes Stationery because we pass empty array, 
-    // BUT we should verify how getFilteredProducts handles empty arrays.
-    // getFilteredProducts hides 'Stationery' by default if no category is selected.
-    filtered = getFilteredProducts([], searchValue);
+    filtered = getFilteredProducts([], searchValue, true);
   }
 
   if (filtered.length === 0) {
@@ -2388,6 +2428,7 @@ async function renderAdminList() {
     const html = itemsToAppend.map(p => `
       <div class="admin-list-item" id="admin-product-${p.id}">
         <div style="display:flex; gap:12px; align-items:center;">
+          <input type="checkbox" class="product-select-checkbox" value="${p.id}" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--primary);" onchange="updateBulkDeleteBtn()">
           <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
           <div>
             <strong>${p.name}</strong> <br>

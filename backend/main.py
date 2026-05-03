@@ -150,6 +150,13 @@ class AdminProductUpsert(BaseModel):
     exam: Optional[str] = None
     free_note_id: Optional[str] = None
 
+class BulkDeleteRequest(BaseModel):
+    product_ids: List[int]
+
+class BulkUpdateCategoryRequest(BaseModel):
+    product_ids: List[int]
+    category: str
+
 class CompressPdfRequest(BaseModel):
     bucket: str
     file_name: str
@@ -790,6 +797,22 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
 async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
     sb.table("products").delete().eq("id", product_id).execute()
+    return {"status": "ok"}
+
+@app.post("/admin/products/bulk-delete")
+async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
+    sb = _require_supabase()
+    if not req.product_ids:
+        return {"status": "ok"}
+    sb.table("products").delete().in_("id", req.product_ids).execute()
+    return {"status": "ok"}
+
+@app.post("/admin/products/bulk-update-category")
+async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
+    sb = _require_supabase()
+    if not req.product_ids:
+        return {"status": "ok"}
+    sb.table("products").update({"category": req.category}).in_("id", req.product_ids).execute()
     return {"status": "ok"}
 
 def _orders_table_for(order_type: str) -> str:

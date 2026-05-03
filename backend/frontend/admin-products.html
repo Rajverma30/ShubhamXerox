@@ -33,7 +33,7 @@
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-trigger">Quick Manage</button>
           <div class="nav-dropdown-menu">
-            <a href="admin-products.html">Manage Books</a>
+            <a href="admin-products.html">Manage Products</a>
             <a href="admin-stationery.html">Manage Stationery</a>
             <a href="admin-ebooks.html">Manage E-Books</a>
           </div>
@@ -60,10 +60,17 @@
     <div class="container">
       
       <div style="margin-bottom: 30px;">
-        <h2 style="font-size: 1.5rem;">Manage Paid Books</h2>
-        <p style="color: var(--text-muted);">View, search, and delete books.</p>
-        <div class="search-container" style="max-width: 500px; margin-top: 16px;">
-          <input type="text" id="adminSearchInput" class="form-control" placeholder="Search by name, category..." autocomplete="off">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 style="font-size: 1.5rem;">Manage Products</h2>
+            <p style="color: var(--text-muted);">View, search, and delete products (including books and stationery).</p>
+            <div class="search-container" style="max-width: 500px; margin-top: 16px;">
+              <input type="text" id="adminSearchInput" class="form-control" placeholder="Search by name, category..." autocomplete="off">
+            </div>
+          </div>
+          <div>
+            <button id="bulkDeleteBtn" class="btn remove-btn" style="display: none; white-space: nowrap;" onclick="bulkDeleteProducts()">Delete Selected (0)</button>
+          </div>
         </div>
       </div>
 
