@@ -6246,24 +6246,13 @@ window.closeManageCategoryModal = function() {
   activeManageCategoryName = '';
 };
 
-window.filterManageCategoryProducts = function() {
-  const listEl = document.getElementById('manageCategoryProductList');
-  const searchInput = document.getElementById('manageCategorySearch');
-  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
-  
-  // Get all matching products including stationery using standard search logic
-  let availableProducts = getFilteredProducts([], query, true);
-  
-  // Only show products NOT currently in the active category
-  availableProducts = availableProducts.filter(p => p.category !== activeManageCategoryName);
-  
-  // Limit to 100 to avoid freezing the UI
-  availableProducts = availableProducts.slice(0, 100);
-  
-  if (availableProducts.length === 0) {
+let manageCategorySearchTimer = null;
+
+function renderManageCategoryList(productsToRender, listEl) {
+  if (productsToRender.length === 0) {
     listEl.innerHTML = '<div style="padding: 12px; color: var(--text-muted); text-align: center;">No other products available.</div>';
   } else {
-    listEl.innerHTML = availableProducts.map(p => `
+    listEl.innerHTML = productsToRender.map(p => `
       <label style="display: flex; gap: 12px; align-items: center; padding: 8px; background: var(--card-bg); border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;">
         <input type="checkbox" class="manage-category-product-cb" value="${p.id}" onchange="updateManageCategorySelectedCount()" style="width: 18px; height: 18px; accent-color: var(--primary);">
         <img src="${(p.img && p.img.split('|')[0]) || 'images/logo.png'}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
@@ -6274,8 +6263,32 @@ window.filterManageCategoryProducts = function() {
       </label>
     `).join('');
   }
-  
   updateManageCategorySelectedCount();
+}
+
+window.filterManageCategoryProducts = function() {
+  const listEl = document.getElementById('manageCategoryProductList');
+  const searchInput = document.getElementById('manageCategorySearch');
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  
+  // Get all matching products including stationery using standard search logic
+  let availableProducts = getFilteredProducts([], query, true);
+  availableProducts = availableProducts.filter(p => p.category !== activeManageCategoryName).slice(0, 100);
+  
+  renderManageCategoryList(availableProducts, listEl);
+
+  // Background Database Fetch
+  if (manageCategorySearchTimer) clearTimeout(manageCategorySearchTimer);
+  manageCategorySearchTimer = setTimeout(async () => {
+    if (query.length >= 2 && typeof performDatabaseSearch === 'function') {
+      const result = await performDatabaseSearch(query, [], false, true);
+      if (result && result.length > 0) {
+        let updatedProducts = getFilteredProducts([], query, true);
+        updatedProducts = updatedProducts.filter(p => p.category !== activeManageCategoryName).slice(0, 100);
+        renderManageCategoryList(updatedProducts, listEl);
+      }
+    }
+  }, 400);
 };
 
 window.updateManageCategorySelectedCount = function() {
