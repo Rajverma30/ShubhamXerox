@@ -2329,12 +2329,17 @@ async function removeProduct(id, name) {
     await apiFetch(`/admin/products/${id}`, { method: "DELETE" });
     const idx = products.findIndex(p => p.id === id);
     if (idx > -1) products.splice(idx, 1);
+    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+
     if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
   } catch (err) {
     showGlobalLoader(false);
     showToast(err.message || "Delete failed");
     return;
   }
+  adminLastRenderedCount = 0;
+  const container = document.getElementById('adminProductsList');
+  if (container) container.innerHTML = '';
   await renderAdminList();
   showGlobalLoader(false);
 }
@@ -2366,12 +2371,18 @@ async function bulkDeleteProducts() {
       body: { product_ids: ids }
     });
     products = products.filter(p => !ids.includes(p.id));
+    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+
     if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
     
     // Uncheck all just in case
     const allCheckboxes = document.querySelectorAll('.product-select-checkbox');
     allCheckboxes.forEach(cb => cb.checked = false);
     updateBulkDeleteBtn();
+
+    adminLastRenderedCount = 0;
+    const container = document.getElementById('adminProductsList');
+    if (container) container.innerHTML = '';
 
     await renderAdminList();
   } catch (err) {
@@ -6201,6 +6212,142 @@ window.scrollDynamicCategories = function (direction) {
     // Scroll by roughly 2 items width
     const scrollAmount = 200 * direction;
     container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  }
+};
+
+// --- Manage Category Products Modal ---
+let activeManageCategoryName = '';
+
+window.openManageCategoryModal = function(categoryName) {
+  activeManageCategoryName = categoryName;
+  const modal = document.getElementById('manageCategoryModal');
+  const titleEl = document.getElementById('manageCategoryTitle');
+  const countEl = document.getElementById('manageCategoryCount');
+  const searchInput = document.getElementById('manageCategorySearch');
+  
+  if (!modal) return;
+  
+  titleEl.textContent = categoryName;
+  
+  // Count how many products currently have this category
+  const inCategory = products.filter(p => p.category === categoryName);
+  countEl.textContent = inCategory.length;
+  
+  // Reset search
+  if (searchInput) searchInput.value = '';
+  
+  filterManageCategoryProducts();
+  modal.style.display = 'flex';
+};
+
+window.closeManageCategoryModal = function() {
+  const modal = document.getElementById('manageCategoryModal');
+  if (modal) modal.style.display = 'none';
+  activeManageCategoryName = '';
+};
+
+window.filterManageCategoryProducts = function() {
+  const listEl = document.getElementById('manageCategoryProductList');
+  const searchInput = document.getElementById('manageCategorySearch');
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  
+  // Only show products NOT currently in the active category
+  let availableProducts = products.filter(p => p.category !== activeManageCategoryName);
+  
+  if (query) {
+    availableProducts = availableProducts.filter(p => 
+      (p.name && p.name.toLowerCase().includes(query)) || 
+      (p.category && p.category.toLowerCase().includes(query))
+    );
+  }
+  
+  // Limit to 100 to avoid freezing the UI
+  availableProducts = availableProducts.slice(0, 100);
+  
+  if (availableProducts.length === 0) {
+    listEl.innerHTML = '<div style="padding: 12px; color: var(--text-muted); text-align: center;">No other products available.</div>';
+  } else {
+    listEl.innerHTML = availableProducts.map(p => `
+      <label style="display: flex; gap: 12px; align-items: center; padding: 8px; background: var(--card-bg); border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;">
+        <input type="checkbox" class="manage-category-product-cb" value="${p.id}" onchange="updateManageCategorySelectedCount()" style="width: 18px; height: 18px; accent-color: var(--primary);">
+        <img src="${(p.img && p.img.split('|')[0]) || 'images/logo.png'}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
+        <div style="flex: 1;">
+          <div style="font-weight: 500; font-size: 0.95rem; color: var(--text-main);">${p.name}</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">Current Category: ${p.category} | ${formatPrice(p.price)}</div>
+        </div>
+      </label>
+    `).join('');
+  }
+  
+  updateManageCategorySelectedCount();
+};
+
+window.updateManageCategorySelectedCount = function() {
+  const checkboxes = document.querySelectorAll('.manage-category-product-cb:checked');
+  const countEl = document.getElementById('manageCategorySelectedCount');
+  const btn = document.getElementById('manageCategoryAssignBtn');
+  
+  const count = checkboxes.length;
+  if (countEl) countEl.textContent = count;
+  
+  if (btn) {
+    if (count > 0) {
+      btn.disabled = false;
+      btn.textContent = `Add ${count} Selected to Category`;
+    } else {
+      btn.disabled = true;
+      btn.textContent = `Add Selected to Category`;
+    }
+  }
+};
+
+window.bulkAssignCategory = async function() {
+  if (!activeManageCategoryName) return;
+  
+  const checkboxes = document.querySelectorAll('.manage-category-product-cb:checked');
+  const ids = Array.from(checkboxes).map(cb => Number(cb.value));
+  
+  if (ids.length === 0) return;
+  
+  const btn = document.getElementById('manageCategoryAssignBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Assigning...';
+  }
+  
+  try {
+    await apiFetch('/admin/products/bulk-update-category', {
+      method: 'POST',
+      body: {
+        product_ids: ids,
+        category: activeManageCategoryName
+      }
+    });
+    
+    // Update local products cache
+    products = products.map(p => {
+      if (ids.includes(p.id)) {
+        return { ...p, category: activeManageCategoryName };
+      }
+      return p;
+    });
+    localStorage.setItem('shubham_products_cache', JSON.stringify(products));
+    
+    showToast(`Successfully assigned ${ids.length} products to ${activeManageCategoryName}`);
+    
+    // Refresh modal and admin lists if visible
+    openManageCategoryModal(activeManageCategoryName);
+    
+    if (document.getElementById('adminProductsList')) {
+      await renderAdminList();
+    }
+    
+  } catch (err) {
+    showToast(err.message || 'Failed to assign products');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = `Add ${ids.length} Selected to Category`;
+    }
   }
 };
 
