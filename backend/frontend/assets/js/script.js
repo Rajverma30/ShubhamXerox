@@ -6251,15 +6251,11 @@ window.filterManageCategoryProducts = function() {
   const searchInput = document.getElementById('manageCategorySearch');
   const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
   
-  // Only show products NOT currently in the active category
-  let availableProducts = products.filter(p => p.category !== activeManageCategoryName);
+  // Get all matching products including stationery using standard search logic
+  let availableProducts = getFilteredProducts([], query, true);
   
-  if (query) {
-    availableProducts = availableProducts.filter(p => 
-      (p.name && p.name.toLowerCase().includes(query)) || 
-      (p.category && p.category.toLowerCase().includes(query))
-    );
-  }
+  // Only show products NOT currently in the active category
+  availableProducts = availableProducts.filter(p => p.category !== activeManageCategoryName);
   
   // Limit to 100 to avoid freezing the UI
   availableProducts = availableProducts.slice(0, 100);
