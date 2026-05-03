@@ -60,6 +60,8 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
+/** When set, /products requests are scoped to this category (from products.html?category=…). */
+let productsServerCategoryFilter = '';
 let featuredRevealCount = 0;
 let featuredRevealTimer = null;
 let featuredRevealKey = "";
@@ -640,6 +642,15 @@ function parseProductsCategoryParams() {
     .filter(Boolean);
 }
 
+/** Single category in URL on products page → server filters so older IDs in that category still load. */
+function getProductsPageServerCategoryFilter() {
+  const path = (window.location.pathname || '').replace(/\\/g, '/').toLowerCase();
+  if (!path.includes('products')) return '';
+  const cats = parseProductsCategoryParams();
+  if (cats.length === 1) return cats[0];
+  return '';
+}
+
 function renderStoreProducts() {
   if (document.getElementById('featuredProducts')) {
     renderFeaturedMultiSelect();
@@ -707,12 +718,20 @@ async function fetchProducts() {
   }
 
   resetProductsServerPagination();
+  productsServerCategoryFilter = getProductsPageServerCategoryFilter();
+  const firstPageLimit = productsServerCategoryFilter ? 100 : PRODUCTS_SERVER_PAGE_SIZE;
+  const categoryQuery = productsServerCategoryFilter
+    ? `&category=${encodeURIComponent(productsServerCategoryFilter)}`
+    : '';
 
   try {
     // Prefer backend endpoint with server cache to reduce Supabase egress.
     // Progressive 1-by-1 card reveal still works via renderProductsGrid logic.
     try {
-      const fetchPromise = apiFetch(`/products?limit=${PRODUCTS_SERVER_PAGE_SIZE}&offset=0`, { auth: false });
+      const fetchPromise = apiFetch(
+        `/products?limit=${firstPageLimit}&offset=0${categoryQuery}`,
+        { auth: false }
+      );
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500));
       const res = await Promise.race([fetchPromise, timeoutPromise]);
       loaded = Array.isArray(res?.products) ? res.products : null;
@@ -725,13 +744,17 @@ async function fetchProducts() {
     if (!Array.isArray(loaded)) {
       const supabase = getSupabase();
       if (!supabase) return;
-      const { data, error } = await supabase
+      let q = supabase
         .from('products')
         .select('*')
         .order('id', { ascending: false })
-        .range(0, 9);
+        .range(0, firstPageLimit - 1);
+      if (productsServerCategoryFilter) {
+        q = q.eq('category', productsServerCategoryFilter);
+      }
+      const { data, error } = await q;
       loaded = Array.isArray(data) ? data : [];
-      productsServerHasMore = false;
+      productsServerHasMore = loaded.length >= firstPageLimit;
       productsServerOffset = loaded.length;
     }
 
@@ -749,7 +772,7 @@ async function fetchProducts() {
       }
       products = newProducts;
     } else {
-      if (!hasLocalCache) products = [];
+      if (productsServerCategoryFilter || !hasLocalCache) products = [];
     }
   } catch (e) {
     console.error("Products fetch exception:", e);
@@ -766,10 +789,14 @@ async function fetchMoreProductsPage(limitOverride = null) {
   if (productsServerLoading || !productsServerHasMore) return false;
   productsServerLoading = true;
   try {
-    const limitToUse = limitOverride || PRODUCTS_SERVER_PAGE_SIZE;
+    const defaultLimit = productsServerCategoryFilter ? 100 : PRODUCTS_SERVER_PAGE_SIZE;
+    const limitToUse = limitOverride != null ? limitOverride : defaultLimit;
+    const categoryQuery = productsServerCategoryFilter
+      ? `&category=${encodeURIComponent(productsServerCategoryFilter)}`
+      : '';
 
     const fetchPromise = apiFetch(
-      `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}`,
+      `/products?limit=${limitToUse}&offset=${encodeURIComponent(productsServerOffset)}${categoryQuery}`,
       { auth: false }
     );
     // Background fetches shouldn't timeout aggressively, let them finish naturally.

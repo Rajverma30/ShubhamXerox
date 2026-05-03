@@ -1,6 +1,7 @@
 import os
 import re
 import hmac
+from urllib.parse import quote
 import hashlib
 import logging
 import requests
@@ -669,7 +670,11 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
     return {"status": "ok"}
 
 @app.get("/products")
-async def list_public_products(limit: int = 40, offset: int = 0):
+async def list_public_products(
+    limit: int = 40,
+    offset: int = 0,
+    category: Optional[str] = None,
+):
     logger.info("GET /products build=%s", APP_BUILD_MARKER)
     limit = int(limit or 40)
     offset = int(offset or 0)
@@ -680,7 +685,8 @@ async def list_public_products(limit: int = 40, offset: int = 0):
     if offset < 0:
         offset = 0
 
-    cache_key = f"{limit}:{offset}"
+    cat_filter = (category or "").strip()
+    cache_key = f"{limit}:{offset}:{cat_filter}"
     now = time.time()
     cached = PRODUCTS_CACHE.get(cache_key)
     if cached and now < float(cached.get("expires_at", 0.0)):
@@ -701,6 +707,8 @@ async def list_public_products(limit: int = 40, offset: int = 0):
             "?select=id,name,category,price,original_price,img,exam,free_note_id"
             f"&order=id.desc&offset={offset}&limit={limit + 1}"
         )
+        if cat_filter:
+            url += f"&category=eq.{quote(cat_filter, safe='')}"
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
