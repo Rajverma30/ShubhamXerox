@@ -820,7 +820,6 @@ async def admin_delete_order(order_id: str, order_type: str = "books", _admin: D
     sb.table(table).delete().eq("id", order_id).execute()
     return {"status": "ok"}
 
-
 @app.post("/webhook")
 async def razorpay_webhook(request: Request):
     """
