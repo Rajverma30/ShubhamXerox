@@ -61,6 +61,20 @@
     </div>
   </nav>
 
+  <!-- Quick Search (Between Navbar and Hero) -->
+  <section style="padding: 14px 0 6px; background: linear-gradient(180deg, rgba(0,0,0,0.03), rgba(0,0,0,0)); border-bottom: 1px solid var(--border-color);">
+    <div class="container" style="max-width: 1100px;">
+      <div style="position: relative;">
+        <div class="search-input-wrapper" style="margin-bottom: 0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="heroQuickSearchInput" list="productNameSuggestions" class="search-input" placeholder="Search any book quickly (e.g. Aakar English)..." autocomplete="off">
+        </div>
+        <div id="heroQuickSuggestions" style="display:none; position:absolute; top: calc(100% + 6px); left:0; right:0; background: var(--card-bg); border:1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 20; max-height: 320px; overflow-y: auto;"></div>
+      </div>
+      <datalist id="productNameSuggestions"></datalist>
+    </div>
+  </section>
+
   <!-- Hero Section -->
   <header class="hero">
     <!-- Image Slider as Background -->
@@ -283,10 +297,6 @@
     <div class="container">
       <h2 class="section-title">Trending Notes & Books</h2>
       <div class="home-products-filter-bar">
-        <div class="search-input-wrapper home-products-search">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" id="featuredSearchInput" class="search-input" placeholder="Search by book name or exam...">
-        </div>
         <div class="multi-select-container" id="featuredCategoryMultiSelect">
           <div class="multi-select-header" onclick="toggleFeaturedMultiSelect()">
             <span id="featuredMultiSelectLabel">Select Categories...</span>

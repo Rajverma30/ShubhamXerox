@@ -352,7 +352,7 @@ function renderFeaturedProducts() {
   const container = document.getElementById('featuredProducts');
   if (!container) return;
 
-  const searchInput = document.getElementById('featuredSearchInput');
+  const searchInput = document.getElementById('featuredSearchInput') || document.getElementById('heroQuickSearchInput');
   const searchValue = searchInput ? searchInput.value : '';
   const filtered = getFilteredProducts(featuredSelectedCategories, searchValue).slice(0, 10);
 
@@ -399,6 +399,85 @@ function populateProductNameSuggestions() {
 
   const uniqueNames = [...new Set(products.map(p => (p.name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   list.innerHTML = uniqueNames.map(name => `<option value="${name.replace(/"/g, '&quot;')}"></option>`).join('');
+}
+
+function initHeroQuickSearch() {
+  const input = document.getElementById('heroQuickSearchInput');
+  const panel = document.getElementById('heroQuickSuggestions');
+  if (!input || !panel) return;
+
+  const closePanel = () => {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+  };
+
+  const openPanel = () => {
+    panel.style.display = 'block';
+  };
+
+  const applySearch = async (q) => {
+    const query = String(q || '').trim();
+    input.value = query;
+    closePanel();
+
+    const featuredSearchInput = document.getElementById('featuredSearchInput');
+    if (featuredSearchInput) {
+      featuredSearchInput.value = query;
+    }
+    if (typeof performDatabaseSearch === 'function') {
+      await performDatabaseSearch(query, typeof featuredSelectedCategories !== 'undefined' ? featuredSelectedCategories : [], true, true);
+    }
+    if (typeof renderFeaturedProducts === 'function') renderFeaturedProducts();
+
+    const section = document.getElementById('featuredProducts');
+    if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  input.addEventListener('input', () => {
+    const q = String(input.value || '').trim().toLowerCase();
+    if (!q) {
+      closePanel();
+      return;
+    }
+
+    const seen = new Set();
+    const matches = (products || [])
+      .map((p) => String(p?.name || '').trim())
+      .filter((name) => name && name.toLowerCase().includes(q) && !seen.has(name) && seen.add(name))
+      .slice(0, 8);
+
+    if (matches.length === 0) {
+      closePanel();
+      return;
+    }
+
+    panel.innerHTML = matches.map((name) => `
+      <button type="button" class="hero-quick-suggest-item" data-name="${name.replace(/"/g, '&quot;')}" style="display:block; width:100%; text-align:left; padding:10px 14px; border:0; border-bottom:1px solid var(--border-color); background:transparent; color:var(--text-main); cursor:pointer;">
+        ${name}
+      </button>
+    `).join('');
+    openPanel();
+  });
+
+  panel.addEventListener('click', async (e) => {
+    const target = e.target.closest('.hero-quick-suggest-item');
+    if (!target) return;
+    const name = target.getAttribute('data-name') || '';
+    await applySearch(name);
+  });
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      await applySearch(input.value);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !panel.contains(e.target)) {
+      closePanel();
+    }
+  });
 }
 
 function getAuthToken() {
@@ -3930,6 +4009,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('featuredProducts')) {
     renderFeaturedMultiSelect();
     renderFeaturedProducts();
+    initHeroQuickSearch();
 
     const featuredSearchInput = document.getElementById('featuredSearchInput');
     if (featuredSearchInput) {
