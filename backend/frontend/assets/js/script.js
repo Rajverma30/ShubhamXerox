@@ -433,6 +433,12 @@ function initHeroQuickSearch() {
     if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const goToAllProducts = (q) => {
+    const query = String(q || '').trim();
+    const url = query ? `products.html?q=${encodeURIComponent(query)}` : 'products.html';
+    window.location.href = url;
+  };
+
   input.addEventListener('input', () => {
     const q = String(input.value || '').trim().toLowerCase();
     if (!q) {
@@ -442,8 +448,13 @@ function initHeroQuickSearch() {
 
     const seen = new Set();
     const matches = (products || [])
-      .map((p) => String(p?.name || '').trim())
-      .filter((name) => name && name.toLowerCase().includes(q) && !seen.has(name) && seen.add(name))
+      .filter((p) => String(p?.name || '').trim().toLowerCase().includes(q))
+      .filter((p) => {
+        const key = String(p?.name || '').trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, 8);
 
     if (matches.length === 0) {
@@ -451,12 +462,36 @@ function initHeroQuickSearch() {
       return;
     }
 
-    panel.innerHTML = matches.map((name) => `
-      <button type="button" class="hero-quick-suggest-item" data-name="${name.replace(/"/g, '&quot;')}" style="display:block; width:100%; text-align:left; padding:10px 14px; border:0; border-bottom:1px solid var(--border-color); background:transparent; color:var(--text-main); cursor:pointer;">
-        ${name}
+    panel.innerHTML = `
+      <div style="padding:10px 14px; font-weight:600; color:var(--text-main); border-bottom:1px solid var(--border-color);">Product Suggestions</div>
+      ${matches.map((p) => {
+        const name = String(p?.name || '').trim();
+        const img = String(p?.img || '').split('|')[0] || 'images/logo.png';
+        const selling = formatPrice(p?.price || 0);
+        const original = (p?.original_price && Number(p.original_price) > Number(p.price || 0)) ? formatPrice(p.original_price) : '';
+        return `
+          <button type="button" class="hero-quick-suggest-item" data-name="${name.replace(/"/g, '&quot;')}" style="display:flex; gap:12px; align-items:center; width:100%; text-align:left; padding:10px 14px; border:0; border-bottom:1px solid var(--border-color); background:transparent; color:var(--text-main); cursor:pointer;">
+            <img src="${img}" alt="${name}" width="52" height="64" style="width:52px; height:64px; object-fit:cover; border-radius:4px; border:1px solid var(--border-color); flex:0 0 auto;">
+            <div style="min-width:0;">
+              <div style="font-size:0.95rem; line-height:1.25; white-space:normal;">${name}</div>
+              <div style="margin-top:4px; font-size:0.9rem; color:var(--text-muted);">
+                <strong style="color:var(--text-main);">${selling}</strong>
+                ${original ? `<span style="margin-left:8px; text-decoration:line-through;">${original}</span>` : ''}
+              </div>
+            </div>
+          </button>
+        `;
+      }).join('')}
+      <button type="button" id="heroQuickSearchAllBtn" style="display:block; width:100%; text-align:left; padding:12px 14px; border:0; background:rgba(0,0,0,0.03); color:var(--text-main); font-weight:600; cursor:pointer;">
+        Search all for "${input.value.trim()}"
       </button>
-    `).join('');
+    `;
     openPanel();
+
+    const searchAllBtn = document.getElementById('heroQuickSearchAllBtn');
+    if (searchAllBtn) {
+      searchAllBtn.onclick = () => goToAllProducts(input.value);
+    }
   });
 
   panel.addEventListener('click', async (e) => {
@@ -469,7 +504,7 @@ function initHeroQuickSearch() {
   input.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      await applySearch(input.value);
+      goToAllProducts(input.value);
     }
   });
 
@@ -4047,6 +4082,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
+      const qFromUrl = (new URLSearchParams(window.location.search).get('q') || '').trim();
+      if (qFromUrl) searchInput.value = qFromUrl;
       let localSearchTimeout;
       searchInput.addEventListener('input', () => {
         if (localSearchTimeout) clearTimeout(localSearchTimeout);
