@@ -229,7 +229,7 @@ let globalDbSearchTimeout = null;
 async function performDatabaseSearch(query, categories, isFeatured, skipRender = false) {
   try {
     const supabase = getSupabase();
-    if (!supabase) return;
+    if (!supabase) return [];
 
     let dbQuery = supabase.from('products').select('*');
 
@@ -237,7 +237,7 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
     const hasQuery = q.length >= 2;
     const hasCats = Array.isArray(categories) && categories.length > 0;
 
-    if (!hasQuery && !hasCats) return;
+    if (!hasQuery && !hasCats) return [];
 
     if (hasQuery) {
       dbQuery = dbQuery.ilike('name', `%${q}%`);
@@ -247,6 +247,10 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
     }
 
     const { data, error } = await dbQuery.limit(100);
+    if (error) {
+      console.error("Database search error:", error);
+      return [];
+    }
 
     if (data && data.length > 0) {
       const existingIds = new Set((products || []).map(p => Number(p?.id)));
@@ -270,8 +274,10 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
         }
       }
     }
+    return Array.isArray(data) ? data : [];
   } catch (err) {
     console.error("Database search error:", err);
+    return [];
   }
 }
 
@@ -288,12 +294,22 @@ function getFilteredProducts(filterCategories = [], searchValue = '', includeSta
   }
 
   if (searchValue && searchValue.trim()) {
-    const spaceTokens = searchValue.toLowerCase().split(/\s+/).filter(t => t);
-    filtered = filtered.filter(p => {
-      const searchableStr = `${p.name || ''} ${p.exam || ''} ${p.category || ''}`.toLowerCase();
-      return spaceTokens.every(spaceToken => {
-        const slashTokens = spaceToken.split('/').filter(t => t);
-        return slashTokens.some(slashToken => searchableStr.includes(slashToken));
+    const normalize = (s) => String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const queryTokens = normalize(searchValue).split(' ').filter(t => t);
+    filtered = filtered.filter((p) => {
+      const searchableStr = normalize(`${p.name || ''} ${p.exam || ''} ${p.category || ''}`);
+      const words = searchableStr.split(' ').filter(Boolean);
+
+      // Every typed word must match somewhere in product fields.
+      return queryTokens.every((token) => {
+        if (!token) return true;
+        if (searchableStr.includes(token)) return true;
+        return words.some((w) => w.startsWith(token));
       });
     });
   }
@@ -747,7 +763,8 @@ async function fetchProducts() {
 
   resetProductsServerPagination();
   productsServerCategoryFilter = getProductsPageServerCategoryFilter();
-  const firstPageLimit = productsServerCategoryFilter ? 100 : PRODUCTS_SERVER_PAGE_SIZE;
+  const isHomeFeaturedOnlyPage = !!document.getElementById('featuredProducts') && !document.getElementById('allProductsContainer');
+  const firstPageLimit = productsServerCategoryFilter ? 100 : (isHomeFeaturedOnlyPage ? 24 : PRODUCTS_SERVER_PAGE_SIZE);
   const categoryQuery = productsServerCategoryFilter
     ? `&category=${encodeURIComponent(productsServerCategoryFilter)}`
     : '';
@@ -818,7 +835,8 @@ async function fetchMoreProductsPage(limitOverride = null) {
   if (productsServerLoading || !productsServerHasMore) return false;
   productsServerLoading = true;
   try {
-    const defaultLimit = productsServerCategoryFilter ? 100 : PRODUCTS_SERVER_PAGE_SIZE;
+    const isHomeFeaturedOnlyPage = !!document.getElementById('featuredProducts') && !document.getElementById('allProductsContainer');
+    const defaultLimit = productsServerCategoryFilter ? 100 : (isHomeFeaturedOnlyPage ? 24 : PRODUCTS_SERVER_PAGE_SIZE);
     const limitToUse = limitOverride != null ? limitOverride : defaultLimit;
     const categoryQuery = productsServerCategoryFilter
       ? `&category=${encodeURIComponent(productsServerCategoryFilter)}`
@@ -850,6 +868,32 @@ async function fetchMoreProductsPage(limitOverride = null) {
 }
 
 let backgroundRenderQueue = [];
+let adminProductsEnsurePromise = null;
+
+async function ensureAllProductsLoadedForAdmin() {
+  if (!productsServerHasMore) return;
+  if (adminProductsEnsurePromise) return adminProductsEnsurePromise;
+
+  adminProductsEnsurePromise = (async () => {
+    try {
+      let guard = 0;
+      while (productsServerHasMore && guard < 200) {
+        const newItems = await fetchMoreProductsPage(50);
+        if (Array.isArray(newItems) && newItems.length > 0) {
+          products = [...products, ...newItems].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+        }
+        guard += 1;
+      }
+      saveProductsToCache(products);
+    } catch (e) {
+      console.error("Failed to fully load products for admin categories:", e);
+    } finally {
+      adminProductsEnsurePromise = null;
+    }
+  })();
+
+  return adminProductsEnsurePromise;
+}
 
 async function backgroundFetchLoop() {
   while (productsServerHasMore) {
@@ -882,7 +926,12 @@ async function backgroundRenderLoop() {
       products = [...products, item].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
       
       if (allProductsContainer) {
-        renderProductsGrid('allProductsContainer', null, selectedCategories);
+        const searchInput = document.getElementById('searchInput');
+        const isSearching = !!(searchInput && String(searchInput.value || '').trim());
+        // While searching, avoid live re-renders from background stream to prevent hover jitter.
+        if (!isSearching) {
+          renderProductsGrid('allProductsContainer', null, selectedCategories);
+        }
       }
 
       // Fast stagger for smooth perception without feeling slow.
@@ -1464,18 +1513,8 @@ function createProductCard(product) {
   const discountPct = hasDiscount
     ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
     : 0;
-
-  let imagesHtml = '';
-  if (images.length > 1) {
-    const maxImages = Math.min(images.length, 4);
-    const gridCols = maxImages <= 2 ? 2 : 2;
-    imagesHtml = `<div style="display: grid; grid-template-columns: repeat(${gridCols}, 1fr); gap: 4px; padding: 4px; width: 100%; height: 100%; align-content: center; background: #f8f9fa;">` +
-      images.slice(0, 4).map(img => `<img src="${img}" width="320" height="420" style="width: 100%; height: auto; aspect-ratio: 3/4; object-fit: cover; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);" loading="lazy" decoding="async" fetchpriority="low">`).join('') +
-      `</div>`;
-  } else {
-    const imgSrc = images[0] || DEFAULT_BOOK_SVG;
-    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
-  }
+  const imgSrc = images[0] || DEFAULT_BOOK_SVG;
+  const imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
 
   return `
     <div class="product-card catalog-card">
@@ -3984,6 +4023,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (path.includes('admin-categories')) {
     checkAdminAccess();
     resetAdminCategoriesPagination();
+    await fetchPromise;
+    await ensureAllProductsLoadedForAdmin();
     const form = document.getElementById('addCategoryForm');
     if (form) {
       form.addEventListener('submit', handleAddCategory);
@@ -6360,7 +6401,7 @@ window.scrollDynamicCategories = function (direction) {
 // --- Manage Category Products Modal ---
 let activeManageCategoryName = '';
 
-window.openManageCategoryModal = function(categoryName) {
+window.openManageCategoryModal = async function(categoryName) {
   activeManageCategoryName = categoryName;
   const modal = document.getElementById('manageCategoryModal');
   const titleEl = document.getElementById('manageCategoryTitle');
@@ -6370,6 +6411,7 @@ window.openManageCategoryModal = function(categoryName) {
   if (!modal) return;
   
   titleEl.textContent = categoryName;
+  await ensureAllProductsLoadedForAdmin();
   
   // Count how many products currently have this category
   const inCategory = products.filter(p => p.category === categoryName);
@@ -6424,7 +6466,7 @@ window.filterManageCategoryProducts = function() {
   manageCategorySearchTimer = setTimeout(async () => {
     if (query.length >= 2 && typeof performDatabaseSearch === 'function') {
       const result = await performDatabaseSearch(query, [], false, true);
-      if (result && result.length > 0) {
+      if (result && result.length >= 0) {
         let updatedProducts = getFilteredProducts([], query, true);
         updatedProducts = updatedProducts.filter(p => p.category !== activeManageCategoryName).slice(0, 100);
         renderManageCategoryList(updatedProducts, listEl);
