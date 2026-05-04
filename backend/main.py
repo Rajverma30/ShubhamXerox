@@ -8,7 +8,7 @@ import requests
 import random
 import time
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks, Response
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -671,10 +671,12 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
 
 @app.get("/products")
 async def list_public_products(
+    response: Response,
     limit: int = 40,
     offset: int = 0,
     category: Optional[str] = None,
 ):
+    response.headers["Cache-Control"] = "public, max-age=20, s-maxage=60, stale-while-revalidate=120"
     logger.info("GET /products build=%s", APP_BUILD_MARKER)
     limit = int(limit or 40)
     offset = int(offset or 0)
@@ -881,7 +883,7 @@ import json
 @app.get('/', response_class=HTMLResponse)
 async def render_home(request: Request):
     # Fetch top 10 products to inject into initial HTML
-    products_resp = await list_public_products(limit=10, offset=0)
+    products_resp = await list_public_products(response=Response(), limit=10, offset=0)
     products = products_resp.get("products", [])
     return templates.TemplateResponse("index.html", {"request": request, "initial_products": json.dumps(products)})
 
@@ -889,7 +891,8 @@ async def render_home(request: Request):
 async def render_page(request: Request, page_name: str):
     products = []
     if page_name in ["products", "index"]:
-        products_resp = await list_public_products(limit=10, offset=0)
+        initial_limit = 24 if page_name == "products" else 10
+        products_resp = await list_public_products(response=Response(), limit=initial_limit, offset=0)
         products = products_resp.get("products", [])
         
     try:
