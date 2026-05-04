@@ -4024,7 +4024,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkAdminAccess();
     resetAdminCategoriesPagination();
     await fetchPromise;
-    await ensureAllProductsLoadedForAdmin();
+    ensureAllProductsLoadedForAdmin().catch((e) => console.error("Admin full-load warmup failed:", e));
     const form = document.getElementById('addCategoryForm');
     if (form) {
       form.addEventListener('submit', handleAddCategory);
