@@ -439,52 +439,76 @@ function initHeroQuickSearch() {
     window.location.href = url;
   };
 
+  let heroQuickSearchTimer = null;
+
   input.addEventListener('input', () => {
     const q = String(input.value || '').trim().toLowerCase();
     if (!q) {
       closePanel();
       return;
     }
-
-    const seen = new Set();
-    const matches = (products || [])
-      .filter((p) => String(p?.name || '').trim().toLowerCase().includes(q))
-      .filter((p) => {
-        const key = String(p?.name || '').trim();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 8);
-
     panel.innerHTML = `
-      <div style="padding:10px 14px; font-weight:600; color:var(--text-main); border-bottom:1px solid var(--border-color);">Product Suggestions</div>
-      ${matches.map((p) => {
-        const name = String(p?.name || '').trim();
-        const img = String(p?.img || '').split('|')[0] || 'images/logo.png';
-        const selling = formatPrice(p?.price || 0);
-        const original = (p?.original_price && Number(p.original_price) > Number(p.price || 0)) ? formatPrice(p.original_price) : '';
-        return `
-          <button type="button" class="hero-quick-suggest-item" data-name="${name.replace(/"/g, '&quot;')}" style="display:flex; gap:12px; align-items:center; width:100%; text-align:left; padding:10px 14px; border:0; border-bottom:1px solid var(--border-color); background:transparent; color:var(--text-main); cursor:pointer;">
-            <img src="${img}" alt="${name}" width="52" height="64" style="width:52px; height:64px; object-fit:cover; border-radius:4px; border:1px solid var(--border-color); flex:0 0 auto;">
-            <div style="min-width:0;">
-              <div style="font-size:0.95rem; line-height:1.25; white-space:normal;">${name}</div>
-              <div style="margin-top:4px; font-size:0.9rem; color:var(--text-muted);">
-                <strong style="color:var(--text-main);">${selling}</strong>
-                ${original ? `<span style="margin-left:8px; text-decoration:line-through;">${original}</span>` : ''}
-              </div>
-            </div>
-          </button>
-        `;
-      }).join('')}
+      <div style="padding:10px 14px; color:var(--text-muted); border-bottom:1px solid var(--border-color);">Searching books...</div>
       <button type="button" id="heroQuickSearchAllBtn" style="display:block; width:100%; text-align:left; padding:14px; border:0; background:rgba(0,0,0,0.03); color:var(--text-main); font-weight:700; cursor:pointer;">
         Search all for "${input.value.trim()}"
       </button>
     `;
     openPanel();
+    const searchAllBtnInit = document.getElementById('heroQuickSearchAllBtn');
+    if (searchAllBtnInit) searchAllBtnInit.onclick = () => goToAllProducts(input.value);
 
-    const searchAllBtn = document.getElementById('heroQuickSearchAllBtn');
-    if (searchAllBtn) searchAllBtn.onclick = () => goToAllProducts(input.value);
+    if (heroQuickSearchTimer) clearTimeout(heroQuickSearchTimer);
+    heroQuickSearchTimer = setTimeout(async () => {
+      const latestQ = String(input.value || '').trim().toLowerCase();
+      if (!latestQ) {
+        closePanel();
+        return;
+      }
+
+      if (typeof performDatabaseSearch === 'function' && latestQ.length >= 2) {
+        await performDatabaseSearch(latestQ, [], true, true);
+      }
+
+      const seen = new Set();
+      const matches = (products || [])
+        .filter((p) => String(p?.name || '').trim().toLowerCase().includes(latestQ))
+        .filter((p) => {
+          const key = String(p?.name || '').trim();
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, 12);
+
+      panel.innerHTML = `
+        <div style="padding:10px 14px; font-weight:600; color:var(--text-main); border-bottom:1px solid var(--border-color);">Product Suggestions</div>
+        ${matches.map((p) => {
+          const name = String(p?.name || '').trim();
+          const img = String(p?.img || '').split('|')[0] || 'images/logo.png';
+          const selling = formatPrice(p?.price || 0);
+          const original = (p?.original_price && Number(p.original_price) > Number(p.price || 0)) ? formatPrice(p.original_price) : '';
+          return `
+            <button type="button" class="hero-quick-suggest-item" data-name="${name.replace(/"/g, '&quot;')}" style="display:flex; gap:12px; align-items:center; width:100%; text-align:left; padding:10px 14px; border:0; border-bottom:1px solid var(--border-color); background:transparent; color:var(--text-main); cursor:pointer;">
+              <img src="${img}" alt="${name}" width="52" height="64" style="width:52px; height:64px; object-fit:cover; border-radius:4px; border:1px solid var(--border-color); flex:0 0 auto;">
+              <div style="min-width:0;">
+                <div style="font-size:0.95rem; line-height:1.25; white-space:normal;">${name}</div>
+                <div style="margin-top:4px; font-size:0.9rem; color:var(--text-muted);">
+                  <strong style="color:var(--text-main);">${selling}</strong>
+                  ${original ? `<span style="margin-left:8px; text-decoration:line-through;">${original}</span>` : ''}
+                </div>
+              </div>
+            </button>
+          `;
+        }).join('')}
+        <button type="button" id="heroQuickSearchAllBtn" style="display:block; width:100%; text-align:left; padding:14px; border:0; background:rgba(0,0,0,0.03); color:var(--text-main); font-weight:700; cursor:pointer;">
+          Search all for "${input.value.trim()}"
+        </button>
+      `;
+      openPanel();
+
+      const searchAllBtn = document.getElementById('heroQuickSearchAllBtn');
+      if (searchAllBtn) searchAllBtn.onclick = () => goToAllProducts(input.value);
+    }, 260);
   });
 
   panel.addEventListener('click', async (e) => {
@@ -4086,6 +4110,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       const qFromUrl = (new URLSearchParams(window.location.search).get('q') || '').trim();
       if (qFromUrl) {
         searchInput.value = qFromUrl;
+        if (typeof performDatabaseSearch === 'function') {
+          await performDatabaseSearch(qFromUrl, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false, true);
+        }
         resetProductsInfiniteScroll();
         renderProductsGrid('allProductsContainer', null, selectedCategories);
         if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
