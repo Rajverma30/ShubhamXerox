@@ -675,6 +675,7 @@ async def list_public_products(
     limit: int = 40,
     offset: int = 0,
     category: Optional[str] = None,
+    q: Optional[str] = None,
 ):
     response.headers["Cache-Control"] = "public, max-age=20, s-maxage=60, stale-while-revalidate=120"
     logger.info("GET /products build=%s", APP_BUILD_MARKER)
@@ -688,7 +689,8 @@ async def list_public_products(
         offset = 0
 
     cat_filter = (category or "").strip()
-    cache_key = f"{limit}:{offset}:{cat_filter}"
+    search_q = (q or "").strip()
+    cache_key = f"{limit}:{offset}:{cat_filter}:{search_q}"
     now = time.time()
     cached = PRODUCTS_CACHE.get(cache_key)
     if cached and now < float(cached.get("expires_at", 0.0)):
@@ -711,6 +713,8 @@ async def list_public_products(
         )
         if cat_filter:
             url += f"&category=eq.{quote(cat_filter, safe='')}"
+        if search_q:
+            url += f"&name=ilike.*{quote(search_q, safe='')}*"
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",

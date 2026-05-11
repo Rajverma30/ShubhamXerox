@@ -896,6 +896,8 @@ async function fetchProducts() {
   productsServerCategoryFilter = getProductsPageServerCategoryFilter();
   const isHomeFeaturedOnlyPage = !!document.getElementById('featuredProducts') && !document.getElementById('allProductsContainer');
   const hasUrlQuery = !!((new URLSearchParams(window.location.search).get('q') || '').trim());
+  const qFromUrl = new URLSearchParams(window.location.search).get('q');
+  const searchQuery = qFromUrl ? `&q=${encodeURIComponent(qFromUrl.trim())}` : '';
   const firstPageLimit = productsServerCategoryFilter ? 100 : (hasUrlQuery ? 100 : (isHomeFeaturedOnlyPage ? 24 : PRODUCTS_SERVER_PAGE_SIZE));
   const categoryQuery = productsServerCategoryFilter
     ? `&category=${encodeURIComponent(productsServerCategoryFilter)}`
@@ -906,7 +908,7 @@ async function fetchProducts() {
     // Progressive 1-by-1 card reveal still works via renderProductsGrid logic.
     try {
       const fetchPromise = apiFetch(
-        `/products?limit=${firstPageLimit}&offset=0${categoryQuery}`,
+        `/products?limit=${firstPageLimit}&offset=0${categoryQuery}${searchQuery}`,
         { auth: false }
       );
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500));
@@ -928,6 +930,9 @@ async function fetchProducts() {
         .range(0, firstPageLimit - 1);
       if (productsServerCategoryFilter) {
         q = q.eq('category', productsServerCategoryFilter);
+      }
+      if (qFromUrl) {
+        q = q.ilike('name', `%${qFromUrl.trim()}%`);
       }
       const { data, error } = await q;
       loaded = Array.isArray(data) ? data : [];
