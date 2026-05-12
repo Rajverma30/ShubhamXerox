@@ -31,7 +31,12 @@ function getSupabase() {
 const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
 const DELIVERY_FEE = 70;
-const API_BASE = "https://shubhamxerox-production.up.railway.app";
+const API_BASE = window.API_BASE_URL || (
+  window.location.protocol === "http:" || window.location.protocol === "https:"
+    ? window.location.origin
+    : "https://shubhamxerox-production.up.railway.app"
+);
+window.API_BASE_URL = API_BASE;
 const AUTH_TOKEN_KEY = "shubham_auth_token";
 let products = [];
 try {
@@ -1300,7 +1305,7 @@ function logout() {
 async function processSecureRazorpayPayment(amount, orderData, orderType, onComplete) {
   try {
     // 1. Create order on backend
-    const createRes = await fetch("https://shubhamxerox-production.up.railway.app/create-order", {
+    const createRes = await fetch(`${API_BASE}/create-order`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getAuthToken()}` },
       body: JSON.stringify({ amount: amount, currency: "INR" })
@@ -1325,7 +1330,7 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
         // 3. Send signature to backend for verification and insertion
         try {
           showToast("Payment captured. Verifying securely...");
-          const verifyRes = await fetch("https://shubhamxerox-production.up.railway.app/verify-payment", {
+          const verifyRes = await fetch(`${API_BASE}/verify-payment`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getAuthToken()}` },
             body: JSON.stringify({
