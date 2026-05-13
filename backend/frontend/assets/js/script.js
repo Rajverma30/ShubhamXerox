@@ -888,7 +888,7 @@ async function fetchProducts() {
   } else {
     // Try to load from static JSON first for 0-delay rendering
     try {
-      const res = await fetch(`assets/products.json?v=${new Date().getTime()}`);
+      const res = await fetch(`${API_BASE}/assets/products.json?v=${new Date().getTime()}`);
       if (res.ok) {
         const staticProducts = await res.json();
         if (Array.isArray(staticProducts) && staticProducts.length > 0) {
