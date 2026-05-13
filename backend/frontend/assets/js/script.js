@@ -9,20 +9,22 @@
 })();
 
 // Supabase Init
-const supabaseUrl = 'https://acjnktdlqupwfeolkrfk.supabase.co';
-const supabaseKey = 'sb_publishable_q3zriGbom5L-kdt5ILtlvw_69i5nUj5';
 let _supabaseInstance = null;
 
 function getSupabase() {
   if (_supabaseInstance) return _supabaseInstance;
   const sb = window.supabase || window.supabaseJs;
-  if (sb && sb.createClient) {
+  const url = window.ENV_SUPABASE_URL;
+  const key = window.ENV_SUPABASE_KEY;
+  if (sb && sb.createClient && url && key) {
     try {
-      _supabaseInstance = sb.createClient(supabaseUrl, supabaseKey);
-      console.log('? Supabase connected');
+      _supabaseInstance = sb.createClient(url, key);
+      console.log('Supabase connected');
     } catch (e) {
       console.error("Supabase init error:", e);
     }
+  } else if (!url || !key) {
+    console.error("Supabase config not found! Did config.js load?");
   }
   return _supabaseInstance;
 }
@@ -886,7 +888,7 @@ async function fetchProducts() {
   } else {
     // Try to load from static JSON first for 0-delay rendering
     try {
-      const res = await fetch('/assets/products.json');
+      const res = await fetch(`assets/products.json?v=${new Date().getTime()}`);
       if (res.ok) {
         const staticProducts = await res.json();
         if (Array.isArray(staticProducts) && staticProducts.length > 0) {

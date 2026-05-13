@@ -58,6 +58,13 @@ async def healthz():
         "railway_deployment": os.getenv("RAILWAY_DEPLOYMENT_ID", ""),
     }
 
+@app.get("/config.js")
+async def get_config_js():
+    url = SUPABASE_URL
+    anon_key = os.getenv("SUPABASE_ANON_KEY", os.getenv("SUPABASE_KEY", ""))
+    js_content = f"window.ENV_SUPABASE_URL = '{url}';\nwindow.ENV_SUPABASE_KEY = '{anon_key}';"
+    return Response(content=js_content, media_type="application/javascript")
+
 # Configuration for CORS - Update origins in production!
 app.add_middleware(
     CORSMiddleware,
