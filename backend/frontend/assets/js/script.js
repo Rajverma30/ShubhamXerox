@@ -871,23 +871,42 @@ async function fetchProducts() {
     isProductsLoading = false;
     preloadFirstFoldProductImages(products, 4);
     renderStoreProducts();
-    // Also save to cache
     saveProductsToCache(products);
   } else {
-    // Try to load from localStorage first for near-instant rendering
-    const cachedProductsStr = localStorage.getItem('shubham_products_cache');
-    if (cachedProductsStr) {
-      try {
-        const cachedProducts = JSON.parse(cachedProductsStr);
-        if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
-          products = sortProductsByLatest(cachedProducts);
+    // Try to load from static JSON first for 0-delay rendering
+    try {
+      const res = await fetch('/assets/products.json');
+      if (res.ok) {
+        const staticProducts = await res.json();
+        if (Array.isArray(staticProducts) && staticProducts.length > 0) {
+          products = sortProductsByLatest(staticProducts);
           hasLocalCache = true;
           isProductsLoading = false; // We have data, so stop skeleton
           preloadFirstFoldProductImages(products, 4);
           renderStoreProducts(); // Render instantly
+          saveProductsToCache(products);
         }
-      } catch (e) {
-        console.warn("Invalid products cache", e);
+      }
+    } catch (e) {
+      console.warn("Failed to load products.json, falling back", e);
+    }
+
+    if (!hasLocalCache) {
+      // Fallback to localStorage
+      const cachedProductsStr = localStorage.getItem('shubham_products_cache');
+      if (cachedProductsStr) {
+        try {
+          const cachedProducts = JSON.parse(cachedProductsStr);
+          if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
+            products = sortProductsByLatest(cachedProducts);
+            hasLocalCache = true;
+            isProductsLoading = false; 
+            preloadFirstFoldProductImages(products, 4);
+            renderStoreProducts(); 
+          }
+        } catch (e) {
+          console.warn("Invalid products cache", e);
+        }
       }
     }
   }
@@ -946,21 +965,29 @@ async function fetchProducts() {
     }
 
     if (Array.isArray(loaded) && loaded.length > 0) {
-      // Always strip extra images for the main list view to save memory/cache
-      const strippedProducts = loaded.map(p => ({
-        ...p,
-        img: p.img ? p.img.split('|')[0] : ''
-      }));
-      const newProducts = sortProductsByLatest(strippedProducts);
-      try {
-        saveProductsToCache(newProducts);
-      } catch (cacheErr) {
-        console.warn('LocalStorage quota exceeded or cache save failed:', cacheErr);
+        // Always strip extra images for the main list view to save memory/cache
+        const strippedProducts = loaded.map(p => ({
+          ...p,
+          img: p.img ? String(p.img).split('|')[0] : ''
+        }));
+        // MERGE DB products with static products based on ID
+        const byId = new Map();
+        products.forEach(p => byId.set(Number(p.id), p));
+        strippedProducts.forEach(p => byId.set(Number(p.id), p));
+        
+        const mergedProducts = Array.from(byId.values());
+        const newProducts = sortProductsByLatest(mergedProducts);
+        try {
+          saveProductsToCache(newProducts);
+        } catch (cacheErr) {
+          console.warn('LocalStorage quota exceeded or cache save failed:', cacheErr);
+        }
+        products = newProducts;
+        preloadFirstFoldProductImages(products, 4);
+      } else {
+        // Keep static products if DB is empty for this category
+        if (!products.length && (productsServerCategoryFilter || !hasLocalCache)) products = [];
       }
-      products = newProducts;
-      preloadFirstFoldProductImages(products, 4);
-    } else {
-      if (productsServerCategoryFilter || !hasLocalCache) products = [];
     }
   } catch (e) {
     console.error("Products fetch exception:", e);
