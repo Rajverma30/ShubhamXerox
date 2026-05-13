@@ -662,10 +662,21 @@ for (const [catName, catImg] of Object.entries(newPublishers)) {
     siteCategories.push(catName);
     __categoriesChanged = true;
   }
-  if (!categoryMeta[catName] || categoryMeta[catName].image !== catImg) {
+
+  let section = 'general';
+  const lowerName = catName.toLowerCase();
+  if (lowerName.includes('mppsc') || lowerName.includes('vyapam') || lowerName.includes('nirman') || lowerName.includes('aakar') || lowerName.includes('akar') || lowerName.includes('parikshadham') || lowerName.includes('tathyabaan') || lowerName.includes('punekar') || lowerName.includes('mgics') || lowerName.includes('darpan') || lowerName.includes('mahaveer') || lowerName.includes('peb')) {
+    section = 'mppsc';
+  } else if (lowerName.includes('upsc') || lowerName.includes('drishti') || lowerName.includes('ignite')) {
+    section = 'upsc';
+  } else if (lowerName.includes('ssc') || lowerName.includes('gagan') || lowerName.includes('rakesh') || lowerName.includes('parmar') || lowerName.includes('railway') || lowerName.includes('pinnacle')) {
+    section = 'ssc';
+  }
+
+  if (!categoryMeta[catName] || categoryMeta[catName].image !== catImg || categoryMeta[catName].section !== section) {
     categoryMeta[catName] = categoryMeta[catName] || {};
     categoryMeta[catName].image = catImg;
-    categoryMeta[catName].section = 'general';
+    categoryMeta[catName].section = section;
     __categoriesChanged = true;
   }
 }
