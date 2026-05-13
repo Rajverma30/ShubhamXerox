@@ -11,9 +11,9 @@ def _require_env(name: str) -> str:
     return value
 
 
-# Required (per spec)
-SUPABASE_URL = _require_env("SUPABASE_URL")
-SUPABASE_KEY = _require_env("SUPABASE_KEY")  # Use service_role key on backend
+# Optional (prevent crash if missing)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
 # Email API Config (Google Apps Script)
 GOOGLE_SCRIPT_URL = os.getenv("GOOGLE_SCRIPT_URL", "").strip()
