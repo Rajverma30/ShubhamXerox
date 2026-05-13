@@ -877,38 +877,47 @@ async function fetchProducts() {
 
   let hasLocalCache = false;
 
-  // Hydrate from Server-Side Rendering (SSR) if available
-  if (window.__INITIAL_PRODUCTS__ && Array.isArray(window.__INITIAL_PRODUCTS__) && window.__INITIAL_PRODUCTS__.length > 0) {
-    products = sortProductsByLatest(window.__INITIAL_PRODUCTS__);
+  let ssrProducts = [];
+  if (window.__INITIAL_PRODUCTS__ && Array.isArray(window.__INITIAL_PRODUCTS__)) {
+    ssrProducts = window.__INITIAL_PRODUCTS__;
+  }
+
+  // Try to load from static JSON first for 0-delay rendering of static catalog
+  try {
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/assets/products.json?v=${new Date().getTime()}`);
+    } catch (err) {
+      // Fallback if local backend is not running
+      res = await fetch(`assets/products.json?v=${new Date().getTime()}`);
+    }
+    if (res && res.ok) {
+      const staticProducts = await res.json();
+      if (Array.isArray(staticProducts) && staticProducts.length > 0) {
+        const byId = new Map();
+        staticProducts.forEach(p => byId.set(Number(p.id), p));
+        ssrProducts.forEach(p => byId.set(Number(p.id), p));
+        products = sortProductsByLatest(Array.from(byId.values()));
+        hasLocalCache = true;
+        isProductsLoading = false; // We have data, so stop skeleton
+        preloadFirstFoldProductImages(products, 4);
+        renderStoreProducts(); // Render instantly
+        saveProductsToCache(products);
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to load products.json, falling back", e);
+  }
+
+  // If static JSON failed or was empty but we have SSR, use SSR
+  if (!hasLocalCache && ssrProducts.length > 0) {
+    products = sortProductsByLatest(ssrProducts);
     hasLocalCache = true;
     isProductsLoading = false;
     preloadFirstFoldProductImages(products, 4);
     renderStoreProducts();
     saveProductsToCache(products);
-  } else {
-    // Try to load from static JSON first for 0-delay rendering
-    try {
-      let res;
-      try {
-        res = await fetch(`${API_BASE}/assets/products.json?v=${new Date().getTime()}`);
-      } catch (err) {
-        // Fallback if local backend is not running
-        res = await fetch(`assets/products.json?v=${new Date().getTime()}`);
-      }
-      if (res && res.ok) {
-        const staticProducts = await res.json();
-        if (Array.isArray(staticProducts) && staticProducts.length > 0) {
-          products = sortProductsByLatest(staticProducts);
-          hasLocalCache = true;
-          isProductsLoading = false; // We have data, so stop skeleton
-          preloadFirstFoldProductImages(products, 4);
-          renderStoreProducts(); // Render instantly
-          saveProductsToCache(products);
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load products.json, falling back", e);
-    }
+  }
 
     if (!hasLocalCache) {
       // Fallback to localStorage
