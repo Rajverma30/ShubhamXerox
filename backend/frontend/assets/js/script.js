@@ -5062,7 +5062,14 @@ async function loadFreeNotes() {
     return;
   }
 
-  const { data: notes } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
+  const { data: notes, error } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
+  
+  if (error) {
+    console.error("Supabase free_notes error:", error);
+    container.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: red; padding: 20px; font-weight: bold;">Database Error: ${error.message} (Hint: Check if the table name and column names like 'created_at' match exactly)</div>`;
+    return;
+  }
+  
   freeNotesData = notes || [];
 
   renderFilteredFreeNotes();
