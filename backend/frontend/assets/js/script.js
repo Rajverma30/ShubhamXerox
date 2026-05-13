@@ -988,7 +988,6 @@ async function fetchProducts() {
         // Keep static products if DB is empty for this category
         if (!products.length && (productsServerCategoryFilter || !hasLocalCache)) products = [];
       }
-    }
   } catch (e) {
     console.error("Products fetch exception:", e);
     if (!products.length) {
