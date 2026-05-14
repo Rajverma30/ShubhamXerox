@@ -937,7 +937,6 @@ async function fetchProducts() {
         }
       }
     }
-  }
 
   if (!hasLocalCache) {
     isProductsLoading = true;
