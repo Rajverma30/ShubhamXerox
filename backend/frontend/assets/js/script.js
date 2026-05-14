@@ -1729,16 +1729,21 @@ async function completeOrder(orderData) {
 const DEFAULT_BOOK_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='260' viewBox='0 0 200 260'><rect width='200' height='260' fill='%23f3f4f6'/><path d='M40 40h120v180H40z' fill='%23e5e7eb'/><rect x='60' y='60' width='80' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='90' width='60' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='120' width='70' height='15' fill='%23d1d5db' rx='4'/></svg>`;
 
 function createProductCard(product) {
-  let imgStr = product.img || '';
-  if (imgStr.includes('./MPPSC') || imgStr.includes('./Products -')) {
-    imgStr = imgStr.split('|').map(path => {
-      if (path.includes('./')) {
-        const parts = path.split('/');
-        return 'images/books_new/' + parts[parts.length - 1];
-      }
-      return path;
-    }).join('|');
-  }
+  const fixImgPath = (imgString) => {
+    let str = imgString || '';
+    if (str.includes('./MPPSC') || str.includes('./Products -')) {
+      return str.split('|').map(path => {
+        if (path.includes('./')) {
+          const parts = path.split('/');
+          return 'images/books_new/' + parts[parts.length - 1];
+        }
+        return path;
+      }).join('|');
+    }
+    return str;
+  };
+
+  let imgStr = fixImgPath(product.img);
   const images = imgStr ? imgStr.split('|').filter(i => i.trim() !== '') : [];
   const hasDiscount = product.original_price && product.original_price > product.price;
   const discountPct = hasDiscount
@@ -1755,13 +1760,13 @@ function createProductCard(product) {
         const details = JSON.parse(product.desc.replace('COMBO_DETAILS:', ''));
         if (details.combo_books && details.combo_books.length > 0) {
           details.combo_books.forEach(b => {
-            const firstImg = b.img ? b.img.split('|')[0] : null;
+            const firstImg = b.img ? fixImgPath(b.img).split('|')[0] : null;
             if (firstImg) {
               comboImages.push(firstImg);
             } else {
               const matched = products.find(p => Number(p.id) === Number(b.id));
               if (matched && matched.img) {
-                const matchedImg = matched.img.split('|')[0];
+                const matchedImg = fixImgPath(matched.img).split('|')[0];
                 if (matchedImg) comboImages.push(matchedImg);
               }
             }
