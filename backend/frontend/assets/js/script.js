@@ -492,8 +492,12 @@ function initHeroQuickSearch() {
       }
 
       const seen = new Set();
+      const tokens = latestQ.split(/\s+/).filter(Boolean);
       const matches = (products || [])
-        .filter((p) => String(p?.name || '').trim().toLowerCase().includes(latestQ))
+        .filter((p) => {
+          const nameL = String(p?.name || '').trim().toLowerCase();
+          return tokens.every(t => nameL.includes(t));
+        })
         .filter((p) => {
           const key = String(p?.name || '').trim();
           if (!key || seen.has(key)) return false;
@@ -1725,7 +1729,17 @@ async function completeOrder(orderData) {
 const DEFAULT_BOOK_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='260' viewBox='0 0 200 260'><rect width='200' height='260' fill='%23f3f4f6'/><path d='M40 40h120v180H40z' fill='%23e5e7eb'/><rect x='60' y='60' width='80' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='90' width='60' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='120' width='70' height='15' fill='%23d1d5db' rx='4'/></svg>`;
 
 function createProductCard(product) {
-  const images = product.img ? product.img.split('|').filter(i => i.trim() !== '') : [];
+  let imgStr = product.img || '';
+  if (imgStr.includes('./MPPSC') || imgStr.includes('./Products -')) {
+    imgStr = imgStr.split('|').map(path => {
+      if (path.includes('./')) {
+        const parts = path.split('/');
+        return 'images/books_new/' + parts[parts.length - 1];
+      }
+      return path;
+    }).join('|');
+  }
+  const images = imgStr ? imgStr.split('|').filter(i => i.trim() !== '') : [];
   const hasDiscount = product.original_price && product.original_price > product.price;
   const discountPct = hasDiscount
     ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
@@ -1741,10 +1755,15 @@ function createProductCard(product) {
         const details = JSON.parse(product.desc.replace('COMBO_DETAILS:', ''));
         if (details.combo_books && details.combo_books.length > 0) {
           details.combo_books.forEach(b => {
-            const matched = products.find(p => Number(p.id) === Number(b.id));
-            if (matched && matched.img) {
-              const firstImg = matched.img.split('|')[0];
-              if (firstImg) comboImages.push(firstImg);
+            const firstImg = b.img ? b.img.split('|')[0] : null;
+            if (firstImg) {
+              comboImages.push(firstImg);
+            } else {
+              const matched = products.find(p => Number(p.id) === Number(b.id));
+              if (matched && matched.img) {
+                const matchedImg = matched.img.split('|')[0];
+                if (matchedImg) comboImages.push(matchedImg);
+              }
             }
           });
         }
@@ -2476,7 +2495,7 @@ async function handleAddComboDeal(e) {
       const qtyEl = document.querySelector(`.combo-book-qty[data-book-id="${pid}"]`);
       const qty = Math.max(1, parseInt(qtyEl ? qtyEl.value : '1', 10) || 1);
       const p = (products || []).find(x => Number(x.id) === pid);
-      return p ? { id: p.id, name: p.name, qty, price: p.price } : null;
+      return p ? { id: p.id, name: p.name, qty, price: p.price, img: p.img } : null;
     }).filter(Boolean);
 
     const manualItems = Array.from(document.querySelectorAll('.combo-manual-item-row')).map(row => {
