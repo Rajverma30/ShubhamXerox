@@ -1992,7 +1992,7 @@ input:checked + .theme-slider:before {
   overflow: visible;
   perspective: 900px;
 }
-.catalog-card .product-img-wrapper img {
+.catalog-card .product-img-wrapper > img, .catalog-card .product-img-wrapper > .combo-image-grid {
   object-fit: contain;
   padding: 8px;
   width: 78%;
