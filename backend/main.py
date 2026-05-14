@@ -715,7 +715,7 @@ async def list_public_products(
 
         url = (
             f"{base_url}/rest/v1/products"
-            "?select=id,name,category,price,original_price,img,exam,free_note_id"
+            "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
             f"&order=id.desc&offset={offset}&limit={limit + 1}"
         )
         if cat_filter:
