@@ -1785,18 +1785,18 @@ function createProductCard(product) {
     
     if (comboImages.length > 0) {
       const gridImages = comboImages.slice(0, 4);
-      imagesHtml = `<div class="combo-image-grid" style="border: 5px solid blue;">`;
+      imagesHtml = `<div class="combo-image-grid">`;
       gridImages.forEach(img => {
         imagesHtml += `<img src="${img}" alt="${product.name}" loading="lazy" decoding="async" fetchpriority="low">`;
       });
       imagesHtml += `</div>`;
     } else {
       const imgSrc = DEFAULT_BOOK_SVG;
-      imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low" style="border: 5px solid red;">`;
+      imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
     }
   } else {
     const imgSrc = images[0] || DEFAULT_BOOK_SVG;
-    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low" style="border: 5px solid yellow;">`;
+    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
   }
 
   return `
