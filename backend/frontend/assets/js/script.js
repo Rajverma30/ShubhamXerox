@@ -224,7 +224,19 @@ function setProductsLoadMoreIndicator(state = 'hidden') {
   indicator.innerHTML = '';
 }
 
-// skeleton removed
+function generateSkeletonHTML(count = 4) {
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    html += `
+      <div class="skeleton-card">
+        <div class="skeleton-img"></div>
+        <div class="skeleton-text"></div>
+        <div class="skeleton-text short"></div>
+      </div>
+    `;
+  }
+  return html;
+}
 
 function getAllProductCategories() {
   let safeSiteCategories = Array.isArray(siteCategories) ? siteCategories : defaultSiteCategories;
@@ -247,7 +259,10 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
     if (!hasQuery && !hasCats) return [];
 
     if (hasQuery) {
-      dbQuery = dbQuery.ilike('name', `%${q}%`);
+      const tokens = q.split(/\s+/).filter(Boolean);
+      tokens.forEach(token => {
+        dbQuery = dbQuery.ilike('name', `%${token}%`);
+      });
     }
     if (hasCats) {
       dbQuery = dbQuery.in('category', categories);
@@ -373,7 +388,7 @@ function renderFeaturedProducts() {
     featuredRevealKey = "";
     if (products.length === 0) {
       if (isProductsLoading) {
-        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">Loading books...</div>';
+        container.innerHTML = generateSkeletonHTML(getProductsGridColumns('featuredProducts'));
       } else {
         container.innerHTML = '';
       }
@@ -1715,8 +1730,42 @@ function createProductCard(product) {
   const discountPct = hasDiscount
     ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
     : 0;
-  const imgSrc = images[0] || DEFAULT_BOOK_SVG;
-  const imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
+  
+  let imagesHtml = '';
+  const isCombo = (product.category || '').toLowerCase() === 'combos';
+  
+  if (isCombo && (!images[0] || images[0].includes('unsplash.com'))) {
+    let comboImages = [];
+    if (product.desc && product.desc.startsWith('COMBO_DETAILS:')) {
+      try {
+        const details = JSON.parse(product.desc.replace('COMBO_DETAILS:', ''));
+        if (details.combo_books && details.combo_books.length > 0) {
+          details.combo_books.forEach(b => {
+            const matched = products.find(p => Number(p.id) === Number(b.id));
+            if (matched && matched.img) {
+              const firstImg = matched.img.split('|')[0];
+              if (firstImg) comboImages.push(firstImg);
+            }
+          });
+        }
+      } catch(e) {}
+    }
+    
+    if (comboImages.length > 1) {
+      const gridImages = comboImages.slice(0, 4);
+      imagesHtml = `<div class="combo-image-grid">`;
+      gridImages.forEach(img => {
+        imagesHtml += `<img src="${img}" alt="${product.name}" loading="lazy" decoding="async" fetchpriority="low">`;
+      });
+      imagesHtml += `</div>`;
+    } else {
+      const imgSrc = comboImages[0] || DEFAULT_BOOK_SVG;
+      imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
+    }
+  } else {
+    const imgSrc = images[0] || DEFAULT_BOOK_SVG;
+    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
+  }
 
   return `
     <div class="product-card catalog-card">
@@ -1914,7 +1963,7 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
   if (filtered.length === 0) {
     if (products.length === 0) {
       if (isProductsLoading) {
-        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">Loading books...</div>';
+        container.innerHTML = generateSkeletonHTML(getProductsGridColumns(containerId) * 2);
       } else {
         container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 1.1rem;"></div>';
       }
@@ -2416,8 +2465,11 @@ async function handleAddComboDeal(e) {
     const price = parseFloat(document.getElementById('comboPrice').value);
     const imgUrlInput = document.getElementById('comboImageUrl').value.trim();
     const imgFile = document.getElementById('comboImageFile').files[0];
-    const imgCompressed = await compressImageFileToDataUrl(imgFile);
-    const img = imgCompressed || imgUrlInput || "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=800&q=80";
+    let imgCompressed = null;
+    if (imgFile) {
+      imgCompressed = await compressImageFileToDataUrl(imgFile);
+    }
+    const img = imgCompressed || imgUrlInput || "";
 
     const selectedBooks = Array.from(document.querySelectorAll('.combo-book-check:checked')).map(chk => {
       const pid = Number(chk.value);
@@ -2440,11 +2492,15 @@ async function handleAddComboDeal(e) {
       manual_items: manualItems
     };
 
+    const calculatedOriginalPrice = selectedBooks.reduce((sum, b) => sum + (b.price * b.qty), 0);
+    const originalPrice = calculatedOriginalPrice > price ? calculatedOriginalPrice : null;
+
     await apiFetch("/admin/products", {
       method: "POST",
       body: {
         name,
         price,
+        original_price: originalPrice,
         category: "Combos",
         img,
         desc: `COMBO_DETAILS:${JSON.stringify(descPayload)}`
