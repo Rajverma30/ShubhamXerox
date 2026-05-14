@@ -1772,7 +1772,15 @@ function createProductCard(product) {
             }
           });
         }
-      } catch(e) {}
+      } catch(e) {
+        // Fallback: use regex to extract img paths if JSON parsing fails
+        const imgRegex = /"img":"([^"]+)"/g;
+        let match;
+        while ((match = imgRegex.exec(product.desc)) !== null) {
+          const matchedImg = fixImgPath(match[1]).split('|')[0];
+          if (matchedImg) comboImages.push(matchedImg);
+        }
+      }
     }
     
     if (comboImages.length > 1) {
