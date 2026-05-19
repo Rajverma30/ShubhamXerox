@@ -1,0 +1,62 @@
+document.addEventListener('DOMContentLoaded', () => {
+  const chatFooter = document.querySelector('.whatsapp-chat-input');
+  const chatInput = document.querySelector('.text-input');
+  const attachButton = document.querySelector('.attach-btn');
+  const whatsappButton = document.querySelector('.whatsapp-button'); // Add a selector for the main WhatsApp button
+
+  // Get WhatsApp number and direct mode setting from data attributes
+  const waNumber = chatFooter ? chatFooter.dataset.waNumber : null;
+  const isDirectMode = whatsappButton ? whatsappButton.dataset.directMode === 'true' : false;
+
+  if (chatInput) {
+    chatInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        openWhatsApp(chatInput, waNumber, isDirectMode);
+      }
+    });
+  }
+
+  if (attachButton) {
+    attachButton.addEventListener('click', () => {
+      openWhatsApp(chatInput, waNumber, isDirectMode);
+    });
+  } else {
+    console.error('attachButton element not found');
+  }
+
+
+});
+
+function openWhatsApp(inputElement, waNumber, isDirectMode) {
+  // Fix the previous logic for input text
+  let inputText = inputElement ? inputElement.value.trim() : '';
+  
+  if (inputText) {
+      // Existing pop-up window behavior
+      const waLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(inputText)}`;
+      const link = document.createElement('a');
+      link.href = waLink;
+      link.target = '_blank';
+      link.click();
+      inputElement.value = '';
+    }
+}
+
+// function to open whatsapp directly instead of chat window
+function openWhatsAppDirect(waNumber, waMessage) {
+  if (waNumber) {
+    const waLink = `https://wa.me/${waNumber}${waMessage ? `?text=${encodeURIComponent(waMessage)}` : ''}`;
+    const link = document.createElement('a');
+    link.href = waLink;
+    link.target = '_blank';
+    link.click();
+  }
+}
+
+// Chat window toggle function remains the same
+document.addEventListener("DOMContentLoaded", function() {
+    window.toggleChatWindow = function() {
+      const chatWindow = document.getElementById('whatsapp-chat-placeholder');
+      chatWindow.classList.toggle('open');
+    }
+});

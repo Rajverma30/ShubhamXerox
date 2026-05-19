@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Add</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-add.html">Add Books</a>
+            <a href="admin-categories.html">Add/Edit Category</a>
+            <a href="admin-add-stationery.html">Add Stationery Item</a>
+            <a href="admin-add-combo.html">Add Combo Deal</a>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Manage</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-products.html">Manage Products</a>
+            <a href="admin-ebooks.html">Manage E-Books</a>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html">Photocopy orders</a>
+            <a href="admin-pdf-sales.html">Paid PDF orders</a>
+            <a href="admin-returns.html">Returned orders</a>
+          </div>
+        </div>
+        <a href="admin-chat.html" style="color: #44bd32; font-weight: 600;">Chat</a>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons">
+        <!-- Theme Switch Injected by JS -->
+      </div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+      
+      <div style="margin-bottom: 30px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 style="font-size: 1.5rem;">Manage Products</h2>
+            <p style="color: var(--text-muted);">View, search, and delete products (including books and stationery).</p>
+            <div class="search-container" style="max-width: 500px; margin-top: 16px;">
+              <input type="text" id="adminSearchInput" class="form-control" placeholder="Search by name, category..." autocomplete="off">
+            </div>
+          </div>
+          <div>
+            <button id="bulkDeleteBtn" class="btn remove-btn" style="display: none; white-space: nowrap;" onclick="bulkDeleteProducts()">Delete Selected (0)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Product List -->
+      <div style="margin-bottom: 60px;">
+        <div class="admin-list" id="adminProductsList">
+          <!-- Injected via JS -->
+        </div>
+        <div id="adminProductsLoadMoreIndicator" class="products-load-more-indicator" style="display:none;" aria-live="polite"></div>
+      </div>
+      
+    </div>
+  </main>
+
+  <!-- Edit Product Modal -->
+  <div class="modal-overlay" id="editProductModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px);">
+    <div class="admin-card" style="width: 100%; max-width: 500px; margin: 0; position: relative; max-height: 90vh; overflow-y: auto;">
+      <button type="button" onclick="closeEditModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-main);">&times;</button>
+      <h2 style="margin-bottom: 24px; font-size: 1.25rem;">Edit Product</h2>
+      <form id="editProductForm">
+        <input type="hidden" id="editProductId">
+        <div class="form-group">
+          <label for="editName">Product Name</label>
+          <input type="text" id="editName" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label for="editPrice">Selling Price (â‚¹)</label>
+          <input type="number" id="editPrice" class="form-control" required min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label for="editOriginalPrice">Actual MRP (â‚¹) <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional)</span></label>
+          <input type="number" id="editOriginalPrice" class="form-control" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label for="editCategory">Category</label>
+          <input type="text" id="editCategory" list="categoryOptions" class="form-control" required>
+          <datalist id="categoryOptions">
+            <!-- Injected via JS -->
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label>Target Exam(s) <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Select multiple if applicable)</span></label>
+          <div id="editExamCheckboxes" style="display: flex; flex-wrap: wrap; gap: 10px; max-height: 180px; overflow-y: auto; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="MPPSC"> MPPSC</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="UPSC/IAS"> UPSC/IAS</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="SSC CGL"> SSC CGL</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="SSC CHSL"> SSC CHSL</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="Banking PO"> Banking PO</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="Banking Clerk"> Banking Clerk</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="Patwari"> Patwari</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="Railway RRB NTPC"> Railway RRB NTPC</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="Railway Group D"> Railway Group D</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="MPSI"> MPSI</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="MP Police Constable"> MP Police Constable</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="CTET/TET"> CTET/TET</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="NDA/CDS"> NDA/CDS</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="State PSC"> State PSC</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="GATE"> GATE</label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="JEE/NEET"> JEE/NEET</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="editImgUpload">Upload New Image <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Leave blank to keep current)</span></label>
+          <input type="file" id="editImgUpload" class="form-control" accept="image/*">
+        </div>
+        <div class="form-group">
+          <label for="editBookPdfPreview">Book PDF <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional: auto-generate first 3 preview images)</span></label>
+          <input type="file" id="editBookPdfPreview" class="form-control" accept="application/pdf">
+        </div>
+        <div style="text-align: center; margin: 12px 0; color: var(--text-muted); font-size: 0.9rem;">OR</div>
+        <div class="form-group">
+          <label for="editImg">Image URL</label>
+          <input type="url" id="editImg" class="form-control">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px;">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="/config.js"></script>
+  <script defer src="assets/js/script.js?v=2.5"></script>
+</body>
+</html>
+
+

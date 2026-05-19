@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Details | Shubham Xerox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
+      </a>
+      
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="products.html">Books & Notes</a>
+        <a href="e-books.html">E-Books</a>
+        <a href="index.html#services">Services</a>
+
+        <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
+      </div>
+
+      <div class="nav-icons">
+        <a href="cart.html" class="icon-btn" aria-label="Cart">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M20 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+          <span class="cart-badge" style="display: none;">0</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Product Details Section -->
+  <main class="section" style="padding-top: 60px; min-height: 80vh;">
+    <div class="container" id="productDetailContainer">
+      <!-- Loading Indicator -->
+      <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+        Loading product...
+      </div>
+    </div>
+    <div class="container" id="similarProductsSection" style="display: none; margin-top: 24px;">
+      <div class="similar-products-wrap">
+        <div class="similar-products-header">
+          <h2 class="section-title" style="text-align:left; margin-bottom: 8px; font-size: 1.8rem;">Similar Books</h2>
+          <p class="section-subtitle" style="text-align:left; margin: 0 0 24px; max-width: none;">More books from the same category.</p>
+        </div>
+        <div class="free-notes-slider-wrap">
+          <button id="similarProductsPrevBtn" class="free-notes-nav free-notes-nav-left" type="button" onclick="scrollSimilarProducts('left')" aria-label="Previous similar products">&#10094;</button>
+          <div class="similar-products-slider" id="similarProductsContainer"></div>
+          <button id="similarProductsNextBtn" class="free-notes-nav free-notes-nav-right" type="button" onclick="scrollSimilarProducts('right')" aria-label="Next similar products">&#10095;</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer style="background-color: #1d1d1f; color: #86868b; padding: 40px 0 20px; margin-top: auto;">
+    <div class="container" style="text-align: center; font-size: 0.8rem;">
+      <p>&copy; 2026 Shubham Xerox. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <!-- WhatsApp Floating Action Button -->
+  <!-- Custom PDF Viewer Modal -->
+  <div id="pdfViewerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:3000; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(8px);">
+    <div style="width:100%; max-width:800px; display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h3 id="pdfViewerTitle" style="color:#fff; font-size:1.2rem; margin:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:70%;">Loading...</h3>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button id="pdfFullscreenBtn" onclick="togglePdfFullscreen()" style="background:none; border:1px solid rgba(255,255,255,0.35); color:#fff; font-size:0.9rem; cursor:pointer; border-radius:6px; padding:6px 10px;" aria-label="Toggle fullscreen">Fullscreen</button>
+        <button onclick="closePdfViewer()" style="background:none; border:none; color:#fff; font-size:2rem; cursor:pointer;" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    
+    <div id="pdfViewerContainer" style="width:100%; max-width:800px; flex:1; background:#fff; border-radius:8px; overflow-y:auto; position:relative; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column; align-items:center; padding:20px;">
+      <canvas id="pdfViewerCanvas" style="max-width:100%; height:auto; border:1px solid #ddd;"></canvas>
+      
+      <!-- Lock Screen overlay for page > 2 -->
+      <div id="pdfViewerLockScreen" style="display:none; position:absolute; inset:0; background:rgba(255,255,255,0.95); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px; z-index:10;">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="margin-bottom:20px;">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <h2 style="font-size:1.5rem; margin-bottom:12px; color:var(--text-main);">Premium Content Locked</h2>
+        <p style="color:var(--text-muted); margin-bottom:24px; max-width:400px; line-height:1.6;">You have reached the end of the free preview. Purchase to continue in secure view-only mode (no download or print).</p>
+        <button id="btnBuyPdfUnlock" class="btn btn-primary" style="padding:14px 32px; font-size:1.1rem;">Buy Now to Unlock</button>
+      </div>
+    </div>
+    
+    <div style="width:100%; max-width:800px; display:flex; justify-content:space-between; align-items:center; margin-top:16px; gap:10px; flex-wrap:wrap;">
+      <button id="pdfPrevBtn" class="btn btn-secondary" onclick="pdfPrevPage()" style="padding:8px 16px;">&laquo; Previous</button>
+      <span style="color:#fff; font-size:1rem; font-weight:600;">Page <span id="pdfPageNum">1</span> / <span id="pdfPageCount">-</span></span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input id="pdfJumpInput" type="number" min="1" placeholder="Page #" style="width:90px; padding:8px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.35); background:rgba(255,255,255,0.08); color:#fff;">
+        <button class="btn btn-secondary" onclick="goToPdfPage()" style="padding:8px 14px;">Go</button>
+      </div>
+      <button id="pdfNextBtn" class="btn btn-primary" onclick="pdfNextPage()" style="padding:8px 16px;">Next &raquo;</button>
+    </div>
+  </div>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script src="/config.js"></script>
+  <script defer src="assets/js/script.js?v=2.5"></script>
+</body>
+</html>
+
+

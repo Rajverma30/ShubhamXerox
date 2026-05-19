@@ -1,0 +1,429 @@
+/* =========================================================
+   PREMIUM BLACK + GOLD (Blinkit-like) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ Mobile First
+   Theme Gold: #f1ba49
+   Paste at END of your CSS file
+========================================================= */
+
+:root {
+  --pg-gold: #f1ba49;
+  --pg-gold-soft: #fde7b3;
+  --pg-black: #0b0b0c;
+  --pg-ink: #111111;
+  --pg-muted: #6b7280;
+  --pg-bg: #fffdf7;
+  --pg-card: #ffffff;
+  --pg-border: rgba(17, 17, 17, 0.12);
+  --pg-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
+  --pg-shadow-soft: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Background */
+body,
+.app,
+.app-main,
+.page,
+.sh-page,
+.sh-body {
+  background: var(--pg-bg) !important;
+}
+
+/* ===================== TOP HEADER BAR ===================== */
+.app-bar-main,
+.header-mobile-sidemenu__head__container,
+.toobar-regular {
+  background: #fff !important;
+  color: var(--pg-gold) !important;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Toolbar padding / density */
+.MuiToolbar-gutters {
+  padding: 8px 10px !important;
+}
+
+/* Header icons */
+.sh-header-mob-menu-icon {
+  color: var(--pg-black) !important;
+}
+.sh-header-location-icon,
+.sh-header-arrow-icon {
+  fill: var(--pg-black) !important;
+}
+.sh-header-search-icon,
+.sh-header-account-icon,
+.sh-header-cart-icon {
+  stroke: var(--pg-black) !important;
+  fill: none !important;
+}
+
+/* ===================== SEARCH BAR ===================== */
+#search-box,
+.sh-search-box,
+.search-box,
+.searchbar,
+.sh-header-search {
+  background: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* If input exists inside */
+#search-box input,
+.sh-search-box input,
+.search-box input {
+  color: var(--pg-black) !important;
+}
+#search-box input::placeholder,
+.sh-search-box input::placeholder,
+.search-box input::placeholder {
+  color: rgba(17, 17, 17, 0.55) !important;
+}
+
+/* ===================== CATEGORY TABS (PILLS) ===================== */
+/* Best-effort: many Shoopy themes render tabs as buttons/anchors */
+.LargeCategoriesCardV1-component,
+.LargeCategoriesCardV1-component-component {
+  background: transparent !important;
+}
+
+.menu-bar .links {
+  color: var(--pg-black) !important;
+  font-weight: 700 !important;
+}
+
+/* If your category row uses small pill items */
+.cat-card-title {
+  color: var(--pg-black) !important;
+  font-weight: 600 !important;
+}
+
+/* Category card container polish */
+.cat-card-letter-container {
+  background: #fff !important;
+  border: 1px solid var(--pg-border) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--pg-shadow-soft) !important;
+}
+.cat-card-img {
+  border-radius: 18px !important;
+}
+
+.sh-category-card > a > div:hover {
+  border: 2px solid var(--pg-gold) !important;
+  border-radius: 20px !important;
+}
+
+/* ===================== PRODUCT CARDS ===================== */
+.sh-product-card {
+  background: var(--pg-card) !important;
+  border: 1px solid var(--pg-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--pg-shadow-soft) !important;
+  overflow: hidden !important;
+}
+
+.sh-product-card:hover {
+  border: 1px solid rgba(241, 186, 73, 0.9) !important;
+  box-shadow: var(--pg-shadow) !important;
+  transform: translateY(-1px);
+}
+
+/* Product title / price look */
+.pr-title {
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Inter,
+    Arial,
+    sans-serif !important;
+  font-weight: 650 !important;
+  color: var(--pg-black) !important;
+  text-transform: none !important;
+  letter-spacing: 0.1px;
+}
+
+.pr-mrp-price {
+  color: rgba(17, 17, 17, 0.45) !important;
+}
+.pr-sale-price {
+  color: var(--pg-black) !important;
+  font-weight: 800 !important;
+}
+
+/* ===================== DISCOUNT TAG ===================== */
+.sh-product-card-discount-tag {
+  background: var(--pg-black) !important;
+  color: var(--pg-gold) !important;
+  font-weight: 800 !important;
+  border-radius: 12px !important;
+  padding: 2px 8px !important;
+  border: 1px solid rgba(241, 186, 73, 0.55) !important;
+}
+
+/* If you also use this */
+.sh-product-discount-tag {
+  background: var(--pg-black) !important;
+  color: var(--pg-gold) !important;
+  border-radius: 10px !important;
+}
+
+/* ===================== ADD BUTTON / QTY ===================== */
+.sh-product-plus-minus-button {
+  background: #e9b03f !important;
+  color: #fff !important;
+  border: 1px solid var(--pg-gold) !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px;
+}
+
+.sh-product-plus-minus-button:hover {
+  background: #e9b03f !important;
+  color: #000 !important;
+}
+
+/* Solid buttons in general (checkout etc.) */
+.sh-solid-button {
+  border-radius: 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  background: var(--pg-gold) !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+.sh-solid-button:hover {
+  background: #e9b03f !important;
+  color: var(--pg-black) !important;
+}
+
+/* ===================== SWIPER ARROWS (BANNERS) ===================== */
+.swiper-button-next,
+.swiper-button-prev {
+  background: rgba(11, 11, 12, 0.55) !important;
+  color: var(--pg-gold) !important;
+  border: 1px solid rgba(241, 186, 73, 0.35) !important;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.14) !important;
+}
+
+/* ===================== BOTTOM NAV ===================== */
+.sh-bottom-nav-main {
+  background: var(--pg-black) !important;
+  color: #fff !important;
+  border-top: 1px solid rgba(241, 186, 73, 0.25) !important;
+}
+
+/* ===================== FOOTER ===================== */
+.sh-footer-main {
+  background: var(--pg-black) !important;
+  color: #fff !important;
+}
+.sh-footer-icon {
+  color: var(--pg-gold) !important;
+}
+
+/* ===================== SOCIAL ICONS ===================== */
+.horizental-social-icons {
+  background: var(--pg-black) !important;
+  border: 1px solid rgba(241, 186, 73, 0.45) !important;
+}
+.horizental-social-icons svg,
+.horizental-social-icons i {
+  color: var(--pg-gold) !important;
+}
+
+/* ===================== MOBILE TYPO / SPACING ===================== */
+@media (max-width: 480px) {
+  .pr-title {
+    font-size: 12px !important;
+    line-height: 15px !important;
+  }
+  .pr-mrp-price,
+  .pr-sale-price {
+    font-size: 11px !important;
+  }
+  .pr-long-card {
+    padding: 8px !important;
+  }
+}
+@media screen and (max-width: 480px) {
+  .grid-cols-2 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+@media screen and (max-width: 480px) {
+  .swiper-wrapper {
+    position: relative;
+    width: 67%;
+  }
+}
+.sh-ge-collect
+  .BannerCollection-component
+  .sh-banner-collection-card
+  .overflow-hidden {
+  overflow: visible !important;
+}
+.sh-ge-collect {
+  padding: 0px 20px !important;
+}
+.ban-cont-text {
+  font-size: 16px;
+  letter-spacing: 1px;
+  margin: 0;
+  font-weight: 600;
+  color: #000;
+  position: absolute;
+  top: 22px;
+}
+.sh-ge-collect
+  .BannerCollection-component
+  .sh-banner-collection-card
+  .ban-cont-content {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+@media (max-width: 480px) {
+  .ban-cont-text {
+    font-size: 14px;
+    letter-spacing: 1px;
+    margin: 0;
+    font-weight: 500;
+    color: #000;
+    position: absolute;
+    top: 22px;
+    text-align: center !important;
+    position: initial !important;
+  }
+  .sh-ge-collect
+    .BannerCollection-component
+    .sh-banner-collection-card
+    .ban-cont-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    position: relative;
+    top: 0px !important;
+    left: 0px !important;
+    right: 0px !important;
+    bottom: 0px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+  .sh-ge-collect {
+    padding: 0px 12px !important;
+  }
+  .BannerCollection-component {
+    padding: 8px 0px !important;
+  }
+}
+
+.mob-addresses-root button {
+  display: none !important;
+}
+.heading-title {
+  color: var(--section-heading-color, #1a1a1a);
+  font-size: 25px;
+
+  padding-top: 20px;
+  font-weight: 900 !important;
+}
+@media (max-width: 1023px) {
+  .store-logo img {
+    height: 28px;
+    border-radius: 20px;
+  }
+}
+@media (max-width: 1023px) {
+  .category-icon {
+    height: 50px;
+    width: 50px;
+    box-shadow:
+      rgba(60, 64, 67, 0.3) 0px 1px 12px 0px,
+      rgba(60, 64, 67, 0.15) 0px 2px 6px 2px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .sh-ge-collect {
+    padding: 15px 12px !important;
+  }
+}
+@media (max-width: 480px) {
+  .BannerCollection-component {
+    margin-top: -10px;
+  }
+}
+.BannerCollection-component .banner-title {
+  font-size: 14px !important;
+  margin-top: 0px !important;
+}
+
+.location-add-address-btn {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .header-main {
+    gap: 20px !important;
+  }
+}
+@media (max-width: 1023px) {
+  .category-icon {
+    height: 80px !important;
+    width: 80px !important;
+  }
+}
+@media (min-width: 768px) {
+  .sh-ge-collect-694525b643d5861feb95e1d6 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 140px));
+    justify-content: center;
+    gap: 16px;
+  }
+  .sh-ge-collect-694525b643d5861feb95e1d6 {
+    justify-content: center;
+  }
+
+  .sh-ge-collect-694525b643d5861feb95e1d6 .section-item {
+    display: flex;
+    justify-content: center;
+  }
+}
+
+@media (min-width: 768px) {
+  .sh-ge-collect-69450cff3d5b9440a2d49c89,
+  .sh-ge-collect-69450f5f43d5861feb95e119,
+  .sh-ge-collect-69452b093d5b9440a2d49db0,
+  .sh-ge-collect-69452b093d5b9440a2d49db0,
+  .sh-ge-collect-694522c53d5b9440a2d49d75,
+  .sh-ge-collect-694525b643d5861feb95e1d6,
+  .sh-ge-collect-6945142f43d5861feb95e132 {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .sh-ge-collect-69450cff3d5b9440a2d49c89 .sm\:col-span-12.col-span-12.mb-4,
+  .sh-ge-collect-69450f5f43d5861feb95e119 .sm\:col-span-12.col-span-12.mb-4,
+  .sh-ge-collect-69452b093d5b9440a2d49db0 .sm\:col-span-12.col-span-12.mb-4,
+  .sh-ge-collect-69452b093d5b9440a2d49db0 .sm\:col-span-12.col-span-12.mb-4,
+  .sh-ge-collect-694522c53d5b9440a2d49d75 .sm\:col-span-12.col-span-12.mb-4,
+  .sh-ge-collect-694525b643d5861feb95e1d6 .sm\:col-span-12.col-span-12.mb-4,
+  .sh-ge-collect-6945142f43d5861feb95e132 .sm\:col-span-12.col-span-12.mb-4 {
+    width: 100%;
+  }
+}
+
+@media (max-width: 1023px) {
+  .category-icon {
+    height: 70px !important;
+    width: 70px !important;
+  }
+}
+.heading-title {
+  padding-top: 0px !important;
+}
+.section .sm\:col-span-12.col-span-12.mb-4 {
+  margin-bottom: 8px !important;
+}
