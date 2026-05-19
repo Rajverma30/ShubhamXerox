@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add / Edit Categories | Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body style="background-color: var(--bg-color);">
+  <nav class="navbar">
+    <div class="container">
+      <a href="index.html" class="logo" style="display:flex; flex-direction:column; gap:2px; padding:4px 0;">
+        <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
+        <span style="font-size:0.75rem; letter-spacing:1px; color:var(--text-main); font-weight:800; margin-top:-6px;">SHUBHAM XEROX</span>
+      </a>
+      <div class="nav-links" id="adminNavLinks" style="display: none;">
+        <a href="admin.html">Dashboard</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Add</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-add.html">Add Books</a>
+            <a href="admin-categories.html">Add/Edit Category</a>
+            <a href="admin-add-stationery.html">Add Stationery Item</a>
+            <a href="admin-add-combo.html">Add Combo Deal</a>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Quick Manage</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-products.html">Manage Products</a>
+            <a href="admin-ebooks.html">Manage E-Books</a>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-trigger">Orders</button>
+          <div class="nav-dropdown-menu">
+            <a href="admin-orders.html">Book orders</a>
+            <a href="admin-photocopy.html">Photocopy orders</a>
+            <a href="admin-pdf-sales.html">Paid PDF orders</a>
+            <a href="admin-returns.html">Returned orders</a>
+          </div>
+        </div>
+        <a href="admin-chat.html" style="color: #44bd32; font-weight: 600;">Chat</a>
+        <a href="#" onclick="logout()">Logout</a>
+      </div>
+      <div class="nav-icons"></div>
+    </div>
+  </nav>
+
+  <main class="section" style="padding-top:40px; min-height:80vh;">
+    <div class="container" style="max-width: 900px;">
+      <div class="admin-card">
+        <h1 style="font-size:1.45rem; margin-bottom:10px;">Add / Edit Categories</h1>
+        <p style="color:var(--text-muted); margin-bottom:18px;">Add a new category, rename, set section, and optionally upload an icon image. Categories load in 20-item batches.</p>
+
+        <form id="addCategoryForm" style="display: grid; gap: 12px; margin-bottom: 18px;">
+          <input type="hidden" id="editingCategoryOldName">
+          <input type="text" id="newCategoryName" class="form-control" required placeholder="New Category Name">
+          <select id="newCategorySection" class="form-control">
+            <option value="">General / Other</option>
+            <option value="mppsc">MPPSC</option>
+            <option value="ssc">SSC</option>
+            <option value="upsc">UPSC / IAS</option>
+          </select>
+          <input type="file" id="newCategoryImageFile" class="form-control" accept="image/*">
+          <input type="url" id="newCategoryImageUrl" class="form-control" placeholder="Or paste category image URL">
+          <div style="display:flex; gap:10px;">
+            <button id="addCategorySubmitBtn" type="submit" class="btn btn-primary" style="white-space: nowrap; flex:1;">Add</button>
+            <button id="cancelCategoryEditBtn" type="button" class="btn btn-secondary" style="display:none;">Cancel Edit</button>
+          </div>
+        </form>
+
+        <div id="adminCategoriesList" data-paged="1" style="display:flex; flex-direction:column; gap:8px; max-height: 420px; overflow-y:auto; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; background: rgba(255,255,255,0.02);">
+          <!-- Categories injected via JS -->
+        </div>
+        <div id="adminCategoriesLoadMoreIndicator" style="display:none; margin-top: 12px; color: var(--text-muted); text-align:center;"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Manage Category Items Modal -->
+  <div class="modal-overlay" id="manageCategoryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px);">
+    <div class="admin-card" style="width: 100%; max-width: 700px; margin: 0; position: relative; max-height: 90vh; display: flex; flex-direction: column;">
+      <button type="button" onclick="closeManageCategoryModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-main);">&times;</button>
+      <h2 style="margin-bottom: 8px; font-size: 1.25rem;">Manage Category: <span id="manageCategoryTitle" style="color: var(--primary);"></span></h2>
+      <p style="color: var(--text-muted); margin-bottom: 20px;">This category currently has <strong id="manageCategoryCount">0</strong> products.</p>
+      
+      <div style="flex: 1; overflow-y: auto; padding-right: 10px;">
+        <h3 style="font-size: 1.1rem; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Assign Existing Products</h3>
+        <input type="text" id="manageCategorySearch" class="form-control" placeholder="Search available products to add..." onkeyup="filterManageCategoryProducts()" style="margin-bottom: 16px;">
+        
+        <div id="manageCategoryProductList" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: rgba(0,0,0,0.2);">
+          <!-- Injected via JS -->
+        </div>
+      </div>
+      
+      <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 0.9rem; color: var(--text-muted);"><span id="manageCategorySelectedCount">0</span> selected</div>
+        <button id="manageCategoryAssignBtn" class="btn btn-primary" onclick="bulkAssignCategory()" disabled>Add Selected to Category</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="/config.js"></script>
+  <script defer src="assets/js/script.js?v=2.5"></script>
+</body>
+</html>
+
+
+

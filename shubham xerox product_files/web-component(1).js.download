@@ -1,0 +1,2 @@
+function e(){return document?.querySelector(`script[src="${import.meta.url}"]`)?.dataset?.targetId||""}var r=`../../amazon-product-rating/v1.0/elements.js?targetId=${e()}`;import(r).catch(t=>{console.error("Failed to load elements.js",t)});
+//# sourceMappingURL=web-component.js.map
