@@ -17,7 +17,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import razorpay
-import fitz  # PyMuPDF
 from supabase import create_client, Client
 from supabase.client import ClientOptions
 import bcrypt
@@ -276,6 +275,12 @@ def _seed_admin_user() -> None:
 def compress_pdf_task(bucket: str, file_name: str):
     sb = _require_supabase()
     try:
+        try:
+            import fitz  # PyMuPDF
+        except Exception as e:
+            logger.error(f"PyMuPDF unavailable for PDF compression: {e}")
+            return
+
         logger.info(f"Downloading {file_name} from {bucket} for compression...")
         file_bytes = sb.storage.from_(bucket).download(file_name)
         
@@ -317,6 +322,8 @@ async def compress_pdf_endpoint(req: CompressPdfRequest, background_tasks: Backg
 
 @app.on_event("startup")
 async def _on_startup():
+    if os.getenv("VERCEL"):
+        return
     if supabase:
         try:
             _seed_admin_user()
@@ -985,9 +992,12 @@ import json
 
 @app.get('/', response_class=HTMLResponse)
 async def render_home(request: Request):
-    # Fetch top 10 products to inject into initial HTML
-    products_resp = await list_public_products(response=Response(), limit=10, offset=0)
-    products = products_resp.get("products", [])
+    products = []
+    try:
+        products_resp = await list_public_products(response=Response(), limit=10, offset=0)
+        products = products_resp.get("products", [])
+    except Exception as e:
+        logger.warning(f"Failed to load initial home products: {e}")
     return templates.TemplateResponse("index.html", {"request": request, "initial_products": json.dumps(products)})
 
 @app.get('/{page_name}.html', response_class=HTMLResponse)
@@ -995,8 +1005,11 @@ async def render_page(request: Request, page_name: str):
     products = []
     if page_name in ["products", "index"]:
         initial_limit = 24 if page_name == "products" else 10
-        products_resp = await list_public_products(response=Response(), limit=initial_limit, offset=0)
-        products = products_resp.get("products", [])
+        try:
+            products_resp = await list_public_products(response=Response(), limit=initial_limit, offset=0)
+            products = products_resp.get("products", [])
+        except Exception as e:
+            logger.warning(f"Failed to load initial {page_name} products: {e}")
         
     try:
         return templates.TemplateResponse(f"{page_name}.html", {"request": request, "initial_products": json.dumps(products)})
