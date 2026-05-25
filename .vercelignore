@@ -1,6 +1,14 @@
 .env
 .venv
+HTML pages
+scripts
+shubham xerox product_files
+shubham xerox product.htm
+scratch_parse_test.js
+database
 backend/venv
+backend/scripts
 backend/__pycache__
+backend/frontend/assets/js/script.js.backup
 **/__pycache__
 *.pyc

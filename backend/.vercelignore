@@ -1,5 +1,7 @@
 .env
 venv
+scripts
 __pycache__
+frontend/assets/js/script.js.backup
 **/__pycache__
 *.pyc

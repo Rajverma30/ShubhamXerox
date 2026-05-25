@@ -4,3 +4,8 @@ backend/venv/
 __pycache__/
 *.pyc
 .vercel/
+HTML pages/
+scripts/
+shubham xerox product_files/
+shubham xerox product.htm
+scratch_parse_test.js
