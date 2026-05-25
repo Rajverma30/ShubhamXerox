@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "buildCommand": "echo No build step required",
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ]
+}
