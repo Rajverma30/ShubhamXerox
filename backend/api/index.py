@@ -8,20 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 os.chdir(BACKEND_DIR)
 
-try:
-    from main import app  # noqa: E402
-except Exception as exc:  # pragma: no cover - deployment diagnostics
-    import traceback
+from main import app  # noqa: E402
 
-    from fastapi import FastAPI
-    from fastapi.responses import PlainTextResponse
-
-    app = FastAPI(title="Shubham Xerox API - startup failed")
-    STARTUP_TRACEBACK = traceback.format_exc()
-
-    @app.get("/{path:path}")
-    async def startup_failed(path: str):
-        return PlainTextResponse(
-            f"FastAPI startup failed:\n\n{STARTUP_TRACEBACK}",
-            status_code=500,
-        )
+application = app
+handler = app
