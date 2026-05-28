@@ -2471,18 +2471,20 @@ async function handleAddStationeryItem(e) {
     const imgUrlInput = document.getElementById('stationeryImageUrl').value.trim();
     const imgFile = document.getElementById('stationeryImageFile').files[0];
     const imgCompressed = await compressImageFileToDataUrl(imgFile);
+    const categoryEl = document.getElementById('stationeryCategory');
+    const category = categoryEl && categoryEl.value ? categoryEl.value : "Stationery";
     const img = imgCompressed || imgUrlInput || "https://images.unsplash.com/photo-1456086272160-b28b0645b729?auto=format&fit=crop&w=800&q=80";
     await apiFetch("/admin/products", {
       method: "POST",
-      body: { name, price, category: "Stationery", img }
+      body: { name, price, category, img }
     });
-    showToast('Stationery item added.');
+    showToast(category === "Spiral Copies" ? 'Spiral copy added.' : 'Stationery item added.');
     form.reset();
   } catch (err) {
     showToast(err.message || 'Failed to add stationery item');
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Add Stationery Item';
+    submitBtn.textContent = document.getElementById('stationeryCategory')?.value === "Spiral Copies" ? 'Add Spiral Copy' : 'Add Stationery Item';
   }
 }
 
@@ -4106,10 +4108,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('allProductsContainer') ||
     document.getElementById('productDetailContainer') ||
     document.getElementById('adminProductsList') ||
+    document.getElementById('spiralCopiesGrid') ||
     needsBooksForCategoryList
   ) {
     fetchPromise = fetchProducts().catch(e => console.error("fetchProducts error", e));
     fetchPromise.then(() => {
+      if (document.getElementById('spiralCopiesGrid') && typeof renderSpiralCopies === 'function') {
+        renderSpiralCopies();
+      }
       if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
         startBackgroundAutoFetch();
       }
@@ -5644,6 +5650,7 @@ let ceState = {
   printType: 'bw',    // 'bw' | 'color'
   copies: 1,
   sides: 'single',    // 'single' | 'double'
+  binding: 'none',    // 'none' | 'spiral' | 'pin'
   paperSize: 'a4',
   payment: 'COD',
   deliveryMode: 'delivery',
@@ -5695,7 +5702,7 @@ window.closeCostEstimatorModal = function () {
 };
 
 function ceResetState() {
-  ceState = { pages: 0, manualPages: 0, printType: 'bw', copies: 1, sides: 'single', paperSize: 'a4', payment: 'COD', totalCost: 0, fileName: '', pdfFiles: [] };
+  ceState = { pages: 0, manualPages: 0, printType: 'bw', copies: 1, sides: 'single', binding: 'none', paperSize: 'a4', payment: 'COD', deliveryMode: 'delivery', totalCost: 0, fileName: '', pdfFiles: [] };
   // Reset UI
   const steps = ['ceStepEstimate', 'ceStepOrder', 'ceStepSuccess'];
   steps.forEach(s => { const el = document.getElementById(s); if (el) el.style.display = 'none'; });
@@ -5717,7 +5724,7 @@ function ceResetState() {
   const paperSize = document.getElementById('cePaperSize');
   if (paperSize) paperSize.value = 'a4';
   // Reset toggles
-  ['ceBwBtn', 'ceColorBtn', 'ceSingleBtn', 'ceDoubleBtn', 'ceCodBtn', 'ceOnlineBtn'].forEach(id => {
+  ['ceBwBtn', 'ceColorBtn', 'ceSingleBtn', 'ceDoubleBtn', 'ceNoBindingBtn', 'ceSpiralBtn', 'cePinBtn', 'ceDeliveryBtn', 'ceCollectBtn', 'ceCodBtn', 'ceOnlineBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.classList.remove('active');
   });
@@ -5725,6 +5732,10 @@ function ceResetState() {
   if (bwBtn) bwBtn.classList.add('active');
   const singleBtn = document.getElementById('ceSingleBtn');
   if (singleBtn) singleBtn.classList.add('active');
+  const noBindingBtn = document.getElementById('ceNoBindingBtn');
+  if (noBindingBtn) noBindingBtn.classList.add('active');
+  const deliveryBtn = document.getElementById('ceDeliveryBtn');
+  if (deliveryBtn) deliveryBtn.classList.add('active');
   const codBtn = document.getElementById('ceCodBtn');
   if (codBtn) codBtn.classList.add('active');
   // Reset estimate display
@@ -5951,6 +5962,20 @@ window.setCeSides = function (side) {
   recalcEstimate();
 };
 
+window.setCeBinding = function (binding) {
+  ceState.binding = binding;
+  const ids = {
+    none: 'ceNoBindingBtn',
+    spiral: 'ceSpiralBtn',
+    pin: 'cePinBtn'
+  };
+  Object.keys(ids).forEach(option => {
+    const btn = document.getElementById(ids[option]);
+    if (btn) btn.classList.toggle('active', binding === option);
+  });
+  recalcEstimate();
+};
+
 window.changeCopies = function (delta) {
   ceState.copies = Math.max(1, ceState.copies + delta);
   document.getElementById('ceCopiesVal').textContent = ceState.copies;
@@ -5974,6 +5999,7 @@ window.recalcEstimate = function () {
   if (!ceState.pages) return;
   const paperSizeEl = document.getElementById('cePaperSize');
   if (paperSizeEl) ceState.paperSize = paperSizeEl.value;
+  const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
 
   const rate = getCeRates()[ceState.printType];
   const billablePages = ceState.pages;
@@ -5988,7 +6014,7 @@ window.recalcEstimate = function () {
 
   document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ' pages (Double-Sided discounted)' : ' pages');
   document.getElementById('ceResCopies').textContent = ceState.copies;
-  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'})`;
+  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'}) | ${bindingLabel}`;
 
   let totalDesc = `\u20B9${ceState.totalCost.toFixed(2)}`;
   if (ceState.deliveryMode === 'delivery') {
@@ -6019,7 +6045,8 @@ window.proceedToPayment = function () {
   const summaryEl = document.getElementById('ceOrderSummaryText');
   if (summaryEl) {
     const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
-    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies > 1 ? 'ies' : 'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
+    const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
+    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies > 1 ? 'ies' : 'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided | ${bindingLabel} \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
   }
 
   const ta = document.getElementById('ceCustomerAddress');
@@ -6061,6 +6088,7 @@ window.placeCopyOrder = async function (e) {
   btn.disabled = true;
   btn.textContent = 'Uploading doc & finalizing order...';
   const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
+  const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
   const orderId = 'COPY' + Date.now();
 
   // --- Upload PDF to Supabase storage ---
@@ -6113,7 +6141,7 @@ window.placeCopyOrder = async function (e) {
     copies: ceState.copies,
     print_type: ceState.printType === 'bw' ? 'B&W' : 'Colour',
     paper_size: sizeLabel[ceState.paperSize] || ceState.paperSize,
-    sides: ceState.sides === 'double' ? 'Double-sided' : 'Single-sided',
+    sides: `${ceState.sides === 'double' ? 'Double-sided' : 'Single-sided'} | ${bindingLabel}`,
     delivery_mode: ceState.deliveryMode,
     total_cost: ceState.totalCost,
     payment_method: ceState.payment,
@@ -6700,6 +6728,76 @@ function updateHeroRates() {
 document.addEventListener('DOMContentLoaded', updateHeroRates);
 
 
+// --- Spiral Copies Page ---
+const defaultSpiralCopies = [
+  { id: 'spiral-10-50', name: 'Spiral Copy 10-50 Pages', price: 50, category: 'Spiral Copies', pagesMin: 10, pagesMax: 50, img: 'images/about-books.png' },
+  { id: 'spiral-51-100', name: 'Spiral Copy 50-100 Pages', price: 80, category: 'Spiral Copies', pagesMin: 51, pagesMax: 100, img: 'images/about-books.png' },
+  { id: 'spiral-101-150', name: 'Spiral Copy 100-150 Pages', price: 110, category: 'Spiral Copies', pagesMin: 101, pagesMax: 150, img: 'images/about-books.png' },
+  { id: 'spiral-151-200', name: 'Spiral Copy 150-200 Pages', price: 140, category: 'Spiral Copies', pagesMin: 151, pagesMax: 200, img: 'images/about-books.png' },
+  { id: 'spiral-201-250', name: 'Spiral Copy 200-250 Pages', price: 170, category: 'Spiral Copies', pagesMin: 201, pagesMax: 250, img: 'images/about-books.png' },
+  { id: 'spiral-251-300', name: 'Spiral Copy 250-300 Pages', price: 200, category: 'Spiral Copies', pagesMin: 251, pagesMax: 300, img: 'images/about-books.png' },
+  { id: 'spiral-301-350', name: 'Spiral Copy 300-350 Pages', price: 230, category: 'Spiral Copies', pagesMin: 301, pagesMax: 350, img: 'images/about-books.png' },
+  { id: 'spiral-351-400', name: 'Spiral Copy 350-400 Pages', price: 260, category: 'Spiral Copies', pagesMin: 351, pagesMax: 400, img: 'images/about-books.png' },
+  { id: 'spiral-401-450', name: 'Spiral Copy 400-450 Pages', price: 290, category: 'Spiral Copies', pagesMin: 401, pagesMax: 450, img: 'images/about-books.png' },
+  { id: 'spiral-451-500', name: 'Spiral Copy 450-500 Pages', price: 320, category: 'Spiral Copies', pagesMin: 451, pagesMax: 500, img: 'images/about-books.png' }
+];
+
+function getSpiralCopies() {
+  const added = (products || []).filter(p => p.category === 'Spiral Copies');
+  if (!added.length) return defaultSpiralCopies;
+  return [...added, ...defaultSpiralCopies].map((p, index) => ({
+    ...p,
+    id: p.id || `spiral-added-${index}`,
+    img: p.img || 'images/about-books.png'
+  }));
+}
+
+window.addSpiralCopyToCart = function (productId) {
+  const item = getSpiralCopies().find(p => String(p.id) === String(productId));
+  if (!item) return;
+  const existingItem = cart.find(p => String(p.id) === String(item.id));
+  if (existingItem) existingItem.quantity += 1;
+  else cart.push({ ...item, quantity: 1 });
+  saveCart();
+  showToast(`${item.name} added to cart!`);
+};
+
+window.renderSpiralCopies = function (range = 'all') {
+  const grid = document.getElementById('spiralCopiesGrid');
+  if (!grid) return;
+  const [min, max] = range === 'all' ? [0, Infinity] : range.split('-').map(Number);
+  const visible = getSpiralCopies().filter(item => {
+    const itemMin = Number(item.pagesMin) || parseInt(String(item.name || '').match(/\d+/)?.[0] || '0', 10);
+    const itemMax = Number(item.pagesMax) || itemMin;
+    return range === 'all' || (itemMax >= min && itemMin <= max);
+  });
+  grid.innerHTML = visible.map(item => `
+    <article class="product-card">
+      <div class="product-image-container">
+        <img src="${item.img}" alt="${item.name}" class="product-image" loading="lazy">
+      </div>
+      <div class="product-info">
+        <h3 class="product-title">${item.name}</h3>
+        <div class="product-price">${formatPrice(Number(item.price) || 0)}</div>
+        <button class="btn btn-primary" style="width:100%; margin-top:14px;" onclick="addSpiralCopyToCart('${item.id}')">Add to Cart</button>
+      </div>
+    </article>
+  `).join('');
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const grid = document.getElementById('spiralCopiesGrid');
+  if (!grid) return;
+  renderSpiralCopies();
+  document.querySelectorAll('.spiral-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.spiral-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderSpiralCopies(btn.dataset.range || 'all');
+    });
+  });
+});
+
 
 // --- Render Dynamic Home Categories ---
 function renderHomeDynamicCategories() {
@@ -6707,7 +6805,7 @@ function renderHomeDynamicCategories() {
   if (!container) return;
 
   // Exclude some base categories that might already be in the grid, or show all
-  const excluded = ['Stationery', 'Combos'];
+  const excluded = ['Stationery', 'Spiral Copies', 'Combos'];
   let catsToShow = siteCategories.filter(c => !excluded.includes(c));
 
   // Sort categories: ones with an explicitly set image come first

@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Add Combo Deal | Admin</title>
+  <title>Add Spiral Copy | Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="icon" type="image/png" href="images/logo.png">
 </head>
-<body style="background-color: var(--bg-color);">
+<body style="background-color:var(--bg-color);">
   <nav class="navbar">
     <div class="container">
       <a href="index.html" class="logo" style="display:flex; flex-direction:column; gap:2px; padding:4px 0;">
         <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
         <span style="font-size:0.75rem; letter-spacing:1px; color:var(--text-main); font-weight:800; margin-top:-6px;">SHUBHAM XEROX</span>
       </a>
-      <div class="nav-links" id="adminNavLinks" style="display: none;">
+      <div class="nav-links" id="adminNavLinks" style="display:none;">
         <a href="admin.html">Dashboard</a>
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-trigger">Quick Add</button>
@@ -45,7 +45,7 @@
             <a href="admin-returns.html">Returned orders</a>
           </div>
         </div>
-        <a href="admin-chat.html" style="color: #44bd32; font-weight: 600;">Chat</a>
+        <a href="admin-chat.html" style="color:#44bd32; font-weight:600;">Chat</a>
         <a href="#" onclick="logout()">Logout</a>
       </div>
       <div class="nav-icons"></div>
@@ -53,38 +53,30 @@
   </nav>
 
   <main class="section" style="padding-top:40px; min-height:80vh;">
-    <div class="container" style="max-width:900px;">
+    <div class="container" style="max-width:700px;">
       <div class="admin-card">
-        <h1 style="font-size:1.45rem; margin-bottom:16px;">Add Combo Deal</h1>
-        <p style="color:var(--text-muted); margin-bottom:18px;">Select existing books and add manual items as needed (2, 4, or any quantity).</p>
-        <form id="adminComboForm">
+        <h1 style="font-size:1.45rem; margin-bottom:16px;">Add Spiral Copy</h1>
+        <p style="color:var(--text-muted); margin-bottom:18px;">Add a ready spiral copy item to the Spiral Copies category.</p>
+        <form id="adminStationeryForm">
+          <input type="hidden" id="stationeryCategory" value="Spiral Copies">
           <div class="form-group">
-            <label for="comboName">Combo Name</label>
-            <input type="text" id="comboName" class="form-control" required placeholder="e.g. MPPSC Starter Combo">
+            <label for="stationeryName">Copy Name</label>
+            <input type="text" id="stationeryName" class="form-control" required placeholder="e.g. Spiral Copy 100 Pages">
           </div>
           <div class="form-group">
-            <label for="comboPrice">Combo Price (₹)</label>
-            <input type="number" id="comboPrice" class="form-control" min="0" step="0.01" required placeholder="499">
+            <label for="stationeryPrice">Selling Price (&#8377;)</label>
+            <input type="number" id="stationeryPrice" class="form-control" min="0" step="0.01" required placeholder="80">
           </div>
           <div class="form-group">
-            <label>Select Existing Books (optional)</label>
-            <div id="comboBooksList" style="max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:8px; padding:10px;"></div>
+            <label for="stationeryImageFile">Photo</label>
+            <input type="file" id="stationeryImageFile" class="form-control" accept="image/*">
           </div>
+          <div style="text-align:center; margin:10px 0; color:var(--text-muted);">OR</div>
           <div class="form-group">
-            <label>Manual Combo Items (optional)</label>
-            <div id="comboManualItems"></div>
-            <button type="button" class="btn btn-secondary" id="addComboManualItemBtn" style="margin-top:10px;">+ Add Manual Item</button>
+            <label for="stationeryImageUrl">Image URL</label>
+            <input type="url" id="stationeryImageUrl" class="form-control" placeholder="https://...">
           </div>
-          <div class="form-group">
-            <label for="comboImageFile">Combo Photo</label>
-            <input type="file" id="comboImageFile" class="form-control" accept="image/*">
-          </div>
-          <div style="text-align:center; margin: 10px 0; color:var(--text-muted);">OR</div>
-          <div class="form-group">
-            <label for="comboImageUrl">Image URL</label>
-            <input type="url" id="comboImageUrl" class="form-control" placeholder="https://...">
-          </div>
-          <button type="submit" class="btn btn-primary" style="width:100%; margin-top:12px;">Add Combo Deal</button>
+          <button type="submit" class="btn btn-primary" style="width:100%; margin-top:12px;">Add Spiral Copy</button>
         </form>
       </div>
     </div>
@@ -95,6 +87,3 @@
   <script defer src="assets/js/script.js?v=2.5"></script>
 </body>
 </html>
-
-
-

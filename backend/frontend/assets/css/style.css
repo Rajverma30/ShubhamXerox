@@ -123,6 +123,31 @@ button {
   max-width: 760px;
 }
 
+.spiral-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.spiral-filter {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text-main);
+  padding: 9px 14px;
+  font-weight: 700;
+  min-width: 78px;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.spiral-filter:hover,
+.spiral-filter.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
 /* --- Navigation --- */
 .navbar {
   position: sticky;
