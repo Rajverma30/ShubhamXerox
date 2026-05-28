@@ -1519,6 +1519,34 @@ async function uploadPdfToAvailableBucket(supabase, file, pathPrefix) {
   throw new Error(errors.join(' | ') || 'PDF upload failed.');
 }
 
+async function uploadBookPdfAttachment(file, { name, pdfType, pdfPrice }) {
+  const params = new URLSearchParams({
+    filename: file.name || 'book.pdf',
+    title: name,
+    pdf_type: pdfType || 'free',
+    price: String(Number.isFinite(Number(pdfPrice)) ? Number(pdfPrice) : 0)
+  });
+  const headers = { 'Content-Type': file.type || 'application/pdf' };
+  const token = getAuthToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE}/admin/book-pdf?${params.toString()}`, {
+    method: 'POST',
+    headers,
+    body: file
+  });
+  const text = await response.text();
+  let res = null;
+  try { res = text ? JSON.parse(text) : null; } catch (e) { res = null; }
+  if (!response.ok) {
+    const detail = (res && (res.detail || res.message)) || text || `PDF upload failed (${response.status})`;
+    throw new Error(detail);
+  }
+  if (!res?.free_note_id) {
+    throw new Error('PDF uploaded, but note link was not returned.');
+  }
+  return res;
+}
+
 function removeFromCart(productId) {
   const id = String(productId);
   cart = cart.filter(item => String(item.id) !== id);
@@ -2685,38 +2713,9 @@ async function handleAddProduct(e) {
         let pdfWarning = '';
         if (previewPdfFile) {
           if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Uploading PDF...</span>';
-          const supabase = getSupabase();
           try {
-            const upload = await uploadPdfToAvailableBucket(supabase, previewPdfFile, 'book-attachments');
-            fetch(window.API_BASE_URL + "/compress-pdf", {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ bucket: upload.bucket, file_name: upload.fileName })
-            }).catch(e => console.error(e));
-
-            const isPaid = pdfType === 'paid';
-            let notePayload = {
-              title: name,
-              file_url: upload.publicUrl,
-              is_paid: isPaid,
-              price: isPaid ? pdfPrice : 0
-            };
-            let { data: noteData, error: dbError } = await supabase.from('free_notes').insert(notePayload).select().single();
-
-            if (dbError && dbError.message && dbError.message.includes('is_paid')) {
-              delete notePayload.is_paid;
-              delete notePayload.price;
-              const retry = await supabase.from('free_notes').insert(notePayload).select().single();
-              noteData = retry.data;
-              dbError = retry.error;
-            }
-
-            if (!dbError && noteData) {
-              payload.free_note_id = noteData.id;
-            } else {
-              console.error("Failed to insert free_note:", dbError);
-              pdfWarning = "PDF uploaded, but failed to link to database.";
-            }
+            const upload = await uploadBookPdfAttachment(previewPdfFile, { name, pdfType, pdfPrice });
+            payload.free_note_id = upload.free_note_id;
           } catch (pdfErr) {
             console.error("PDF upload/link error:", pdfErr);
             pdfWarning = `PDF attach failed: ${pdfErr.message || pdfErr}`;

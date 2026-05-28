@@ -155,7 +155,7 @@ class AdminProductUpsert(BaseModel):
     img: Optional[str] = None
     desc: Optional[str] = Field(default=None, alias="desc")
     exam: Optional[str] = None
-    free_note_id: Optional[str] = None
+    free_note_id: Optional[Any] = None
 
 class BulkDeleteRequest(BaseModel):
     product_ids: List[int]
@@ -232,6 +232,65 @@ def _require_supabase() -> Client:
         raise HTTPException(status_code=500, detail="Supabase not configured")
     return supabase
 
+def _supabase_storage_base_url() -> str:
+    base_url = str(SUPABASE_URL or "").rstrip("/")
+    if not base_url or not SUPABASE_KEY:
+        raise HTTPException(status_code=500, detail="Supabase storage not configured")
+    return base_url
+
+def _supabase_storage_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
+    if extra:
+        headers.update(extra)
+    return headers
+
+def _ensure_storage_bucket(bucket: str) -> None:
+    base_url = _supabase_storage_base_url()
+    bucket_id = quote(bucket, safe="")
+    get_res = requests.get(
+        f"{base_url}/storage/v1/bucket/{bucket_id}",
+        headers=_supabase_storage_headers(),
+        timeout=20,
+    )
+    if get_res.status_code == 200:
+        return
+    if get_res.status_code != 404:
+        raise HTTPException(status_code=500, detail=f"Storage bucket check failed: {get_res.text}")
+
+    create_res = requests.post(
+        f"{base_url}/storage/v1/bucket",
+        headers=_supabase_storage_headers({"Content-Type": "application/json"}),
+        json={"id": bucket, "name": bucket, "public": True, "file_size_limit": 104857600},
+        timeout=20,
+    )
+    if create_res.status_code not in (200, 201, 409):
+        raise HTTPException(status_code=500, detail=f"Storage bucket create failed: {create_res.text}")
+
+def _upload_storage_bytes(bucket: str, file_name: str, file_bytes: bytes, content_type: str) -> str:
+    _ensure_storage_bucket(bucket)
+    base_url = _supabase_storage_base_url()
+    object_path = quote(file_name, safe="/")
+    upload_res = requests.post(
+        f"{base_url}/storage/v1/object/{quote(bucket, safe='')}/{object_path}",
+        headers=_supabase_storage_headers({
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        }),
+        data=file_bytes,
+        timeout=120,
+    )
+    if upload_res.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=f"Storage upload failed: {upload_res.text}")
+    return f"{base_url}/storage/v1/object/public/{quote(bucket, safe='')}/{object_path}"
+
+def _safe_storage_filename(filename: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", filename or "book.pdf").strip("._")
+    if not safe.lower().endswith(".pdf"):
+        safe = f"{safe or 'book'}.pdf"
+    return safe
 
 otp_rate_limiter = PerPhoneRateLimiter(max_events=OTP_RATE_LIMIT_PER_MINUTE, window_seconds=60)
 
@@ -318,6 +377,74 @@ async def compress_pdf_endpoint(req: CompressPdfRequest, background_tasks: Backg
     # Non-blocking endpoint to trigger compression
     background_tasks.add_task(compress_pdf_task, req.bucket, req.file_name)
     return {"status": "ok", "message": "Compression task started"}
+
+@app.post("/admin/book-pdf")
+async def admin_upload_book_pdf(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    filename: str,
+    title: str,
+    pdf_type: str = "free",
+    price: float = 0,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
+    sb = _require_supabase()
+    file_bytes = await request.body()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="PDF file is empty")
+    if len(file_bytes) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF file is too large")
+    if not file_bytes.startswith(b"%PDF"):
+        logger.warning("Book PDF upload does not start with PDF magic bytes: %s", filename)
+
+    safe_name = _safe_storage_filename(filename)
+    file_name = f"book-attachments/{int(time.time())}_{random.randint(100000, 999999)}_{safe_name}"
+    bucket_errors: List[str] = []
+    upload_bucket = ""
+    public_url = ""
+
+    for bucket in ["free-notes", "products"]:
+        try:
+            public_url = _upload_storage_bytes(bucket, file_name, file_bytes, "application/pdf")
+            upload_bucket = bucket
+            break
+        except HTTPException as e:
+            bucket_errors.append(f"{bucket}: {e.detail}")
+            continue
+
+    if not public_url:
+        raise HTTPException(status_code=500, detail=" | ".join(bucket_errors) or "PDF upload failed")
+
+    is_paid = (pdf_type or "free").lower() == "paid"
+    note_payload: Dict[str, Any] = {
+        "title": title,
+        "file_url": public_url,
+        "is_paid": is_paid,
+        "price": float(price or 0) if is_paid else 0,
+    }
+    note_data = None
+    try:
+        note_res = sb.table("free_notes").insert(note_payload).execute()
+        note_data = (note_res.data or [None])[0] if isinstance(note_res.data, list) else note_res.data
+    except Exception as e:
+        if "is_paid" not in str(e):
+            raise HTTPException(status_code=500, detail=f"PDF uploaded, but database link failed: {e}")
+        note_payload.pop("is_paid", None)
+        note_payload.pop("price", None)
+        note_res = sb.table("free_notes").insert(note_payload).execute()
+        note_data = (note_res.data or [None])[0] if isinstance(note_res.data, list) else note_res.data
+
+    if not note_data or not note_data.get("id"):
+        raise HTTPException(status_code=500, detail="PDF uploaded, but database link failed")
+
+    background_tasks.add_task(compress_pdf_task, upload_bucket, file_name)
+    return {
+        "bucket": upload_bucket,
+        "file_name": file_name,
+        "public_url": public_url,
+        "note": note_data,
+        "free_note_id": note_data.get("id"),
+    }
 
 
 @app.on_event("startup")
