@@ -254,24 +254,31 @@ def _supabase_storage_headers(extra: Optional[Dict[str, str]] = None) -> Dict[st
 def _ensure_storage_bucket(bucket: str) -> None:
     base_url = _supabase_storage_base_url()
     bucket_id = quote(bucket, safe="")
-    get_res = requests.get(
-        f"{base_url}/storage/v1/bucket/{bucket_id}",
-        headers=_supabase_storage_headers(),
-        timeout=20,
-    )
-    if get_res.status_code == 200:
-        return
-    if get_res.status_code != 404:
-        raise HTTPException(status_code=500, detail=f"Storage bucket check failed: {get_res.text}")
+    try:
+        get_res = requests.get(
+            f"{base_url}/storage/v1/bucket/{bucket_id}",
+            headers=_supabase_storage_headers(),
+            timeout=20,
+        )
+        if get_res.status_code == 200:
+            return
 
-    create_res = requests.post(
-        f"{base_url}/storage/v1/bucket",
-        headers=_supabase_storage_headers({"Content-Type": "application/json"}),
-        json={"id": bucket, "name": bucket, "public": True, "file_size_limit": 104857600},
-        timeout=20,
-    )
-    if create_res.status_code not in (200, 201, 409):
-        raise HTTPException(status_code=500, detail=f"Storage bucket create failed: {create_res.text}")
+        logger.info(f"Bucket '{bucket}' check returned status {get_res.status_code}. Attempting to create bucket...")
+        create_res = requests.post(
+            f"{base_url}/storage/v1/bucket",
+            headers=_supabase_storage_headers({"Content-Type": "application/json"}),
+            json={"id": bucket, "name": bucket, "public": True, "file_size_limit": 104857600},
+            timeout=20,
+        )
+        if create_res.status_code in (200, 201, 409):
+            logger.info(f"Bucket '{bucket}' ensured (status {create_res.status_code}).")
+            return
+        else:
+            logger.warning(f"Storage bucket create returned {create_res.status_code}: {create_res.text}. Continuing anyway.")
+    except Exception as e:
+        logger.warning(f"Failed to ensure storage bucket '{bucket}': {e}. Continuing anyway.")
+
+
 
 def _upload_storage_bytes(bucket: str, file_name: str, file_bytes: bytes, content_type: str) -> str:
     _ensure_storage_bucket(bucket)
