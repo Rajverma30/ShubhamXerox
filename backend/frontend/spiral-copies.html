@@ -39,18 +39,24 @@
       <h1 class="section-title" style="text-align:left; margin-bottom:10px;">Spiral Copies</h1>
       <p class="section-subtitle" style="text-align:left; margin:0 0 22px 0;">Choose spiral copy bundles by page range.</p>
 
-      <div class="spiral-filter-bar" role="group" aria-label="Filter spiral copies by page range">
-        <button class="spiral-filter active" data-range="all">All</button>
-        <button class="spiral-filter" data-range="10-50">10-50</button>
-        <button class="spiral-filter" data-range="51-100">50-100</button>
-        <button class="spiral-filter" data-range="101-150">100-150</button>
-        <button class="spiral-filter" data-range="151-200">150-200</button>
-        <button class="spiral-filter" data-range="201-250">200-250</button>
-        <button class="spiral-filter" data-range="251-300">250-300</button>
-        <button class="spiral-filter" data-range="301-350">300-350</button>
-        <button class="spiral-filter" data-range="351-400">350-400</button>
-        <button class="spiral-filter" data-range="401-450">400-450</button>
-        <button class="spiral-filter" data-range="451-500">450-500</button>
+      <div class="spiral-filter-wrap">
+        <button type="button" id="spiralFilterToggle" class="spiral-filter-toggle" aria-expanded="false" aria-controls="spiralFilterMenu">
+          <span>Pages: <strong id="spiralActiveFilterLabel">All</strong></span>
+          <span class="spiral-filter-caret" aria-hidden="true"></span>
+        </button>
+        <div id="spiralFilterMenu" class="spiral-filter-menu" role="group" aria-label="Filter spiral copies by page range">
+          <button type="button" class="spiral-filter active" data-range="all">All</button>
+          <button type="button" class="spiral-filter" data-range="10-50">10-50</button>
+          <button type="button" class="spiral-filter" data-range="51-100">50-100</button>
+          <button type="button" class="spiral-filter" data-range="101-150">100-150</button>
+          <button type="button" class="spiral-filter" data-range="151-200">150-200</button>
+          <button type="button" class="spiral-filter" data-range="201-250">200-250</button>
+          <button type="button" class="spiral-filter" data-range="251-300">250-300</button>
+          <button type="button" class="spiral-filter" data-range="301-350">300-350</button>
+          <button type="button" class="spiral-filter" data-range="351-400">350-400</button>
+          <button type="button" class="spiral-filter" data-range="401-450">400-450</button>
+          <button type="button" class="spiral-filter" data-range="451-500">450-500</button>
+        </div>
       </div>
 
       <div class="product-grid" id="spiralCopiesGrid"></div>

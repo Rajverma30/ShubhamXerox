@@ -560,8 +560,8 @@
           <div class="ce-option-group">
             <label class="ce-option-label">Print Type</label>
             <div class="ce-toggle-group">
-              <button id="ceBwBtn" class="ce-toggle active" onclick="setCePrintType('bw')">B&amp;W</button>
-              <button id="ceColorBtn" class="ce-toggle" onclick="setCePrintType('color')">Colour</button>
+              <button type="button" id="ceBwBtn" class="ce-toggle active" onclick="setCePrintType('bw')">B&amp;W</button>
+              <button type="button" id="ceColorBtn" class="ce-toggle" onclick="setCePrintType('color')">Colour</button>
             </div>
           </div>
           <!-- Paper Size -->
@@ -578,34 +578,34 @@
           <div class="ce-option-group">
             <label class="ce-option-label">No. of Copies</label>
             <div class="ce-counter">
-              <button class="ce-counter-btn" onclick="changeCopies(-1)">&minus;</button>
+              <button type="button" class="ce-counter-btn" onclick="changeCopies(-1)">&minus;</button>
               <span id="ceCopiesVal">1</span>
-              <button class="ce-counter-btn" onclick="changeCopies(1)">+</button>
+              <button type="button" class="ce-counter-btn" onclick="changeCopies(1)">+</button>
             </div>
           </div>
           <!-- Sides -->
           <div class="ce-option-group">
             <label class="ce-option-label">Print Sides</label>
             <div class="ce-toggle-group">
-              <button id="ceSingleBtn" class="ce-toggle active" onclick="setCeSides('single')">Single</button>
-              <button id="ceDoubleBtn" class="ce-toggle" onclick="setCeSides('double')">Double</button>
+              <button type="button" id="ceSingleBtn" class="ce-toggle active" onclick="setCeSides('single')">Single</button>
+              <button type="button" id="ceDoubleBtn" class="ce-toggle" onclick="setCeSides('double')">Double</button>
             </div>
           </div>
           <!-- Binding -->
           <div class="ce-option-group">
             <label class="ce-option-label">Binding</label>
             <div class="ce-toggle-group">
-              <button id="ceNoBindingBtn" class="ce-toggle active" onclick="setCeBinding('none')">None</button>
-              <button id="ceSpiralBtn" class="ce-toggle" onclick="setCeBinding('spiral')">Spiral</button>
-              <button id="cePinBtn" class="ce-toggle" onclick="setCeBinding('pin')">Pin</button>
+              <button type="button" id="ceNoBindingBtn" class="ce-toggle active" onclick="setCeBinding('none')">None</button>
+              <button type="button" id="ceSpiralBtn" class="ce-toggle" onclick="setCeBinding('spiral')">Spiral</button>
+              <button type="button" id="cePinBtn" class="ce-toggle" onclick="setCeBinding('pin')">Pin</button>
             </div>
           </div>
           <!-- Delivery Mode -->
           <div class="ce-option-group">
             <label class="ce-option-label">Receive Method</label>
             <div class="ce-toggle-group">
-              <button id="ceDeliveryBtn" class="ce-toggle active" onclick="setCeDelivery('delivery')">Delivery</button>
-              <button id="ceCollectBtn" class="ce-toggle" onclick="setCeDelivery('collect')">Collect at Shop</button>
+              <button type="button" id="ceDeliveryBtn" class="ce-toggle active" onclick="setCeDelivery('delivery')">Delivery</button>
+              <button type="button" id="ceCollectBtn" class="ce-toggle" onclick="setCeDelivery('collect')">Collect at Shop</button>
             </div>
           </div>
         </div>
@@ -652,18 +652,9 @@
             <textarea id="ceCustomerAddress" class="form-control" rows="3" required
               placeholder="Shop pickup or full delivery address"></textarea>
           </div>
-          <div class="form-group" style="margin-bottom:14px;">
-            <label class="ce-option-label">Payment Method</label>
-            <div class="ce-toggle-group">
-              <button type="button" id="ceCodBtn" class="ce-toggle active" onclick="setCePayment('COD')">Cash at
-                Shop</button>
-              <button type="button" id="ceOnlineBtn" class="ce-toggle" onclick="setCePayment('Online')">Pay
-                Online</button>
-            </div>
-          </div>
           <button type="submit" id="cePlaceOrderBtn" class="btn btn-primary"
             style="width:100%; padding:14px; font-size:1rem; margin-top:8px;">
-            Place Photocopy Order
+            Pay Online &amp; Place Photocopy Order
           </button>
         </form>
       </div>

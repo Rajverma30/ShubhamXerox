@@ -69,18 +69,14 @@
 
             <div class="radio-group">
               <label class="radio-label">
-                <input type="radio" name="payment" value="Online" required>
+                <input type="radio" name="payment" value="Online" checked required>
                 <span>Pay Online (UPI / Card)</span>
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="payment" value="COD" required>
-                <span>Cash on Delivery</span>
               </label>
             </div>
 
             <div
               style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
-              <button type="submit" class="btn btn-primary" style="padding: 16px 32px; width:100%;">Place Order</button>
+              <button type="submit" class="btn btn-primary" style="padding: 16px 32px; width:100%;">Pay Online &amp; Place Order</button>
             </div>
           </div>
         </form>
@@ -94,16 +90,16 @@
           <div style="border-top: 1px solid var(--border-color); margin-top: 20px; padding-top: 16px;">
             <div class="checkout-item" style="color: var(--text-muted);">
               <span>Subtotal</span>
-              <span id="checkoutSubtotal">â‚¹0.00</span>
+              <span id="checkoutSubtotal">&#8377;0.00</span>
             </div>
             <div class="checkout-item" style="color: var(--text-muted);">
               <span>Delivery Charge</span>
-              <span>â‚¹70.00</span>
+              <span>&#8377;70.00</span>
             </div>
             <div class="checkout-item"
               style="font-size: 1.25rem; font-weight: 700; margin-top: 16px; color: var(--text-main);">
               <span>Total</span>
-              <span id="checkoutTotal">â‚¹0.00</span>
+              <span id="checkoutTotal">&#8377;0.00</span>
             </div>
           </div>
         </aside>

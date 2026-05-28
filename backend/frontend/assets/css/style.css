@@ -123,11 +123,54 @@ button {
   max-width: 760px;
 }
 
-.spiral-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.spiral-filter-wrap {
+  position: relative;
+  display: inline-block;
   margin-bottom: 24px;
+  z-index: 5;
+}
+
+.spiral-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 190px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text-main);
+  padding: 11px 14px;
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+
+.spiral-filter-caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+  opacity: 0.7;
+}
+
+.spiral-filter-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  display: none;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 8px;
+  width: min(330px, calc(100vw - 40px));
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--dropdown-bg);
+  box-shadow: var(--shadow-lg);
+}
+
+.spiral-filter-wrap.is-open .spiral-filter-menu {
+  display: grid;
 }
 
 .spiral-filter {

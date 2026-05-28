@@ -33,6 +33,7 @@ function getSupabase() {
 const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
 const DELIVERY_FEE = 70;
+const CE_BINDING_FEES = { none: 0, spiral: 30, pin: 20 };
 const API_BASE = window.API_BASE_URL || (
   window.location.protocol === "http:" || window.location.protocol === "https:"
     ? window.location.origin
@@ -1658,7 +1659,7 @@ async function handleCheckout(e) {
   const pincode = pinEl ? pinEl.value.trim() : '';
   const cityPinLine = [city, pincode].filter(Boolean).join(', ');
   const address = [street, cityPinLine].filter(Boolean).join('\n');
-  const paymentMethod = document.querySelector('input[name="payment"]:checked').value;
+  const paymentMethod = "Online";
 
   const orderData = {
     id: "ORD" + Date.now(),
@@ -1672,58 +1673,27 @@ async function handleCheckout(e) {
     date: new Date().toLocaleString()
   };
 
-  if (paymentMethod === "Online") {
-    const btn = document.querySelector('button[type="submit"]');
-    if (btn) { btn.disabled = true; btn.textContent = 'Processing Secure Payment...'; }
+  const btn = document.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing Secure Payment...'; }
 
-    processSecureRazorpayPayment(orderData.total, orderData, 'books', (success, txnId) => {
-      if (success) {
-        // Clear cart since backend successfully inserted the row
-        cart = [];
-        saveCart();
-        const cityEl = document.getElementById('city');
-        const pinEl = document.getElementById('pincode');
-        saveSavedDeliveryDetails({
-          street: orderData.address,
-          city: cityEl ? cityEl.value.trim() : '',
-          pincode: pinEl ? pinEl.value.trim() : ''
-        });
-        sessionStorage.setItem("orderBanner", "success");
-        window.location.href = "my-orders.html";
-      } else {
-        if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
-      }
-    });
-
-  } else {
-    // Standard COD bypasses Python API, inserting directly via JS client
-    completeOrder(orderData, false);
-  }
-}
-
-async function completeOrder(orderData) {
-  try {
-    await apiFetch("/create-cod-order", {
-      method: "POST",
-      body: { order_data: orderData, order_type: "books" }
-    });
-  } catch (e) {
-    console.error("Failed to place COD order via API:", e);
-    // Silent fail fallback or alert? Let's just proceed.
-  }
-  const cityEl = document.getElementById('city');
-  const pinEl = document.getElementById('pincode');
-  saveSavedDeliveryDetails({
-    street: orderData.address,
-    city: cityEl ? cityEl.value.trim() : '',
-    pincode: pinEl ? pinEl.value.trim() : ''
+  processSecureRazorpayPayment(orderData.total, orderData, 'books', (success, txnId) => {
+    if (success) {
+      cart = [];
+      saveCart();
+      const cityEl = document.getElementById('city');
+      const pinEl = document.getElementById('pincode');
+      saveSavedDeliveryDetails({
+        street: orderData.address,
+        city: cityEl ? cityEl.value.trim() : '',
+        pincode: pinEl ? pinEl.value.trim() : ''
+      });
+      sessionStorage.setItem("orderBanner", "success");
+      window.location.href = "my-orders.html";
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Pay Online & Place Order'; }
+    }
   });
-  cart = [];
-  saveCart();
-  sessionStorage.setItem("orderBanner", "cod");
-  window.location.href = "my-orders.html";
 }
-
 
 // --- Rendering Data UI ---
 const DEFAULT_BOOK_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='260' viewBox='0 0 200 260'><rect width='200' height='260' fill='%23f3f4f6'/><path d='M40 40h120v180H40z' fill='%23e5e7eb'/><rect x='60' y='60' width='80' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='90' width='60' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='120' width='70' height='15' fill='%23d1d5db' rx='4'/></svg>`;
@@ -2473,10 +2443,19 @@ async function handleAddStationeryItem(e) {
     const imgCompressed = await compressImageFileToDataUrl(imgFile);
     const categoryEl = document.getElementById('stationeryCategory');
     const category = categoryEl && categoryEl.value ? categoryEl.value : "Stationery";
+    const spiralPagesEl = document.getElementById('spiralPages');
+    const spiralPages = spiralPagesEl ? parseInt(spiralPagesEl.value, 10) : 0;
+    if (category === "Spiral Copies" && (!Number.isFinite(spiralPages) || spiralPages <= 0)) {
+      throw new Error('Please enter spiral copy pages.');
+    }
     const img = imgCompressed || imgUrlInput || "https://images.unsplash.com/photo-1456086272160-b28b0645b729?auto=format&fit=crop&w=800&q=80";
+    const body = { name, price, category, img };
+    if (category === "Spiral Copies") {
+      body.desc = `Pages: ${spiralPages}`;
+    }
     await apiFetch("/admin/products", {
       method: "POST",
-      body: { name, price, category, img }
+      body
     });
     showToast(category === "Spiral Copies" ? 'Spiral copy added.' : 'Stationery item added.');
     form.reset();
@@ -4403,7 +4382,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  if (path.includes('admin-add-stationery')) {
+  if (path.includes('admin-add-stationery') || path.includes('admin-add-spiral')) {
     checkAdminAccess();
     const form = document.getElementById('adminStationeryForm');
     if (form) form.addEventListener('submit', handleAddStationeryItem);
@@ -5652,7 +5631,7 @@ let ceState = {
   sides: 'single',    // 'single' | 'double'
   binding: 'none',    // 'none' | 'spiral' | 'pin'
   paperSize: 'a4',
-  payment: 'COD',
+  payment: 'Online',
   deliveryMode: 'delivery',
   totalCost: 0,
   fileName: '',
@@ -5702,7 +5681,7 @@ window.closeCostEstimatorModal = function () {
 };
 
 function ceResetState() {
-  ceState = { pages: 0, manualPages: 0, printType: 'bw', copies: 1, sides: 'single', binding: 'none', paperSize: 'a4', payment: 'COD', deliveryMode: 'delivery', totalCost: 0, fileName: '', pdfFiles: [] };
+  ceState = { pages: 0, manualPages: 0, printType: 'bw', copies: 1, sides: 'single', binding: 'none', paperSize: 'a4', payment: 'Online', deliveryMode: 'delivery', totalCost: 0, fileName: '', pdfFiles: [] };
   // Reset UI
   const steps = ['ceStepEstimate', 'ceStepOrder', 'ceStepSuccess'];
   steps.forEach(s => { const el = document.getElementById(s); if (el) el.style.display = 'none'; });
@@ -5724,7 +5703,7 @@ function ceResetState() {
   const paperSize = document.getElementById('cePaperSize');
   if (paperSize) paperSize.value = 'a4';
   // Reset toggles
-  ['ceBwBtn', 'ceColorBtn', 'ceSingleBtn', 'ceDoubleBtn', 'ceNoBindingBtn', 'ceSpiralBtn', 'cePinBtn', 'ceDeliveryBtn', 'ceCollectBtn', 'ceCodBtn', 'ceOnlineBtn'].forEach(id => {
+  ['ceBwBtn', 'ceColorBtn', 'ceSingleBtn', 'ceDoubleBtn', 'ceNoBindingBtn', 'ceSpiralBtn', 'cePinBtn', 'ceDeliveryBtn', 'ceCollectBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.classList.remove('active');
   });
@@ -5736,8 +5715,6 @@ function ceResetState() {
   if (noBindingBtn) noBindingBtn.classList.add('active');
   const deliveryBtn = document.getElementById('ceDeliveryBtn');
   if (deliveryBtn) deliveryBtn.classList.add('active');
-  const codBtn = document.getElementById('ceCodBtn');
-  if (codBtn) codBtn.classList.add('active');
   // Reset estimate display
   ['ceResPages', 'ceResCopies', 'ceResRate'].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = '\u2013';
@@ -5982,10 +5959,8 @@ window.changeCopies = function (delta) {
   recalcEstimate();
 };
 
-window.setCePayment = function (method) {
-  ceState.payment = method;
-  document.getElementById('ceCodBtn').classList.toggle('active', method === 'COD');
-  document.getElementById('ceOnlineBtn').classList.toggle('active', method === 'Online');
+window.setCePayment = function () {
+  ceState.payment = 'Online';
 };
 
 window.setCeDelivery = function (mode) {
@@ -5999,6 +5974,7 @@ window.recalcEstimate = function () {
   if (!ceState.pages) return;
   const paperSizeEl = document.getElementById('cePaperSize');
   if (paperSizeEl) ceState.paperSize = paperSizeEl.value;
+  const bindingFee = CE_BINDING_FEES[ceState.binding] || 0;
   const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
 
   const rate = getCeRates()[ceState.printType];
@@ -6007,19 +5983,20 @@ window.recalcEstimate = function () {
   if (ceState.sides === 'double') {
     protoCost = protoCost * 0.5;
   }
-  ceState.totalCost = protoCost * ceState.copies;
+  ceState.totalCost = (protoCost * ceState.copies) + bindingFee;
   if (ceState.deliveryMode === 'delivery') {
     ceState.totalCost += DELIVERY_FEE;
   }
 
   document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ' pages (Double-Sided discounted)' : ' pages');
   document.getElementById('ceResCopies').textContent = ceState.copies;
-  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'}) | ${bindingLabel}`;
+  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'}) | ${bindingLabel}${bindingFee ? ` + \u20B9${bindingFee}` : ''}`;
 
   let totalDesc = `\u20B9${ceState.totalCost.toFixed(2)}`;
-  if (ceState.deliveryMode === 'delivery') {
-    totalDesc = `\u20B9${ceState.totalCost.toFixed(2)} (incl. \u20B9${DELIVERY_FEE} Delivery)`;
-  }
+  const included = [];
+  if (bindingFee) included.push(`\u20B9${bindingFee} ${ceState.binding === 'spiral' ? 'Spiral' : 'Pin'}`);
+  if (ceState.deliveryMode === 'delivery') included.push(`\u20B9${DELIVERY_FEE} Delivery`);
+  if (included.length) totalDesc += ` (incl. ${included.join(' + ')})`;
   document.getElementById('ceResTotal').textContent = totalDesc;
 };
 
@@ -6045,8 +6022,10 @@ window.proceedToPayment = function () {
   const summaryEl = document.getElementById('ceOrderSummaryText');
   if (summaryEl) {
     const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
-    const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
-    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies > 1 ? 'ies' : 'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided | ${bindingLabel} \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
+    const bindingFee = CE_BINDING_FEES[ceState.binding] || 0;
+    const bindingLabel = ceState.binding === 'spiral' ? `Spiral binding (+\u20B9${bindingFee})` : ceState.binding === 'pin' ? `Pin binding (+\u20B9${bindingFee})` : 'No binding';
+    const deliveryLabel = ceState.deliveryMode === 'delivery' ? `Delivery (+\u20B9${DELIVERY_FEE})` : 'Collect at shop';
+    summaryEl.textContent = `${ceState.pages} pages \u00D7 ${ceState.copies} cop${ceState.copies > 1 ? 'ies' : 'y'} | ${ceState.printType === 'bw' ? 'B&W' : 'Colour'} | ${sizeLabel[ceState.paperSize] || ceState.paperSize} | ${ceState.sides === 'double' ? 'Double' : 'Single'}-sided | ${bindingLabel} | ${deliveryLabel} \u2192 \u20B9${ceState.totalCost.toFixed(2)}`;
   }
 
   const ta = document.getElementById('ceCustomerAddress');
@@ -6088,7 +6067,8 @@ window.placeCopyOrder = async function (e) {
   btn.disabled = true;
   btn.textContent = 'Uploading doc & finalizing order...';
   const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
-  const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
+  const bindingFee = CE_BINDING_FEES[ceState.binding] || 0;
+  const bindingLabel = ceState.binding === 'spiral' ? `Spiral binding (+\u20B9${bindingFee})` : ceState.binding === 'pin' ? `Pin binding (+\u20B9${bindingFee})` : 'No binding';
   const orderId = 'COPY' + Date.now();
 
   // --- Upload PDF to Supabase storage ---
@@ -6151,53 +6131,16 @@ window.placeCopyOrder = async function (e) {
     created_at: new Date().toISOString()
   };
 
-  if (ceState.payment === 'Online') {
-    // 1. Online flow -> delegate to backend
-    processSecureRazorpayPayment(ceState.totalCost, orderData, 'photocopy', (success, txnId) => {
-      btn.disabled = false;
-      btn.textContent = 'Place Photocopy Order';
-
-      if (success) {
-        saveSavedDeliveryDetails({ street: address });
-        sessionStorage.setItem("orderBanner", "success");
-        window.location.href = 'my-orders.html';
-      }
-    });
-
-  } else {
-    // 2. COD flow -> save directly from frontend
-    let success = false;
-    if (supabase) {
-      try {
-        let { error } = await supabase.from('photocopy_orders').insert(orderData);
-        if (error && error.message && /doc_url|doc_path|column/i.test(error.message)) {
-          const slim = { ...orderData };
-          delete slim.doc_url; delete slim.doc_path; delete slim.delivery_mode;
-          let retry = await supabase.from('photocopy_orders').insert(slim);
-          error = retry.error;
-        }
-        if (!error) success = true;
-      } catch (err) { console.error(err); }
-    }
-
-    if (!success) {
-      try {
-        const local = JSON.parse(localStorage.getItem('photocopy_orders') || '[]');
-        local.unshift(orderData);
-        localStorage.setItem('photocopy_orders', JSON.stringify(local));
-        success = true;
-      } catch (e) { }
-    }
-
+  processSecureRazorpayPayment(ceState.totalCost, orderData, 'photocopy', (success, txnId) => {
     btn.disabled = false;
-    btn.textContent = 'Place Photocopy Order';
+    btn.textContent = 'Pay Online & Place Photocopy Order';
 
     if (success) {
       saveSavedDeliveryDetails({ street: address });
-      sessionStorage.setItem("orderBanner", "cod");
+      sessionStorage.setItem("orderBanner", "success");
       window.location.href = 'my-orders.html';
     }
-  }
+  });
 };
 
 // ---- Admin Photocopy Orders ----
@@ -6752,6 +6695,24 @@ function getSpiralCopies() {
   }));
 }
 
+function getSpiralCopyPages(item) {
+  const text = `${item.name || ''} ${item.desc || ''}`;
+  const explicit = String(item.desc || '').match(/pages?\s*:\s*(\d+)/i);
+  if (explicit) {
+    const pages = parseInt(explicit[1], 10);
+    return { min: pages, max: pages, label: `${pages} Pages` };
+  }
+  const range = text.match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (range) {
+    const min = parseInt(range[1], 10);
+    const max = parseInt(range[2], 10);
+    return { min, max, label: `${min}-${max} Pages` };
+  }
+  const fallback = Number(item.pagesMin) || parseInt(String(item.name || '').match(/\d+/)?.[0] || '0', 10);
+  const max = Number(item.pagesMax) || fallback;
+  return { min: fallback, max, label: fallback && max && fallback !== max ? `${fallback}-${max} Pages` : (fallback ? `${fallback} Pages` : '') };
+}
+
 window.addSpiralCopyToCart = function (productId) {
   const item = getSpiralCopies().find(p => String(p.id) === String(productId));
   if (!item) return;
@@ -6767,9 +6728,8 @@ window.renderSpiralCopies = function (range = 'all') {
   if (!grid) return;
   const [min, max] = range === 'all' ? [0, Infinity] : range.split('-').map(Number);
   const visible = getSpiralCopies().filter(item => {
-    const itemMin = Number(item.pagesMin) || parseInt(String(item.name || '').match(/\d+/)?.[0] || '0', 10);
-    const itemMax = Number(item.pagesMax) || itemMin;
-    return range === 'all' || (itemMax >= min && itemMin <= max);
+    const pages = getSpiralCopyPages(item);
+    return range === 'all' || (pages.max >= min && pages.min <= max);
   });
   grid.innerHTML = visible.map(item => `
     <article class="product-card">
@@ -6778,6 +6738,7 @@ window.renderSpiralCopies = function (range = 'all') {
       </div>
       <div class="product-info">
         <h3 class="product-title">${item.name}</h3>
+        ${getSpiralCopyPages(item).label ? `<p style="color:var(--text-muted); font-size:0.9rem; margin-top:6px;">${getSpiralCopyPages(item).label}</p>` : ''}
         <div class="product-price">${formatPrice(Number(item.price) || 0)}</div>
         <button class="btn btn-primary" style="width:100%; margin-top:14px;" onclick="addSpiralCopyToCart('${item.id}')">Add to Cart</button>
       </div>
@@ -6788,11 +6749,31 @@ window.renderSpiralCopies = function (range = 'all') {
 document.addEventListener('DOMContentLoaded', () => {
   const grid = document.getElementById('spiralCopiesGrid');
   if (!grid) return;
+  const filterWrap = document.querySelector('.spiral-filter-wrap');
+  const filterToggle = document.getElementById('spiralFilterToggle');
+  const activeLabel = document.getElementById('spiralActiveFilterLabel');
+  if (filterToggle && filterWrap) {
+    filterToggle.addEventListener('click', () => {
+      const isOpen = filterWrap.classList.toggle('is-open');
+      filterToggle.setAttribute('aria-expanded', String(isOpen));
+    });
+    document.addEventListener('click', (event) => {
+      if (!filterWrap.contains(event.target)) {
+        filterWrap.classList.remove('is-open');
+        filterToggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
   renderSpiralCopies();
   document.querySelectorAll('.spiral-filter').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.spiral-filter').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      if (activeLabel) activeLabel.textContent = btn.textContent.trim();
+      if (filterWrap && filterToggle) {
+        filterWrap.classList.remove('is-open');
+        filterToggle.setAttribute('aria-expanded', 'false');
+      }
       renderSpiralCopies(btn.dataset.range || 'all');
     });
   });
