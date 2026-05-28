@@ -1467,10 +1467,11 @@ function updateCartBadge() {
 }
 
 function addToCart(productId) {
-  const product = products.find(p => p.id === productId);
+  const id = String(productId);
+  const product = products.find(p => String(p.id) === id);
   if (!product) return;
 
-  const existingItem = cart.find(item => item.id === productId);
+  const existingItem = cart.find(item => String(item.id) === id);
   if (existingItem) { existingItem.quantity += 1; }
   else { cart.push({ ...product, quantity: 1 }); }
 
@@ -1478,14 +1479,20 @@ function addToCart(productId) {
   showToast(`${product.name} added to cart!`);
 }
 
+function jsArg(value) {
+  return `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
 function removeFromCart(productId) {
-  cart = cart.filter(item => item.id !== productId);
+  const id = String(productId);
+  cart = cart.filter(item => String(item.id) !== id);
   saveCart();
   if (document.getElementById('cartItems')) renderCart();
 }
 
 function updateQuantity(productId, delta) {
-  const item = cart.find(i => i.id === productId);
+  const id = String(productId);
+  const item = cart.find(i => String(i.id) === id);
   if (item) {
     item.quantity += delta;
     if (item.quantity <= 0) removeFromCart(productId);
@@ -1784,7 +1791,7 @@ function createProductCard(product) {
           </div>
         </div>
       </a>
-      <button class="catalog-add-btn" onclick="addToCart(${product.id})" aria-label="Add to cart">
+      <button class="catalog-add-btn" onclick="addToCart(${jsArg(product.id)})" aria-label="Add to cart">
         Add to cart
       </button>
     </div>
@@ -2129,11 +2136,11 @@ function renderCart() {
         <div class="cart-item-price">${formatPrice(item.price)}</div>
       </div>
       <div class="quantity-selector">
-        <button class="quantity-btn" onclick="updateQuantity(${item.id}, -1)">-</button>
+        <button class="quantity-btn" onclick="updateQuantity(${jsArg(item.id)}, -1)">-</button>
         <span>${item.quantity}</span>
-        <button class="quantity-btn" onclick="updateQuantity(${item.id}, 1)">+</button>
+        <button class="quantity-btn" onclick="updateQuantity(${jsArg(item.id)}, 1)">+</button>
       </div>
-      <button class="remove-btn" onclick="removeFromCart(${item.id})">
+      <button class="remove-btn" onclick="removeFromCart(${jsArg(item.id)})">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
       </button>
     </div>
@@ -2643,8 +2650,12 @@ async function handleAddProduct(e) {
           const supabase = getSupabase();
           if (supabase) {
             if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Uploading PDF...</span>';
-            const fileName = `${Date.now()}_${previewPdfFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-            const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, previewPdfFile, { cacheControl: '3600', upsert: false });
+            const fileName = `book-attachments/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${previewPdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, previewPdfFile, {
+              cacheControl: '3600',
+              upsert: true,
+              contentType: previewPdfFile.type || 'application/pdf'
+            });
 
             if (!uploadError) {
               fetch(window.API_BASE_URL + "/compress-pdf", {
@@ -2676,12 +2687,14 @@ async function handleAddProduct(e) {
                 payload.free_note_id = noteData.id;
               } else {
                 console.error("Failed to insert free_note:", dbError);
-                showToast("PDF uploaded, but failed to link to database.");
+                throw new Error("PDF uploaded, but failed to link to database.");
               }
             } else {
               console.error("PDF upload error:", uploadError);
-              showToast("Failed to upload PDF: " + uploadError.message);
+              throw new Error("Failed to upload PDF: " + uploadError.message);
             }
+          } else {
+            throw new Error("PDF upload failed: Supabase config not loaded.");
           }
           if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Saving Product...</span>';
         }
@@ -4490,20 +4503,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   const detailContainer = document.getElementById('productDetailContainer');
   if (detailContainer) {
     const urlParams = new URLSearchParams(window.location.search);
-    const productId = parseInt(urlParams.get('id'));
-    let product = products.find(p => p.id === productId);
+    const productIdRaw = urlParams.get('id') || '';
+    const productId = /^\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
+    let product = products.find(p => String(p.id) === String(productIdRaw));
 
     if (!product && typeof fetchPromise !== 'undefined') {
       detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
       await fetchPromise;
-      product = products.find(p => p.id === productId);
+      product = products.find(p => String(p.id) === String(productIdRaw));
     }
 
     // Always fetch the FULL product details directly from Supabase so we get ALL images 
     // instead of just the main thumbnail from the list API
     try {
       const supabase = getSupabase();
-      if (supabase && productId) {
+      if (supabase && productIdRaw) {
         if (!product) detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product details...</div>';
         const { data, error } = await supabase.from('products').select('*').eq('id', productId).single();
         if (data && !error) {
@@ -4512,6 +4526,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           } else {
             product.img = data.img; // Get all images
             product.desc = data.desc; // Get full description
+            product.free_note_id = data.free_note_id;
+            product.original_price = data.original_price;
+            product.exam = data.exam;
           }
         }
       }
@@ -4520,7 +4537,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (product) {
-      window.buyNow = function (pid) { addToCart(pid); window.location.href = "checkout.html"; };
+      window.buyNow = function (pid) {
+        addToCart(pid);
+        window.location.href = "checkout.html";
+      };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
       let attachedPdfHtml = '';
@@ -4612,10 +4632,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             ${attachedPdfHtml}
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 40px;">
-              <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="addToCart(${product.id})">
+              <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="addToCart(${jsArg(product.id)})">
                 Add To Cart
               </button>
-              <button class="btn btn-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="buyNow(${product.id})">
+              <button class="btn btn-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="buyNow(${jsArg(product.id)})">
                 Buy Now
               </button>
             </div>
