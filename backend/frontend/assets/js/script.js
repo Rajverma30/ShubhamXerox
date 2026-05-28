@@ -276,11 +276,11 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
     }
 
     if (data && data.length > 0) {
-      const existingIds = new Set((products || []).map(p => Number(p?.id)));
+      const existingIds = new Set((products || []).map(p => String(p?.id)));
       let added = false;
 
       data.forEach(item => {
-        if (!existingIds.has(Number(item.id))) {
+        if (!existingIds.has(String(item.id))) {
           products.push(item);
           added = true;
         }
@@ -402,7 +402,7 @@ function renderFeaturedProducts() {
   const nextKey = JSON.stringify({
     q: (searchValue || '').trim().toLowerCase(),
     cats: [...featuredSelectedCategories].sort(),
-    ids: filtered.map((p) => Number(p?.id) || 0),
+    ids: filtered.map((p) => String(p?.id ?? '')),
   });
   if (nextKey !== featuredRevealKey) {
     featuredRevealKey = nextKey;
@@ -798,11 +798,14 @@ function showConfirmDialog(message, title = 'Please Confirm') {
 
 // --- Data Fetching logic ---
 function normalizeProductRecord(raw, index = 0) {
+  const rawId = raw?.id;
   const idNum = Number(raw?.id);
   const priceNum = Number(raw?.price);
   const originalPriceNum = Number(raw?.original_price);
   return {
-    id: Number.isFinite(idNum) ? idNum : index + 1,
+    id: rawId !== undefined && rawId !== null && rawId !== ''
+      ? (Number.isFinite(idNum) ? idNum : String(rawId))
+      : index + 1,
     name: (raw?.name || "").toString().trim() || `Product ${index + 1}`,
     category: (raw?.category || "").toString().trim() || "General",
     price: Number.isFinite(priceNum) ? priceNum : 0,
@@ -810,11 +813,12 @@ function normalizeProductRecord(raw, index = 0) {
     img: (raw?.img || "").toString(),
     desc: (raw?.desc || "").toString(),
     exam: (raw?.exam || "").toString(),
+    free_note_id: raw?.free_note_id ?? null,
   };
 }
 
 function getProductsEndpoint() {
-  return `${supabaseUrl}/rest/v1/products?select=id,name,category,price,img,desc,original_price,exam&order=id.desc`;
+  return `${supabaseUrl}/rest/v1/products?select=id,name,category,price,img,desc,original_price,exam,free_note_id&order=id.desc`;
 }
 
 function parseProductsCategoryParams() {
@@ -915,8 +919,8 @@ async function fetchProducts() {
       const staticProducts = await res.json();
       if (Array.isArray(staticProducts) && staticProducts.length > 0) {
         const byId = new Map();
-        staticProducts.forEach(p => byId.set(Number(p.id), p));
-        ssrProducts.forEach(p => byId.set(Number(p.id), p));
+        staticProducts.forEach(p => byId.set(String(p.id), p));
+        ssrProducts.forEach(p => byId.set(String(p.id), p));
         products = sortProductsByLatest(Array.from(byId.values()));
         hasLocalCache = true;
         isProductsLoading = false; // We have data, so stop skeleton
@@ -1019,8 +1023,8 @@ async function fetchProducts() {
         }));
         // MERGE DB products with static products based on ID
         const byId = new Map();
-        products.forEach(p => byId.set(Number(p.id), p));
-        strippedProducts.forEach(p => byId.set(Number(p.id), p));
+        products.forEach(p => byId.set(String(p.id), p));
+        strippedProducts.forEach(p => byId.set(String(p.id), p));
         
         const mergedProducts = Array.from(byId.values());
         const newProducts = sortProductsByLatest(mergedProducts);
@@ -1071,8 +1075,8 @@ async function fetchMoreProductsPage(limitOverride = null) {
     }
     productsServerHasMore = !!res?.has_more;
 
-    const byId = new Set((products || []).map((p) => Number(p?.id)));
-    const toAdd = rows.filter((p) => !byId.has(Number(p?.id)));
+    const byId = new Set((products || []).map((p) => String(p?.id)));
+    const toAdd = rows.filter((p) => !byId.has(String(p?.id)));
 
     return toAdd;
   } catch (e) {
@@ -1483,6 +1487,38 @@ function jsArg(value) {
   return `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
+function isMissingStorageBucketError(error) {
+  const message = String(error?.message || error?.error || error || '').toLowerCase();
+  return message.includes('bucket') && (message.includes('not found') || message.includes('missing'));
+}
+
+async function uploadPdfToAvailableBucket(supabase, file, pathPrefix) {
+  if (!supabase) throw new Error('Supabase config not loaded.');
+  if (!file) throw new Error('PDF file missing.');
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const buckets = ['free-notes', 'products'];
+  const errors = [];
+
+  for (const bucket of buckets) {
+    const fileName = `${pathPrefix}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
+    const { error } = await supabase.storage.from(bucket).upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: true,
+      contentType: file.type || 'application/pdf'
+    });
+
+    if (!error) {
+      const { data: pubData } = supabase.storage.from(bucket).getPublicUrl(fileName);
+      return { bucket, fileName, publicUrl: pubData.publicUrl };
+    }
+
+    errors.push(`${bucket}: ${error.message || error}`);
+    if (!isMissingStorageBucketError(error)) break;
+  }
+
+  throw new Error(errors.join(' | ') || 'PDF upload failed.');
+}
+
 function removeFromCart(productId) {
   const id = String(productId);
   cart = cart.filter(item => String(item.id) !== id);
@@ -1741,7 +1777,7 @@ function createProductCard(product) {
             if (firstImg) {
               comboImages.push(firstImg);
             } else {
-              const matched = products.find(p => Number(p.id) === Number(b.id));
+              const matched = products.find(p => String(p.id) === String(b.id));
               if (matched && matched.img) {
                 const matchedImg = fixImgPath(matched.img).split('|')[0];
                 if (matchedImg) comboImages.push(matchedImg);
@@ -2646,61 +2682,55 @@ async function handleAddProduct(e) {
       if (exam) payload.exam = exam;
 
       try {
+        let pdfWarning = '';
         if (previewPdfFile) {
+          if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Uploading PDF...</span>';
           const supabase = getSupabase();
-          if (supabase) {
-            if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Uploading PDF...</span>';
-            const fileName = `book-attachments/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${previewPdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, previewPdfFile, {
-              cacheControl: '3600',
-              upsert: true,
-              contentType: previewPdfFile.type || 'application/pdf'
-            });
+          try {
+            const upload = await uploadPdfToAvailableBucket(supabase, previewPdfFile, 'book-attachments');
+            fetch(window.API_BASE_URL + "/compress-pdf", {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ bucket: upload.bucket, file_name: upload.fileName })
+            }).catch(e => console.error(e));
 
-            if (!uploadError) {
-              fetch(window.API_BASE_URL + "/compress-pdf", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bucket: "free-notes", file_name: fileName })
-              }).catch(e => console.error(e));
+            const isPaid = pdfType === 'paid';
+            let notePayload = {
+              title: name,
+              file_url: upload.publicUrl,
+              is_paid: isPaid,
+              price: isPaid ? pdfPrice : 0
+            };
+            let { data: noteData, error: dbError } = await supabase.from('free_notes').insert(notePayload).select().single();
 
-              const { data: pubData } = supabase.storage.from('free-notes').getPublicUrl(fileName);
-
-              const isPaid = pdfType === 'paid';
-              let notePayload = {
-                title: name,
-                file_url: pubData.publicUrl,
-                is_paid: isPaid,
-                price: isPaid ? pdfPrice : 0
-              };
-              let { data: noteData, error: dbError } = await supabase.from('free_notes').insert(notePayload).select().single();
-
-              if (dbError && dbError.message && dbError.message.includes('is_paid')) {
-                delete notePayload.is_paid;
-                delete notePayload.price;
-                const retry = await supabase.from('free_notes').insert(notePayload).select().single();
-                noteData = retry.data;
-                dbError = retry.error;
-              }
-
-              if (!dbError && noteData) {
-                payload.free_note_id = noteData.id;
-              } else {
-                console.error("Failed to insert free_note:", dbError);
-                throw new Error("PDF uploaded, but failed to link to database.");
-              }
-            } else {
-              console.error("PDF upload error:", uploadError);
-              throw new Error("Failed to upload PDF: " + uploadError.message);
+            if (dbError && dbError.message && dbError.message.includes('is_paid')) {
+              delete notePayload.is_paid;
+              delete notePayload.price;
+              const retry = await supabase.from('free_notes').insert(notePayload).select().single();
+              noteData = retry.data;
+              dbError = retry.error;
             }
-          } else {
-            throw new Error("PDF upload failed: Supabase config not loaded.");
+
+            if (!dbError && noteData) {
+              payload.free_note_id = noteData.id;
+            } else {
+              console.error("Failed to insert free_note:", dbError);
+              pdfWarning = "PDF uploaded, but failed to link to database.";
+            }
+          } catch (pdfErr) {
+            console.error("PDF upload/link error:", pdfErr);
+            pdfWarning = `PDF attach failed: ${pdfErr.message || pdfErr}`;
           }
           if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Saving Product...</span>';
         }
 
-        await apiFetch("/admin/products", { method: "POST", body: payload });
-        showToast("Product added successfully!");
+        const addRes = await apiFetch("/admin/products", { method: "POST", body: payload });
+        if (addRes?.product) {
+          products = [normalizeProductRecord(addRes.product, 0), ...products.filter(p => String(p.id) !== String(addRes.product.id))];
+          saveProductsToCache(products);
+        }
+        adminProductsDbLoaded = false;
+        showToast(pdfWarning ? `Product added. ${pdfWarning}` : "Product added successfully!");
       } catch (err) {
         showToast(err.message || "Failed to add product");
         console.error(err);
@@ -2727,7 +2757,7 @@ async function removeProduct(id, name) {
   showGlobalLoader(true, name ? `Say bye bye to ${name} 👋` : 'Deleting...');
   try {
     await apiFetch(`/admin/products/${id}`, { method: "DELETE" });
-    const idx = products.findIndex(p => p.id === id);
+    const idx = products.findIndex(p => String(p.id) === String(id));
     if (idx > -1) products.splice(idx, 1);
     saveProductsToCache(products);
 
@@ -2795,10 +2825,50 @@ async function bulkDeleteProducts() {
 let adminProgressiveTimer = null;
 let adminLastRenderedCount = 0;
 let adminLastSearchValue = null;
+let adminProductsDbLoaded = false;
+
+async function refreshAdminProductsFromServer() {
+  if (!document.getElementById('adminProductsList')) return;
+  let offset = 0;
+  const limit = 100;
+  const rows = [];
+
+  while (true) {
+    const res = await apiFetch(`/admin/products?limit=${limit}&offset=${offset}`, { method: "GET" });
+    const batch = Array.isArray(res?.products) ? res.products : [];
+    rows.push(...batch);
+    if (!res?.has_more || batch.length === 0) break;
+    offset += batch.length;
+  }
+
+  if (rows.length) {
+    const normalized = rows.map((p, index) => normalizeProductRecord(p, index));
+    const staticRows = (products || []).filter(p => !normalized.some(db => String(db.id) === String(p.id)));
+    products = [...normalized, ...staticRows].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+    saveProductsToCache(products);
+  } else {
+    products = [];
+  }
+  adminProductsDbLoaded = true;
+}
 
 async function renderAdminList() {
   const container = document.getElementById('adminProductsList');
   if (!container) return;
+
+  if (window.location.pathname.includes('admin-products') && !adminProductsDbLoaded) {
+    container.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">Loading latest products from database...</div>';
+    try {
+      await refreshAdminProductsFromServer();
+    } catch (err) {
+      console.error('Admin products refresh failed:', err);
+      showToast(err.message || 'Failed to load latest products');
+      adminProductsDbLoaded = true;
+    }
+    container.innerHTML = '';
+    adminLastRenderedCount = 0;
+    adminLastSearchValue = null;
+  }
 
   const searchInput = document.getElementById('adminSearchInput');
   const searchValue = searchInput ? searchInput.value : '';
@@ -2847,8 +2917,8 @@ async function renderAdminList() {
           </div>
         </div>
         <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${p.id})">Edit</button>
-          <button class="remove-btn" onclick="removeProduct(${p.id}, '${p.name ? p.name.replace(/'/g, "\\'") : ''}')">Delete</button>
+          <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.85rem;" onclick="openEditModal(${jsArg(p.id)})">Edit</button>
+          <button class="remove-btn" onclick="removeProduct(${jsArg(p.id)}, ${jsArg(p.name || '')})">Delete</button>
         </div>
       </div>
     `).join('');
@@ -2920,7 +2990,7 @@ window.deleteUser = async function (phone) {
 
 // Edit Modal Logic
 window.openEditModal = function (id) {
-  const product = products.find(p => p.id === id);
+  const product = products.find(p => String(p.id) === String(id));
   if (!product) return;
 
   document.getElementById('editProductId').value = product.id;
@@ -2958,7 +3028,9 @@ async function handleEditProduct(e) {
     submitBtn.dataset.originalText = submitBtn.dataset.originalText || submitBtn.textContent;
     submitBtn.innerHTML = '<span class="btn-loader"></span><span>Saving...</span>';
   }
-  const id = parseInt(document.getElementById('editProductId').value);
+  const idRaw = document.getElementById('editProductId').value;
+  const idNum = Number(idRaw);
+  const id = Number.isFinite(idNum) ? idNum : idRaw;
   const name = document.getElementById('editName').value;
   const price = parseFloat(document.getElementById('editPrice').value);
   const rawOriginal = document.getElementById('editOriginalPrice').value;
@@ -2989,7 +3061,7 @@ async function handleEditProduct(e) {
     if (exam) payload.exam = exam;
     try {
       await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
-      const idx = products.findIndex(p => p.id === id);
+      const idx = products.findIndex(p => String(p.id) === String(id));
       if (idx > -1) products[idx] = { ...products[idx], ...payload };
       if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
       showToast("Product updated successfully!");
@@ -4437,6 +4509,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     renderAdminCategories();
     window.adminProductsCurrentPage = 1;
+    adminProductsDbLoaded = false;
     await renderAdminList();
   }
 

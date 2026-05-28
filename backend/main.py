@@ -812,6 +812,7 @@ async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = De
     sb = _require_supabase()
     payload = req.model_dump(by_alias=True, exclude_none=True)
     res = sb.table("products").insert(payload).execute()
+    PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 @app.put("/admin/products/{product_id}")
@@ -819,12 +820,14 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
     sb = _require_supabase()
     payload = req.model_dump(by_alias=True, exclude_none=True)
     res = sb.table("products").update(payload).eq("id", product_id).execute()
+    PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 @app.delete("/admin/products/{product_id}")
 async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
     sb.table("products").delete().eq("id", product_id).execute()
+    PRODUCTS_CACHE.clear()
     return {"status": "ok"}
 
 @app.post("/admin/products/bulk-delete")
@@ -833,6 +836,7 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
     if not req.product_ids:
         return {"status": "ok"}
     sb.table("products").delete().in_("id", req.product_ids).execute()
+    PRODUCTS_CACHE.clear()
     return {"status": "ok"}
 
 @app.post("/admin/products/bulk-update-category")
@@ -841,6 +845,7 @@ async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dic
     if not req.product_ids:
         return {"status": "ok"}
     sb.table("products").update({"category": req.category}).in_("id", req.product_ids).execute()
+    PRODUCTS_CACHE.clear()
     return {"status": "ok"}
 
 def _orders_table_for(order_type: str) -> str:
