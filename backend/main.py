@@ -924,6 +924,17 @@ async def list_public_products(
 
 @app.get("/settings/rates")
 async def get_public_rates():
+    if supabase:
+        try:
+            res = supabase.table("settings").select("value").eq("key", "photocopy_rates").execute()
+            if res.data and len(res.data) > 0:
+                val = res.data[0].get("value", {})
+                if "bw" in val and "color" in val:
+                    GLOBAL_RATES["bw"] = float(val["bw"])
+                    GLOBAL_RATES["color"] = float(val["color"])
+        except Exception as e:
+            logger.warning(f"Failed to fetch rates from database settings table: {e}. Using in-memory rates.")
+
     return {"bw": float(GLOBAL_RATES.get("bw", 1.0)), "color": float(GLOBAL_RATES.get("color", 5.0))}
 
 @app.put("/admin/settings/rates")
@@ -934,6 +945,17 @@ async def update_global_rates(req: AdminSettingsUpdate, _admin: Dict[str, Any] =
         raise HTTPException(status_code=400, detail="Rates must be positive numbers")
     GLOBAL_RATES["bw"] = round(bw, 2)
     GLOBAL_RATES["color"] = round(color, 2)
+
+    if supabase:
+        try:
+            payload = {
+                "key": "photocopy_rates",
+                "value": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}
+            }
+            supabase.table("settings").upsert(payload).execute()
+        except Exception as e:
+            logger.warning(f"Failed to save rates to database settings table: {e}")
+
     return {"status": "ok", "rates": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}}
 
 @app.get("/admin/products")

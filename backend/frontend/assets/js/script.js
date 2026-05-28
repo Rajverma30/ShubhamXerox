@@ -311,9 +311,12 @@ function getFilteredProducts(filterCategories = [], searchValue = '', includeSta
   if (selectedCats.length > 0) {
     const categorySet = new Set(selectedCats);
     filtered = filtered.filter(p => categorySet.has(p.category));
-  } else if (!includeStationery) {
+  } else {
     // Hide 'Stationery' by default if no category is explicitly selected
-    filtered = filtered.filter(p => p.category !== 'Stationery');
+    if (!includeStationery) {
+      filtered = filtered.filter(p => p.category !== 'Stationery');
+      filtered = filtered.filter(p => p.category !== 'Spiral Copies');
+    }
   }
 
   if (searchValue && searchValue.trim()) {
@@ -1600,6 +1603,24 @@ function getCartTotal() {
   return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 }
 
+function getCheckoutItems() {
+  try {
+    const buyNowItem = sessionStorage.getItem('shubham_buy_now_item');
+    if (buyNowItem) {
+      const parsed = JSON.parse(buyNowItem);
+      if (parsed) return [parsed];
+    }
+  } catch (e) {
+    console.error("Failed to load buy now item", e);
+  }
+  return cart;
+}
+
+function getCheckoutTotal() {
+  const items = getCheckoutItems();
+  return items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
+}
+
 const SAVED_ADDR_PREFIX = 'shubham_delivery_addr_';
 
 function getSavedDeliveryDetails() {
@@ -1739,8 +1760,10 @@ function buildOrderTrackingTimelineHTML(completedSteps, opts, orderObj) {
 async function handleCheckout(e) {
   e.preventDefault();
 
-  if (cart.length === 0) {
-    showToast("Your cart is empty!");
+  const items = getCheckoutItems();
+
+  if (items.length === 0) {
+    showToast("Your checkout is empty!");
     setTimeout(() => window.location.href = "products.html", 1500);
     return;
   }
@@ -1761,8 +1784,8 @@ async function handleCheckout(e) {
     customer: name,
     customerphone: phone,
     address: address,
-    items: cart,
-    total: getCartTotal() + DELIVERY_FEE,
+    items: items,
+    total: getCheckoutTotal() + DELIVERY_FEE,
     method: paymentMethod,
     status: "Pending",
     date: new Date().toLocaleString()
@@ -1773,8 +1796,11 @@ async function handleCheckout(e) {
 
   processSecureRazorpayPayment(orderData.total, orderData, 'books', (success, txnId) => {
     if (success) {
-      cart = [];
-      saveCart();
+      sessionStorage.removeItem('shubham_buy_now_item');
+      if (items === cart) {
+        cart = [];
+        saveCart();
+      }
       const cityEl = document.getElementById('city');
       const pinEl = document.getElementById('pincode');
       saveSavedDeliveryDetails({
@@ -2237,7 +2263,7 @@ function renderCart() {
   detailsContainer.innerHTML = `
     <div class="summary-row"><span>Subtotal</span><span>${formatPrice(getCartTotal())}</span></div>
     <div class="summary-total"><span>Total</span><span>${formatPrice(getCartTotal())}</span></div>
-    <a href="checkout.html" class="btn btn-primary" style="width: 100%; margin-top: 24px; text-align:center;">Proceed to Checkout</a>
+    <a href="checkout.html" onclick="sessionStorage.removeItem('shubham_buy_now_item');" class="btn btn-primary" style="width: 100%; margin-top: 24px; text-align:center;">Proceed to Checkout</a>
   `;
 }
 
@@ -3614,7 +3640,9 @@ function renderCheckoutSummary() {
   const container = document.getElementById('checkoutSummaryItems');
   if (!container) return;
 
-  container.innerHTML = cart.map(item => `
+  const items = getCheckoutItems();
+
+  container.innerHTML = items.map(item => `
     <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:0.9rem;">
       <div style="color:var(--text-main); font-weight:500; display:flex; gap:8px;">
         <span style="color:var(--text-muted);">x${item.quantity}</span>
@@ -3624,7 +3652,7 @@ function renderCheckoutSummary() {
     </div>
   `).join('');
 
-  const rawSubtotal = getCartTotal();
+  const rawSubtotal = getCheckoutTotal();
   document.getElementById('checkoutSubtotal').textContent = formatPrice(rawSubtotal);
   document.getElementById('checkoutTotal').textContent = formatPrice(rawSubtotal + DELIVERY_FEE);
 }
@@ -4346,6 +4374,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (pc && d.pincode) pc.value = d.pincode;
     }
     document.getElementById('checkoutForm').addEventListener('submit', handleCheckout);
+  } else {
+    sessionStorage.removeItem('shubham_buy_now_item');
   }
 
   window.requestRegisterOTP = requestRegisterOTP;
@@ -4634,8 +4664,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (product) {
       window.buyNow = function (pid) {
-        addToCart(pid);
-        window.location.href = "checkout.html";
+        const productToBuy = products.find(p => String(p.id) === String(pid));
+        if (productToBuy) {
+          sessionStorage.setItem('shubham_buy_now_item', JSON.stringify({ ...productToBuy, quantity: 1 }));
+          window.location.href = "checkout.html";
+        } else {
+          showToast("Product not found");
+        }
       };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
