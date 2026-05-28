@@ -1547,6 +1547,30 @@ async function uploadBookPdfAttachment(file, { name, pdfType, pdfPrice }) {
   return res;
 }
 
+async function uploadPhotocopyPdf(file, { orderId, index }) {
+  const params = new URLSearchParams({
+    order_id: orderId,
+    index: String(index || 1),
+    filename: file.name || 'document.pdf'
+  });
+  const response = await fetch(`${API_BASE}/photocopy-doc?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/pdf' },
+    body: file
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  if (!response.ok) {
+    const detail = (data && (data.detail || data.message)) || text || `PDF upload failed (${response.status})`;
+    throw new Error(detail);
+  }
+  if (!data?.public_url || !data?.file_name) {
+    throw new Error('PDF uploaded, but file link was not returned.');
+  }
+  return data;
+}
+
 function removeFromCart(productId) {
   const id = String(productId);
   cart = cart.filter(item => String(item.id) !== id);
@@ -5559,51 +5583,18 @@ if (addFreeNoteForm) {
     const isPaid = typeInput && typeInput.value === 'paid';
     const price = isPaid && priceInput ? parseFloat(priceInput.value) || 0 : 0;
 
-    const supabase = getSupabase();
-    if (supabase) {
+    try {
       const file = fileInput.files[0];
-      const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-
-      const { error: uploadError } = await supabase.storage.from('free-notes').upload(fileName, file, { cacheControl: '3600', upsert: false });
-
-      if (!uploadError) {
-        fetch(window.API_BASE_URL + "/compress-pdf", {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bucket: "free-notes", file_name: fileName })
-        }).catch(e => console.error(e));
-      }
-
-      if (uploadError) {
-        showToast("Storage Error: " + uploadError.message);
-      } else {
-        const { data: pubData } = supabase.storage.from('free-notes').getPublicUrl(fileName);
-
-        let payload = {
-          title: titleInput.value,
-          file_url: pubData.publicUrl,
-          is_paid: isPaid,
-          price: price
-        };
-
-        let { error: dbError } = await supabase.from('free_notes').insert(payload);
-
-        if (dbError && dbError.message && dbError.message.includes('is_paid')) {
-          delete payload.is_paid;
-          delete payload.price;
-          const retry = await supabase.from('free_notes').insert(payload);
-          dbError = retry.error;
-          if (!dbError) showToast("Note published! (Note: 'is_paid' missing in Supabase)");
-        }
-
-        if (dbError) {
-          showToast("DB Error: " + dbError.message);
-        } else {
-          if (!dbError && !payload.is_paid) showToast("Note published!");
-          addFreeNoteForm.reset();
-          loadAdminFreeNotes(); // Refresh list automatically
-        }
-      }
+      await uploadBookPdfAttachment(file, {
+        name: titleInput.value,
+        pdfType: isPaid ? 'paid' : 'free',
+        pdfPrice: price
+      });
+      showToast("Note published!");
+      addFreeNoteForm.reset();
+      loadAdminFreeNotes();
+    } catch (err) {
+      showToast(err.message || "PDF upload failed");
     }
 
     btn.disabled = false;
@@ -6163,32 +6154,18 @@ window.placeCopyOrder = async function (e) {
   const bindingLabel = ceState.binding === 'spiral' ? `Spiral binding (+\u20B9${bindingFee})` : ceState.binding === 'pin' ? `Pin binding (+\u20B9${bindingFee})` : 'No binding';
   const orderId = 'COPY' + Date.now();
 
-  // --- Upload PDF to Supabase storage ---
+  // --- Upload PDF through backend storage helper ---
   let docUrl = null;
   let storagePath = null;
-  const supabase = getSupabase();
-  if (supabase && ceState.pdfFiles && ceState.pdfFiles.length) {
+  if (ceState.pdfFiles && ceState.pdfFiles.length) {
     try {
       const uploadedUrls = [];
       const uploadedPaths = [];
       for (let i = 0; i < ceState.pdfFiles.length; i++) {
         const file = ceState.pdfFiles[i];
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const path = `${orderId}_${i + 1}_${safeName}`;
-        const { error: upErr } = await supabase.storage
-          .from('photocopy-docs')
-          .upload(path, file, {
-            cacheControl: '3600',
-            upsert: true,
-            contentType: file.type || 'application/pdf'
-          });
-        if (!upErr) {
-          const { data: pubData } = supabase.storage.from('photocopy-docs').getPublicUrl(path);
-          uploadedUrls.push(pubData.publicUrl);
-          uploadedPaths.push(path);
-        } else {
-          console.warn('Doc upload failed:', upErr.message);
-        }
+        const upload = await uploadPhotocopyPdf(file, { orderId, index: i + 1 });
+        uploadedUrls.push(upload.public_url);
+        uploadedPaths.push(upload.file_name);
       }
       if (uploadedPaths.length) {
         storagePath = uploadedPaths.join('|');
@@ -6198,9 +6175,9 @@ window.placeCopyOrder = async function (e) {
       }
     } catch (err) {
       console.error('Storage error:', err);
-      showToast('PDF upload error — check Storage bucket "photocopy-docs" and policies.');
+      showToast(err.message || 'PDF upload error.');
     }
-  } else if (supabase && !(ceState.pdfFiles && ceState.pdfFiles.length) && ceState.pages && !ceState.manualPages) {
+  } else if (!(ceState.pdfFiles && ceState.pdfFiles.length) && ceState.pages && !ceState.manualPages) {
     showToast('PDF file missing — go back and upload the PDF again.');
   }
 

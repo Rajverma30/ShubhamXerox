@@ -24,6 +24,8 @@ import jwt
 from config import (
     SUPABASE_URL,
     SUPABASE_KEY,
+    SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_ANON_KEY,
     RAZORPAY_KEY_ID,
     RAZORPAY_KEY_SECRET,
     RAZORPAY_WEBHOOK_SECRET,
@@ -60,7 +62,7 @@ async def healthz():
 @app.get("/config.js")
 async def get_config_js():
     url = SUPABASE_URL
-    anon_key = os.getenv("SUPABASE_ANON_KEY", os.getenv("SUPABASE_KEY", ""))
+    anon_key = SUPABASE_ANON_KEY or SUPABASE_KEY
     js_content = f"window.ENV_SUPABASE_URL = '{url}';\nwindow.ENV_SUPABASE_KEY = '{anon_key}';"
     return Response(content=js_content, media_type="application/javascript")
 
@@ -104,7 +106,7 @@ try:
     _orig_match = re.match
     re.match = lambda p, s, *a: True if str(s).startswith('sb_') else _orig_match(p, s, *a)
     options = ClientOptions(postgrest_client_timeout=60, storage_client_timeout=60)
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY, options=options)
     re.match = _orig_match
 except Exception as e:
     if hasattr(re, 'match') and '_orig_match' in locals() and re.match != _orig_match:
@@ -234,14 +236,16 @@ def _require_supabase() -> Client:
 
 def _supabase_storage_base_url() -> str:
     base_url = str(SUPABASE_URL or "").rstrip("/")
-    if not base_url or not SUPABASE_KEY:
+    storage_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+    if not base_url or not storage_key:
         raise HTTPException(status_code=500, detail="Supabase storage not configured")
     return base_url
 
 def _supabase_storage_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    storage_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
     headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey": storage_key,
+        "Authorization": f"Bearer {storage_key}",
     }
     if extra:
         headers.update(extra)
@@ -445,6 +449,27 @@ async def admin_upload_book_pdf(
         "note": note_data,
         "free_note_id": note_data.get("id"),
     }
+
+@app.post("/photocopy-doc")
+async def upload_photocopy_doc(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    order_id: str,
+    index: int = 1,
+    filename: str = "document.pdf",
+):
+    file_bytes = await request.body()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="PDF file is empty")
+    if len(file_bytes) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF file is too large")
+
+    safe_order = re.sub(r"[^a-zA-Z0-9_-]+", "_", order_id or f"COPY{int(time.time())}")
+    safe_name = _safe_storage_filename(filename)
+    file_name = f"{safe_order}_{max(int(index or 1), 1)}_{safe_name}"
+    public_url = _upload_storage_bytes("photocopy-docs", file_name, file_bytes, "application/pdf")
+    background_tasks.add_task(compress_pdf_task, "photocopy-docs", file_name)
+    return {"bucket": "photocopy-docs", "file_name": file_name, "public_url": public_url}
 
 
 @app.on_event("startup")

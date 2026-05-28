@@ -14,6 +14,8 @@ def _require_env(name: str) -> str:
 # Optional (prevent crash if missing)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 
 # Email API Config (Google Apps Script)
 GOOGLE_SCRIPT_URL = os.getenv("GOOGLE_SCRIPT_URL", "").strip()
