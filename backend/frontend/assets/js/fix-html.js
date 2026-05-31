@@ -6,7 +6,7 @@ files.forEach(file => {
   
   if (!content.includes('id="authLink"')) {
     // Inject the link at the end of nav-links
-    content = content.replace(/(<div class="nav-links"[^>]*>[\s\S]*?)<\/div>/g, '$1  <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>\n      </div>');
+    content = content.replace(/(<div class="nav-links"[^>]*>[\s\S]*?)<\/div>/g, '$1  <a href="/login" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>\n      </div>');
     fs.writeFileSync(file, content, 'utf8');
     console.log(`Injected Login button into ${file}`);
   } else {

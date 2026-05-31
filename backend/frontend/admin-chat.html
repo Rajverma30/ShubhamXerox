@@ -104,7 +104,7 @@
     <aside class="admin-chat-sidebar">
       <div class="admin-sidebar-header">
         <h2 style="font-size: 1.2rem; margin: 0;">Chat Center</h2>
-        <a href="admin.html" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">Back</a>
+        <a href="/admin" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">Back</a>
       </div>
       <div class="admin-users-list" id="adminChatUsersList">
         <!-- Users injected via JS -->
@@ -129,7 +129,7 @@
     document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => {
         if (!currentUser || currentUser.phone !== ADMIN_PHONE) {
-          window.location.href = 'index.html';
+          window.location.href = '/';
         } else {
           initAdminChatCenter();
         }

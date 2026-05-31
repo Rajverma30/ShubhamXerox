@@ -461,7 +461,7 @@ function initHeroQuickSearch() {
 
   const goToAllProducts = (q) => {
     const query = String(q || '').trim();
-    const url = query ? `products.html?q=${encodeURIComponent(query)}` : 'products.html';
+    const url = query ? `products.html?q=${encodeURIComponent(query)}` : '/products';
     window.location.href = url;
   };
 
@@ -1197,7 +1197,7 @@ function updateNavForUser() {
 
     if (currentUser) {
       if (currentUser.role === "admin") {
-        authLink.href = "admin.html";
+        authLink.href = "/admin";
         authLink.textContent = "Dashboard";
         authLink.style.color = "var(--primary)";
         authLink.onclick = null;
@@ -1206,7 +1206,7 @@ function updateNavForUser() {
         if (!myOrdersLink) {
           myOrdersLink = document.createElement('a');
           myOrdersLink.className = 'my-orders-link';
-          myOrdersLink.href = "my-orders.html";
+          myOrdersLink.href = "/my-orders";
           myOrdersLink.textContent = "My Orders";
           navContainer.insertBefore(myOrdersLink, authLink);
         }
@@ -1216,7 +1216,7 @@ function updateNavForUser() {
         authLink.onclick = (e) => { e.preventDefault(); logout(); };
       }
     } else {
-      authLink.href = "login.html";
+      authLink.href = "/login";
       authLink.textContent = "Login";
       authLink.style.color = "var(--primary)";
       authLink.onclick = null;
@@ -1309,7 +1309,7 @@ async function handleLogin(e) {
     const data = await apiFetch("/login", { method: "POST", body: { identifier, password }, auth: false });
     setAuthToken(data.token);
     currentUser = data.user || loadCurrentUserFromToken();
-    window.location.href = (currentUser && currentUser.role === "admin") ? "admin.html" : "index.html";
+    window.location.href = (currentUser && currentUser.role === "admin") ? "/admin" : "/";
   } catch (err) {
     showToast("Login failed");
     if (btn) {
@@ -1337,7 +1337,7 @@ async function handleRegister(e) {
     const data = await apiFetch("/register", { method: "POST", body: { phone, name, password, email: generatedEmail }, auth: false });
     setAuthToken(data.token);
     currentUser = data.user || loadCurrentUserFromToken();
-    window.location.href = "index.html";
+    window.location.href = "/";
   } catch (err) {
     showToast(err.message || "Registration failed");
     if (btn) {
@@ -1378,7 +1378,7 @@ async function handleForgotPassword(e) {
 function logout() {
   clearAuthToken();
   currentUser = null;
-  window.location.href = "index.html";
+  window.location.href = "/";
 }
 
 // --- Secure Full-Stack Razorpay Integration ---
@@ -1764,7 +1764,7 @@ async function handleCheckout(e) {
 
   if (items.length === 0) {
     showToast("Your checkout is empty!");
-    setTimeout(() => window.location.href = "products.html", 1500);
+    setTimeout(() => window.location.href = "/products", 1500);
     return;
   }
 
@@ -1809,7 +1809,7 @@ async function handleCheckout(e) {
         pincode: pinEl ? pinEl.value.trim() : ''
       });
       sessionStorage.setItem("orderBanner", "success");
-      window.location.href = "my-orders.html";
+      window.location.href = "/my-orders";
     } else {
       if (btn) { btn.disabled = false; btn.textContent = 'Pay Online & Place Order'; }
     }
@@ -1892,7 +1892,7 @@ function createProductCard(product) {
 
   return `
     <div class="product-card catalog-card">
-      <a href="product.html?id=${product.id}" class="product-link-wrapper" style="display:block;">
+      <a href="/product?id=${product.id}" class="product-link-wrapper" style="display:block;">
         <div class="product-img-wrapper" style="position:relative; overflow: hidden;">
           ${hasDiscount ? `<div class="catalog-discount-ribbon">${discountPct}% OFF</div>` : ``}
           ${imagesHtml}
@@ -2263,7 +2263,7 @@ function renderCart() {
   detailsContainer.innerHTML = `
     <div class="summary-row"><span>Subtotal</span><span>${formatPrice(getCartTotal())}</span></div>
     <div class="summary-total"><span>Total</span><span>${formatPrice(getCartTotal())}</span></div>
-    <a href="checkout.html" onclick="sessionStorage.removeItem('shubham_buy_now_item');" class="btn btn-primary" style="width: 100%; margin-top: 24px; text-align:center;">Proceed to Checkout</a>
+    <a href="/checkout" onclick="sessionStorage.removeItem('shubham_buy_now_item');" class="btn btn-primary" style="width: 100%; margin-top: 24px; text-align:center;">Proceed to Checkout</a>
   `;
 }
 
@@ -2402,12 +2402,12 @@ async function handleAddCategory(e) {
 function checkAdminAccess() {
   if (!currentUser || currentUser.phone !== ADMIN_PHONE) {
     showToast("Access Denied");
-    setTimeout(() => window.location.href = "index.html", 1000);
+    setTimeout(() => window.location.href = "/", 1000);
   } else {
     const navLinks = document.getElementById('adminNavLinks');
     if (navLinks) {
       navLinks.style.display = 'flex';
-      const path = window.location.pathname.split('/').pop() || 'admin.html';
+      const path = window.location.pathname.split('/').pop() || '/admin';
       const links = navLinks.querySelectorAll('a');
       links.forEach(link => {
         if (link.getAttribute('href') === path) {
@@ -2929,7 +2929,7 @@ async function renderAdminList() {
   }
 
     let filtered;
-  if (window.location.pathname.includes('admin-stationery.html')) {
+  if (window.location.pathname.includes('/admin-stationery')) {
     filtered = getFilteredProducts(['Stationery'], searchValue);
   } else {
     filtered = getFilteredProducts([], searchValue, true);
@@ -3477,7 +3477,7 @@ async function renderMyOrders() {
   if (!container) return;
 
   if (!currentUser) {
-    window.location.href = "login.html";
+    window.location.href = "/login";
     return;
   }
 
@@ -4474,7 +4474,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const path = window.location.pathname;
 
-  if (path.includes('admin.html') || path.endsWith('/admin')) {
+  if (path.includes('/admin') || path.endsWith('/admin')) {
     checkAdminAccess();
     await renderAdminDashboard();
     await renderAdminUsers();
@@ -4666,7 +4666,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (path.includes('my-orders')) {
     if (!currentUser) {
-      window.location.href = "login.html";
+      window.location.href = "/login";
       return;
     }
     await renderMyOrders();
@@ -4713,7 +4713,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const productToBuy = products.find(p => String(p.id) === String(pid));
         if (productToBuy) {
           sessionStorage.setItem('shubham_buy_now_item', JSON.stringify({ ...productToBuy, quantity: 1 }));
-          window.location.href = "checkout.html";
+          window.location.href = "/checkout";
         } else {
           showToast("Product not found");
         }
@@ -4866,6 +4866,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       renderSimilarProducts(product);
 
+      // Inject Product details JSON-LD schema for SEO
+      try {
+        const schemaId = 'product-jsonld-schema';
+        let schemaScript = document.getElementById(schemaId);
+        if (!schemaScript) {
+          schemaScript = document.createElement('script');
+          schemaScript.id = schemaId;
+          schemaScript.type = 'application/ld+json';
+          document.head.appendChild(schemaScript);
+        }
+        const schemaObj = {
+          "@context": "https://schema.org/",
+          "@type": "Product",
+          "name": product.name,
+          "image": imgs[0],
+          "description": pDesc,
+          "offers": {
+            "@type": "Offer",
+            "url": window.location.href,
+            "priceCurrency": "INR",
+            "price": product.price,
+            "itemCondition": "https://schema.org/NewCondition",
+            "availability": product.in_stock !== false ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
+          }
+        };
+        schemaScript.textContent = JSON.stringify(schemaObj);
+      } catch (seoErr) {
+        console.error("Failed to inject product schema:", seoErr);
+      }
+
       // Initialize reviews right away on page load
       await renderReviews(productId);
 
@@ -4889,7 +4919,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       document.getElementById('reviewForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!currentUser) { showToast("Login required to review"); setTimeout(() => window.location.href = "login.html", 1500); return; }
+        if (!currentUser) { showToast("Login required to review"); setTimeout(() => window.location.href = "/login", 1500); return; }
         const rVal = document.getElementById('rating').value;
         const tVal = document.getElementById('reviewText').value;
         const supabase = getSupabase();
@@ -4921,7 +4951,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast("Review submitted successfully!");
       });
     } else {
-      detailContainer.innerHTML = '<div style="text-align: center; font-size: 1.2rem;">Product not found. <a href="products.html">Browse all products</a></div>';
+      detailContainer.innerHTML = '<div style="text-align: center; font-size: 1.2rem;">Product not found. <a href="/products">Browse all products</a></div>';
     }
   }
 
@@ -4981,9 +5011,9 @@ async function renderReviews(productId) {
 function checkChatLogin() {
   if (!currentUser) {
     showToast("Login required to start chat");
-    setTimeout(() => { window.location.href = "login.html"; }, 1500);
+    setTimeout(() => { window.location.href = "/login"; }, 1500);
   } else {
-    window.location.href = "chat.html";
+    window.location.href = "/chat";
   }
 }
 
@@ -5409,7 +5439,7 @@ window.renderFilteredFreeNotes = function () {
   const formatFilter = urlParams.get('format');
   const searchInput = document.getElementById('searchInput');
 
-  const isProductsPage = window.location.pathname.includes('products.html');
+  const isProductsPage = window.location.pathname.includes('/products');
   const hasSearchIntent = examFilter || formatFilter === 'pdf' || (searchInput && searchInput.value);
 
   if (isProductsPage && !hasSearchIntent) {
@@ -6171,7 +6201,7 @@ window.proceedToPayment = function () {
   }
   if (!currentUser) {
     showToast('Please log in to place a photocopy order.');
-    window.location.href = 'login.html';
+    window.location.href = '/login';
     return;
   }
   const hint = document.getElementById('ceLoggedInHint');
@@ -6214,7 +6244,7 @@ window.placeCopyOrder = async function (e) {
   const btn = document.getElementById('cePlaceOrderBtn');
   if (!currentUser) {
     showToast('Please log in to place an order.');
-    window.location.href = 'login.html';
+    window.location.href = '/login';
     return;
   }
   const name = (currentUser.name || '').trim() || 'Customer';
@@ -6288,7 +6318,7 @@ window.placeCopyOrder = async function (e) {
     if (success) {
       saveSavedDeliveryDetails({ street: address });
       sessionStorage.setItem("orderBanner", "success");
-      window.location.href = 'my-orders.html';
+      window.location.href = '/my-orders';
     }
   });
 };
@@ -6624,7 +6654,7 @@ window.openPdfViewer = async function (url, price, id, title) {
 
   if (Number(price) > 0 && !currentUser) {
     showToast("Please login first to preview and purchase notes.");
-    setTimeout(() => window.location.href = "login.html", 1500);
+    setTimeout(() => window.location.href = "/login", 1500);
     return;
   }
 
@@ -6955,7 +6985,7 @@ function renderHomeDynamicCategories() {
     const meta = categoryMeta[cat] || {};
     // Use a default placeholder icon if no image is set
     const imgSrc = meta.image || 'images/logo.png';
-    const searchUrl = 'products.html?strict=1&category=' + encodeURIComponent(cat);
+    const searchUrl = '/products?strict=1&category=' + encodeURIComponent(cat);
 
     return `
       <a class="dynamic-category-item" href="${searchUrl}">

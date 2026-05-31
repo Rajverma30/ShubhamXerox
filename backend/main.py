@@ -9,7 +9,7 @@ import random
 import time
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks, Response
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -856,8 +856,107 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
     sb.table("users").delete().eq("phone", phone).execute()
     return {"status": "ok"}
 
+async def list_public_products_helper(
+    response: Response,
+    limit: int = 40,
+    offset: int = 0,
+    category: Optional[str] = None,
+    q: Optional[str] = None,
+):
+    response.headers["Cache-Control"] = "public, max-age=20, s-maxage=60, stale-while-revalidate=120"
+    logger.info("GET /products build=%s", APP_BUILD_MARKER)
+    limit = int(limit or 40)
+    offset = int(offset or 0)
+    if limit < 1:
+        raise HTTPException(status_code=400, detail="limit must be >= 1")
+    if limit > 100:
+        limit = 100
+    if offset < 0:
+        offset = 0
+
+    cat_filter = (category or "").strip()
+    search_q = (q or "").strip()
+    cache_key = f"{limit}:{offset}:{cat_filter}:{search_q}"
+    now = time.time()
+    cached = PRODUCTS_CACHE.get(cache_key)
+    if cached and now < float(cached.get("expires_at", 0.0)):
+        return {
+            "products": cached.get("data", []),
+            "has_more": bool(cached.get("has_more", False)),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    try:
+        base_url = str(SUPABASE_URL or "").rstrip("/")
+        if not base_url or not SUPABASE_KEY:
+            raise HTTPException(status_code=500, detail="Supabase config missing")
+
+        url = (
+            f"{base_url}/rest/v1/products"
+            "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+            f"&order=id.desc&offset={offset}&limit={limit + 1}"
+        )
+        if cat_filter:
+            url += f"&category=eq.{quote(cat_filter, safe='')}"
+        if search_q:
+            url += f"&name=ilike.*{quote(search_q, safe='')}*"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+        # Use explicit connect/read timeout to avoid repeated 5s failures.
+        resp = requests.get(url, headers=headers, timeout=(5, 20))
+        resp.raise_for_status()
+        data = resp.json() if resp.content else []
+        rows = data if isinstance(data, list) else []
+        has_more = len(rows) > limit
+        products = rows[:limit] if has_more else rows
+        
+        # Strip all but the main image to drastically reduce payload size for list views
+        for p in products:
+            if p.get("img") and isinstance(p["img"], str):
+                p["img"] = p["img"].split("|")[0]
+                
+        # Cache results
+        PRODUCTS_CACHE[cache_key] = {
+            "data": products,
+            "has_more": has_more,
+            "expires_at": now + 60.0
+        }
+        
+        return {
+            "products": products,
+            "has_more": has_more,
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        logger.exception("Error in list_public_products_helper")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/products")
 async def list_public_products(
+    request: Request,
+    response: Response,
+    limit: int = 40,
+    offset: int = 0,
+    category: Optional[str] = None,
+    q: Optional[str] = None,
+):
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        products = []
+        try:
+            products_resp = await list_public_products_helper(response=response, limit=24, offset=0, category=category, q=q)
+            products = products_resp.get("products", [])
+        except Exception as e:
+            logger.warning(f"Failed to load initial products: {e}")
+        return templates.TemplateResponse("products.html", {"request": request, "initial_products": json.dumps(products)})
+    return await list_public_products_helper(response, limit, offset, category, q)
+
+# Dummy definition to absorb the original function body
+async def original_list_public_products_body(
     response: Response,
     limit: int = 40,
     offset: int = 0,
@@ -1222,7 +1321,7 @@ import json
 async def render_home(request: Request):
     products = []
     try:
-        products_resp = await list_public_products(response=Response(), limit=10, offset=0)
+        products_resp = await list_public_products_helper(response=Response(), limit=10, offset=0)
         products = products_resp.get("products", [])
     except Exception as e:
         logger.warning(f"Failed to load initial home products: {e}")
@@ -1242,13 +1341,42 @@ async def get_sitemap_xml():
         return FileResponse(path, media_type="application/xml")
     raise HTTPException(status_code=404, detail="Not Found")
 
-@app.get('/{page_name}.html', response_class=HTMLResponse)
+@app.get('/index.html')
+async def redirect_index_html(request: Request):
+    q = str(request.query_params)
+    url = "/"
+    if q:
+        url += f"?{q}"
+    return RedirectResponse(url=url, status_code=301)
+
+@app.get('/index')
+async def redirect_index(request: Request):
+    q = str(request.query_params)
+    url = "/"
+    if q:
+        url += f"?{q}"
+    return RedirectResponse(url=url, status_code=301)
+
+@app.get('/{page_name}.html')
+async def redirect_html_page(request: Request, page_name: str):
+    q = str(request.query_params)
+    url = f"/{page_name}"
+    if q:
+        url += f"?{q}"
+    return RedirectResponse(url=url, status_code=301)
+
+@app.get('/{page_name}', response_class=HTMLResponse)
 async def render_page(request: Request, page_name: str):
+    if page_name == "index":
+        return RedirectResponse(url="/", status_code=301)
+    path = os.path.join(FRONTEND_DIR, f"{page_name}.html")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Page not found")
     products = []
     if page_name in ["products", "index"]:
         initial_limit = 24 if page_name == "products" else 10
         try:
-            products_resp = await list_public_products(response=Response(), limit=initial_limit, offset=0)
+            products_resp = await list_public_products_helper(response=Response(), limit=initial_limit, offset=0)
             products = products_resp.get("products", [])
         except Exception as e:
             logger.warning(f"Failed to load initial {page_name} products: {e}")

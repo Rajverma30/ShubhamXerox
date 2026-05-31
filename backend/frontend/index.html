@@ -7,6 +7,61 @@
   <title>Shubham Xerox | Fast Xerox & Study Materials Near You</title>
   <meta name="description"
     content="Premium photocopy, printing, and study materials in Indore. High-quality notes for UPSC, MPPSC, and more.">
+  <link rel="canonical" href="https://www.shubhamxerox.in/">
+
+  <!-- Open Graph / Facebook / WhatsApp -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://www.shubhamxerox.in/">
+  <meta property="og:title" content="Shubham Xerox | Fast Xerox & Study Materials Near You">
+  <meta property="og:description" content="Premium photocopy, printing, and study materials in Indore. High-quality notes for UPSC, MPPSC, and more.">
+  <meta property="og:image" content="https://www.shubhamxerox.in/images/logo.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://www.shubhamxerox.in/">
+  <meta property="twitter:title" content="Shubham Xerox | Fast Xerox & Study Materials Near You">
+  <meta property="twitter:description" content="Premium photocopy, printing, and study materials in Indore. High-quality notes for UPSC, MPPSC, and more.">
+  <meta property="twitter:image" content="https://www.shubhamxerox.in/images/logo.png">
+
+  <!-- Local Business Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    "name": "Shubham Xerox",
+    "image": "https://www.shubhamxerox.in/images/logo.png",
+    "@id": "https://www.shubhamxerox.in/#store",
+    "url": "https://www.shubhamxerox.in",
+    "telephone": "+919630650965",
+    "priceRange": "₹",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Opposite Tinkus Cafe, Bhawarkua Main Rd",
+      "addressLocality": "Indore",
+      "addressRegion": "Madhya Pradesh",
+      "postalCode": "452001",
+      "addressCountry": "IN"
+    },
+    "geo": {
+      "@type": "GeoCoordinates",
+      "latitude": 22.6925,
+      "longitude": 75.8676
+    },
+    "openingHoursSpecification": {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
+      "opens": "09:00",
+      "closes": "21:00"
+    }
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -30,7 +85,7 @@
   <!-- Navigation -->
   <nav class="navbar">
     <div class="container">
-      <a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+      <a href="/" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
         <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
         <span
           style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM
@@ -38,17 +93,17 @@
       </a>
 
       <div class="nav-links" id="mainNavLinks">
-        <a href="index.html">Home</a>
+        <a href="/">Home</a>
 
-        <a href="products.html">Books & Notes</a>
-        <a href="e-books.html">E-Books</a>
-        <a href="index.html#services">Services</a>
+        <a href="/products">Books & Notes</a>
+        <a href="/e-books">E-Books</a>
+        <a href="/#services">Services</a>
         <!-- Auth link injected by JS -->
-        <a href="login.html" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
+        <a href="/login" id="authLink" class="dynamic-auth-link" style="color: var(--primary);">Login</a>
       </div>
 
       <div class="nav-icons">
-        <a href="cart.html" class="icon-btn" aria-label="Cart">
+        <a href="/cart" class="icon-btn" aria-label="Cart">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 20a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"></path>
@@ -94,7 +149,7 @@
       <p>Premium photocopy services and top-institute study notes for UPSC, MPPSC, and competitive exams. Located
         conveniently in Indore.</p>
       <div class="hero-btns">
-        <a href="products.html" class="btn btn-primary">Shop Now</a>
+        <a href="/products" class="btn btn-primary">Shop Now</a>
         <button id="openCostEstimator" class="btn btn-estimator" onclick="openCostEstimatorModal()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
@@ -156,7 +211,7 @@
       <p class="section-subtitle" style="margin: 0 auto 26px;">Quickly find what you need — notes, books, stationery and more.</p>
 
       <div class="category-tiles-grid">
-        <a class="category-tile" href="stationery.html" style="--tile-accent:#ef4444;">
+        <a class="category-tile" href="/stationery" style="--tile-accent:#ef4444;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
@@ -178,7 +233,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="mppsc-publications.html" style="--tile-accent:#22c55e;">
+        <a class="category-tile" href="/mppsc-publications" style="--tile-accent:#22c55e;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -190,7 +245,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="ssc-publications.html" style="--tile-accent:#3b82f6;">
+        <a class="category-tile" href="/ssc-publications" style="--tile-accent:#3b82f6;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -202,7 +257,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="upsc-ias-publications.html" style="--tile-accent:#f59e0b;">
+        <a class="category-tile" href="/upsc-ias-publications" style="--tile-accent:#f59e0b;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -214,7 +269,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="spiral-copies.html" style="--tile-accent:#8b5cf6;">
+        <a class="category-tile" href="/spiral-copies" style="--tile-accent:#8b5cf6;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -228,7 +283,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="combo-deals.html" style="--tile-accent:#ef4444;">
+        <a class="category-tile" href="/combo-deals" style="--tile-accent:#ef4444;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -243,7 +298,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="products.html?strict=1&category=Novels" style="--tile-accent:#06b6d4;">
+        <a class="category-tile" href="/products?strict=1&category=Novels" style="--tile-accent:#06b6d4;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -255,7 +310,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="products.html?strict=1&category=New%20Arrivals" style="--tile-accent:#22c55e;">
+        <a class="category-tile" href="/products?strict=1&category=New%20Arrivals" style="--tile-accent:#22c55e;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -267,7 +322,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="products.html?strict=1&category=Study%20Material" style="--tile-accent:#3b82f6;">
+        <a class="category-tile" href="/products?strict=1&category=Study%20Material" style="--tile-accent:#3b82f6;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -280,7 +335,7 @@
           <div class="category-tile-btn">Order Now</div>
         </a>
 
-        <a class="category-tile" href="products.html?strict=1&category=Deal%20of%20the%20Day" style="--tile-accent:#f59e0b;">
+        <a class="category-tile" href="/products?strict=1&category=Deal%20of%20the%20Day" style="--tile-accent:#f59e0b;">
           <div class="category-tile-body">
             <div class="category-tile-icon" aria-hidden="true">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -328,7 +383,7 @@
         <!-- Injected via JS -->
       </div>
       <div style="text-align: center; margin-top: 48px;">
-        <a href="products.html" class="btn btn-secondary">View All Products</a>
+        <a href="/products" class="btn btn-secondary">View All Products</a>
       </div>
     </div>
   </section>
@@ -434,7 +489,7 @@
           <p style="color: var(--text-muted); font-size: 0.95rem;">Spiral binding, hardbound options, and precise
             lamination for your documents.</p>
         </a>
-        <a href="products.html?strict=1&category=Study Material" class="product-card"
+        <a href="/products?strict=1&category=Study Material" class="product-card"
           style="text-align: center; padding: 40px 20px; display: block; text-decoration: none;">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5"
             style="margin-bottom: 24px;">
@@ -461,7 +516,7 @@
       <div style="flex: 1; min-width: 250px;">
         <h4 style="color: #f5f5f7; margin-bottom: 16px; font-size: 1.1rem; font-weight: 600;">Quick Links</h4>
         <ul style="display: flex; flex-direction: column; gap: 8px;">
-          <li><a href="products.html" style="font-size: 0.9rem; transition: color 0.2s;">Shop All Products</a></li>
+          <li><a href="/products" style="font-size: 0.9rem; transition: color 0.2s;">Shop All Products</a></li>
           <li><a href="#" style="font-size: 0.9rem; transition: color 0.2s;">Store Policy</a></li>
           <li><a href="#" style="font-size: 0.9rem; transition: color 0.2s;">Return Policy</a></li>
         </ul>

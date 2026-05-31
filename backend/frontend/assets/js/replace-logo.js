@@ -5,7 +5,7 @@ const files = fs.readdirSync(dir).filter(f => f.endsWith('.html'));
 
 const oldRegex = /<a href="index\.html" class="logo">[\s\S]*?<\/a>/;
 
-const newLogo = `<a href="index.html" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
+const newLogo = `<a href="/" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
         <svg width="45" height="45" viewBox="0 0 100 100" fill="none" stroke="url(#logoGrad)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
           <defs>
             <linearGradient id="logoGrad" x1="0" y1="0" x2="0" y2="1">
