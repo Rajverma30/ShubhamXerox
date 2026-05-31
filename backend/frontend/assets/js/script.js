@@ -4161,18 +4161,32 @@ function initMobileNavDrawer() {
     document.body.style.overflow = '';
   };
 
-  menuBtn.onclick = () => {
+  const handleToggle = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    console.log("Mobile menu button triggered. Current state open:", navLinks.classList.contains('mobile-open'));
     const isOpen = navLinks.classList.contains('mobile-open');
     if (isOpen) {
       closeDrawer();
-      return;
+    } else {
+      navLinks.classList.add('mobile-open');
+      backdrop.classList.add('show');
+      document.body.style.overflow = 'hidden';
     }
-    navLinks.classList.add('mobile-open');
-    backdrop.classList.add('show');
-    document.body.style.overflow = 'hidden';
   };
 
-  backdrop.onclick = closeDrawer;
+  menuBtn.addEventListener('click', handleToggle);
+  menuBtn.addEventListener('touchstart', handleToggle, { passive: false });
+
+  backdrop.onclick = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    closeDrawer();
+  };
   navLinks.querySelectorAll('a').forEach(a => a.addEventListener('click', closeDrawer));
   window.addEventListener('resize', () => {
     if (!window.matchMedia('(max-width: 768px)').matches) closeDrawer();
@@ -4609,6 +4623,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         showToast('Pricing settings saved globally!');
+      });
+    }
+
+    const offerForm = document.getElementById('offerForm');
+    if (offerForm) {
+      try {
+        const offerData = await apiFetch("/settings/offer", { method: "GET", auth: false });
+        if (offerData && offerData.text) {
+          document.getElementById('offerTextInput').value = offerData.text;
+        }
+      } catch (err) {
+        console.error("Failed to load offer settings from backend", err);
+      }
+
+      offerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = offerForm.querySelector('button[type="submit"]');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+        const newText = document.getElementById('offerTextInput').value;
+
+        try {
+          await apiFetch("/admin/settings/offer", { method: "PUT", body: { text: newText } });
+          showToast('Announcement saved globally!');
+        } catch (err) {
+          console.error("Failed to save offer to backend", err);
+          showToast("Failed to save announcement: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
       });
     }
   }
@@ -6791,8 +6837,7 @@ const defaultSpiralCopies = [
 
 function getSpiralCopies() {
   const added = (products || []).filter(p => p.category === 'Spiral Copies');
-  if (!added.length) return defaultSpiralCopies;
-  return [...added, ...defaultSpiralCopies].map((p, index) => ({
+  return added.map((p, index) => ({
     ...p,
     id: p.id || `spiral-added-${index}`,
     img: p.img || 'images/about-books.png'
@@ -6835,6 +6880,10 @@ window.renderSpiralCopies = function (range = 'all') {
     const pages = getSpiralCopyPages(item);
     return range === 'all' || (pages.max >= min && pages.min <= max);
   });
+  if (visible.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">No Spiral Copies available yet.</div>';
+    return;
+  }
   grid.innerHTML = visible.map(item => `
     <article class="product-card">
       <div class="product-image-container">
@@ -7075,6 +7124,134 @@ window.bulkAssignCategory = async function() {
     }
   }
 };
+
+async function initTodaysOffer() {
+  const path = window.location.pathname;
+  if (path.includes('admin') || path.includes('admin-')) {
+    return; // Don't show in admin dashboard
+  }
+
+  let offerText = "";
+  try {
+    const data = await apiFetch("/settings/offer", { method: "GET", auth: false });
+    if (data && data.text) {
+      offerText = data.text.trim();
+    }
+  } catch (err) {
+    console.error("Failed to fetch announcement offer:", err);
+    return;
+  }
+
+  if (!offerText) {
+    return; // No active offer to show
+  }
+
+  // Inject CSS styles dynamically
+  const styleId = "todays-offer-styles";
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.innerHTML = `
+      .todays-offer-bar {
+        background: linear-gradient(90deg, #531052, #802a7e, #531052);
+        color: #ffffff;
+        padding: 10px 40px 10px 15px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        overflow: hidden;
+        position: relative;
+        width: 100%;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        letter-spacing: 0.5px;
+        font-family: 'Inter', sans-serif;
+      }
+      .todays-offer-container {
+        display: flex;
+        overflow: hidden;
+        white-space: nowrap;
+        width: 100%;
+        position: relative;
+      }
+      .todays-offer-track {
+        display: inline-flex;
+        animation: todaysOfferScroll 30s linear infinite;
+        padding-left: 100%;
+      }
+      .todays-offer-track:hover {
+        animation-play-state: paused;
+        cursor: pointer;
+      }
+      .todays-offer-text {
+        padding: 0 50px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+      }
+      .todays-offer-text::before {
+        content: '🎉';
+        font-size: 1.1rem;
+      }
+      .todays-offer-close {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 1.4rem;
+        cursor: pointer;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.2s ease, transform 0.2s ease;
+        z-index: 10;
+        padding: 4px;
+      }
+      .todays-offer-close:hover {
+        color: #ffffff;
+        transform: translateY(-50%) scale(1.15);
+      }
+      @keyframes todaysOfferScroll {
+        0% {
+          transform: translate3d(0, 0, 0);
+        }
+        100% {
+          transform: translate3d(-100%, 0, 0);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // Create markup
+  const bar = document.createElement("div");
+  bar.className = "todays-offer-bar";
+  bar.id = "todaysOfferBar";
+  
+  bar.innerHTML = `
+    <div class="todays-offer-container">
+      <div class="todays-offer-track">
+        <span class="todays-offer-text">${offerText}</span>
+        <span class="todays-offer-text">${offerText}</span>
+        <span class="todays-offer-text">${offerText}</span>
+        <span class="todays-offer-text">${offerText}</span>
+      </div>
+    </div>
+    <button class="todays-offer-close" onclick="document.getElementById('todaysOfferBar').style.display='none';" aria-label="Close offer bar">&times;</button>
+  `;
+
+  // Prepend to body
+  document.body.prepend(bar);
+}
+
+document.addEventListener('DOMContentLoaded', initTodaysOffer);
+
 
 
 

@@ -866,6 +866,9 @@ button {
 }
 
 @media (max-width: 768px) {
+  .navbar {
+    z-index: 1300;
+  }
   .hero h1 { font-size: 2.5rem; }
   .navbar .container {
     height: 64px;
@@ -947,12 +950,23 @@ button {
     border-bottom: 1px solid var(--border-color);
   }
   .mobile-nav-backdrop {
+    display: block;
     position: fixed;
     inset: 0;
-    background: rgba(10,12,20,0.4);
+    background: rgba(10, 12, 20, 0.45);
     z-index: 1100;
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   }
-  .mobile-nav-backdrop.show { display: block; }
+  .mobile-nav-backdrop.show {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+  }
   
   .nav-links .nav-dropdown-menu {
     position: static;

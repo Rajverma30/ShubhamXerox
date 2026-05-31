@@ -181,6 +181,9 @@ class AdminSettingsUpdate(BaseModel):
     bw: float
     color: float
 
+class AdminOfferUpdate(BaseModel):
+    text: str
+
 # --- Auth / Security ---
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -958,6 +961,34 @@ async def update_global_rates(req: AdminSettingsUpdate, _admin: Dict[str, Any] =
 
     return {"status": "ok", "rates": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}}
 
+@app.get("/settings/offer")
+async def get_public_offer():
+    offer_text = "Welcome to Shubham Xerox! Get the best printing rates & notes here."
+    if supabase:
+        try:
+            res = supabase.table("settings").select("value").eq("key", "todays_offer").execute()
+            if res.data and len(res.data) > 0:
+                val = res.data[0].get("value", {})
+                offer_text = val.get("text", offer_text)
+        except Exception as e:
+            logger.warning(f"Failed to fetch offer from database: {e}")
+    return {"text": offer_text}
+
+@app.put("/admin/settings/offer")
+async def update_global_offer(req: AdminOfferUpdate, _admin: Dict[str, Any] = Depends(verify_admin)):
+    offer_text = req.text.strip()
+    if supabase:
+        try:
+            payload = {
+                "key": "todays_offer",
+                "value": {"text": offer_text}
+            }
+            supabase.table("settings").upsert(payload).execute()
+        except Exception as e:
+            logger.warning(f"Failed to save offer to database: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save offer to database: {e}")
+    return {"status": "ok", "text": offer_text}
+
 @app.get("/admin/products")
 async def admin_list_products(
     limit: int = 20,
@@ -1185,6 +1216,20 @@ async def render_home(request: Request):
     except Exception as e:
         logger.warning(f"Failed to load initial home products: {e}")
     return templates.TemplateResponse("index.html", {"request": request, "initial_products": json.dumps(products)})
+
+@app.get('/robots.txt', response_class=FileResponse)
+async def get_robots_txt():
+    path = os.path.join(FRONTEND_DIR, "robots.txt")
+    if os.path.isfile(path):
+        return FileResponse(path, media_type="text/plain")
+    raise HTTPException(status_code=404, detail="Not Found")
+
+@app.get('/sitemap.xml', response_class=FileResponse)
+async def get_sitemap_xml():
+    path = os.path.join(FRONTEND_DIR, "sitemap.xml")
+    if os.path.isfile(path):
+        return FileResponse(path, media_type="application/xml")
+    raise HTTPException(status_code=404, detail="Not Found")
 
 @app.get('/{page_name}.html', response_class=HTMLResponse)
 async def render_page(request: Request, page_name: str):
