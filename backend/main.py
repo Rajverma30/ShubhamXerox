@@ -227,6 +227,17 @@ def verify_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(be
         raise HTTPException(status_code=401, detail="Invalid token payload")
     return claims
 
+def verify_user_optional(credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> Optional[Dict[str, Any]]:
+    if not credentials or credentials.scheme.lower() != "bearer" or not credentials.credentials.strip():
+        return None
+    try:
+        claims = _decode_jwt(credentials.credentials)
+        if not claims.get("phone") or not claims.get("role"):
+            return None
+        return claims
+    except Exception:
+        return None
+
 def verify_admin(user: Dict[str, Any] = Depends(verify_user)) -> Dict[str, Any]:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -597,7 +608,7 @@ async def me(user: Dict[str, Any] = Depends(verify_user)):
     return {"user": {"phone": user["phone"], "role": user["role"], "name": user.get("name", "")}}
 
 @app.post("/create-order")
-async def create_order(req: CreateOrderRequest, user: Dict[str, Any] = Depends(verify_user)):
+async def create_order(req: CreateOrderRequest, user: Optional[Dict[str, Any]] = Depends(verify_user_optional)):
     if not rzp_client:
         raise HTTPException(status_code=500, detail="Razorpay client not configured")
 
@@ -623,7 +634,7 @@ async def create_order(req: CreateOrderRequest, user: Dict[str, Any] = Depends(v
 
 
 @app.post("/verify-payment")
-async def verify_payment(req: VerifyPaymentRequest, user: Dict[str, Any] = Depends(verify_user)):
+async def verify_payment(req: VerifyPaymentRequest, user: Optional[Dict[str, Any]] = Depends(verify_user_optional)):
     if not rzp_client or not supabase:
         raise HTTPException(status_code=500, detail="Backend infrastructure not fully configured")
 
@@ -687,7 +698,7 @@ async def verify_payment(req: VerifyPaymentRequest, user: Dict[str, Any] = Depen
 
 
 @app.post("/create-cod-order")
-async def create_cod_order(req: CreateCodOrderRequest, user: Dict[str, Any] = Depends(verify_user)):
+async def create_cod_order(req: CreateCodOrderRequest, user: Optional[Dict[str, Any]] = Depends(verify_user_optional)):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
 
