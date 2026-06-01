@@ -1216,6 +1216,28 @@ function updateNavForUser() {
         authLink.onclick = (e) => { e.preventDefault(); logout(); };
       }
     } else {
+      let hasLocalOrders = false;
+      try {
+        const guestBooks = JSON.parse(localStorage.getItem('shubham_guest_book_orders') || '[]');
+        const guestPhotos = JSON.parse(localStorage.getItem('shubham_guest_photocopy_orders') || '[]');
+        hasLocalOrders = (guestBooks.length > 0 || guestPhotos.length > 0);
+      } catch (e) {}
+
+      let myOrdersLink = navContainer.querySelector('.my-orders-link');
+      if (hasLocalOrders) {
+        if (!myOrdersLink) {
+          myOrdersLink = document.createElement('a');
+          myOrdersLink.className = 'my-orders-link';
+          myOrdersLink.href = "/my-orders";
+          myOrdersLink.textContent = "My Orders";
+          navContainer.insertBefore(myOrdersLink, authLink);
+        }
+      } else {
+        if (myOrdersLink) {
+          myOrdersLink.remove();
+        }
+      }
+
       authLink.href = "/login";
       authLink.textContent = "Login";
       authLink.style.color = "var(--primary)";
@@ -1423,6 +1445,16 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
           });
 
           if (verifyRes.ok) {
+            if (!currentUser) {
+              try {
+                const key = orderType === 'photocopy' ? 'shubham_guest_photocopy_orders' : 'shubham_guest_book_orders';
+                const guestOrders = JSON.parse(localStorage.getItem(key) || '[]');
+                guestOrders.unshift(orderData);
+                localStorage.setItem(key, JSON.stringify(guestOrders));
+              } catch (e) {
+                console.error("Failed to save guest order to localStorage", e);
+              }
+            }
             onComplete(true, response.razorpay_payment_id);
           } else {
             const err = await verifyRes.json();
@@ -3449,6 +3481,17 @@ window.returnUserOrder = async function (orderId, type) {
       localStorage.setItem(table, JSON.stringify(local));
     } catch (e) { }
   }
+
+  // Update local guest storage if guest
+  if (!currentUser) {
+    try {
+      const guestKey = (type === 'book' || type === 'orders') ? 'shubham_guest_book_orders' : 'shubham_guest_photocopy_orders';
+      let guestLocal = JSON.parse(localStorage.getItem(guestKey) || '[]');
+      guestLocal = guestLocal.map(o => o.id === orderId ? { ...o, status: 'Return Requested' } : o);
+      localStorage.setItem(guestKey, JSON.stringify(guestLocal));
+    } catch (e) { }
+  }
+
   showToast("Return Requested");
   await renderMyOrders();
 };
@@ -3468,6 +3511,17 @@ window.cancelUserOrder = async function (orderId, type) {
       localStorage.setItem(table, JSON.stringify(local));
     } catch (e) { }
   }
+
+  // Update local guest storage if guest
+  if (!currentUser) {
+    try {
+      const guestKey = (type === 'book' || type === 'orders') ? 'shubham_guest_book_orders' : 'shubham_guest_photocopy_orders';
+      let guestLocal = JSON.parse(localStorage.getItem(guestKey) || '[]');
+      guestLocal = guestLocal.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
+      localStorage.setItem(guestKey, JSON.stringify(guestLocal));
+    } catch (e) { }
+  }
+
   showToast("Order Cancelled");
   await renderMyOrders();
 };
@@ -3476,28 +3530,41 @@ async function renderMyOrders() {
   const container = document.getElementById('myOrdersList');
   if (!container) return;
 
-  if (!currentUser) {
-    window.location.href = "/login";
-    return;
-  }
-
+  const isGuest = !currentUser;
   let dbOrders = [];
   let photoOrders = [];
-  const supabase = getSupabase();
-  if (supabase) {
-    const { data: books } = await supabase.from('orders').select('*').eq('customerphone', currentUser.phone).order('date', { ascending: false });
-    dbOrders = books || [];
-    const { data: copies } = await supabase
-      .from('photocopy_orders')
-      .select('*')
-      .eq('customer_phone', currentUser.phone)
-      .order('created_at', { ascending: false });
-    photoOrders = copies || [];
-  } else {
+  let alertHtml = '';
+
+  if (isGuest) {
     try {
-      dbOrders = JSON.parse(localStorage.getItem('orders') || '[]').filter(o => o.customerphone === currentUser.phone);
-      photoOrders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]').filter(o => o.customer_phone === currentUser.phone);
-    } catch (e) { }
+      dbOrders = JSON.parse(localStorage.getItem('shubham_guest_book_orders') || '[]');
+      photoOrders = JSON.parse(localStorage.getItem('shubham_guest_photocopy_orders') || '[]');
+    } catch (e) {
+      console.error("Failed to load guest orders:", e);
+    }
+    alertHtml = `
+      <div style="background: rgba(128, 42, 126, 0.08); border: 1px solid rgba(128, 42, 126, 0.2); padding: 16px; border-radius: 8px; margin-bottom: 24px; color: var(--text-main); font-size: 0.95rem;">
+        <span style="font-weight: 700; color: var(--primary);">Guest Mode:</span> Showing guest orders placed on this device. 
+        <a href="/login" style="color: var(--primary); font-weight: 600; text-decoration: underline; margin-left: 4px;">Log in / Register</a> to access your account.
+      </div>
+    `;
+  } else {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data: books } = await supabase.from('orders').select('*').eq('customerphone', currentUser.phone).order('date', { ascending: false });
+      dbOrders = books || [];
+      const { data: copies } = await supabase
+        .from('photocopy_orders')
+        .select('*')
+        .eq('customer_phone', currentUser.phone)
+        .order('created_at', { ascending: false });
+      photoOrders = copies || [];
+    } else {
+      try {
+        dbOrders = JSON.parse(localStorage.getItem('orders') || '[]').filter(o => o.customerphone === currentUser.phone);
+        photoOrders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]').filter(o => o.customer_phone === currentUser.phone);
+      } catch (e) { }
+    }
   }
 
   const merged = [
@@ -3506,11 +3573,11 @@ async function renderMyOrders() {
   ].sort((a, b) => b.t - a.t);
 
   if (merged.length === 0) {
-    container.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted);">You have not placed any orders yet.</div>`;
+    container.innerHTML = alertHtml + `<div style="padding: 24px; text-align: center; color: var(--text-muted);">You have not placed any orders yet.</div>`;
     return;
   }
 
-  container.innerHTML = merged.map(({ kind, o }) => {
+  container.innerHTML = alertHtml + merged.map(({ kind, o }) => {
     if (kind === 'book') {
       const statusStr = String(o.status || 'Pending').trim();
       const hasTracking = o.tracking_link || o.tracking_url;
