@@ -4742,10 +4742,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (path.includes('my-orders')) {
-    if (!currentUser) {
-      window.location.href = "/login";
-      return;
-    }
     await renderMyOrders();
   }
 
