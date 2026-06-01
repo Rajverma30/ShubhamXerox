@@ -46,7 +46,7 @@ OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 PRODUCTS_CACHE: Dict[str, Dict[str, Any]] = {}
 PRODUCTS_CACHE_TTL_SECONDS = 20
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
-GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0}
+GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0, "delivery_fee": 70.0}
 
 app = FastAPI(title="Shubham Xerox API")
 
@@ -180,6 +180,7 @@ class AdminOrderStatusUpdate(BaseModel):
 class AdminSettingsUpdate(BaseModel):
     bw: float
     color: float
+    delivery_fee: Optional[float] = 70.0
 
 class AdminOfferUpdate(BaseModel):
     text: str
@@ -1045,31 +1046,52 @@ async def get_public_rates():
                 if "bw" in val and "color" in val:
                     GLOBAL_RATES["bw"] = float(val["bw"])
                     GLOBAL_RATES["color"] = float(val["color"])
+                if "delivery_fee" in val:
+                    GLOBAL_RATES["delivery_fee"] = float(val["delivery_fee"])
         except Exception as e:
             logger.warning(f"Failed to fetch rates from database settings table: {e}. Using in-memory rates.")
 
-    return {"bw": float(GLOBAL_RATES.get("bw", 1.0)), "color": float(GLOBAL_RATES.get("color", 5.0))}
+    return {
+        "bw": float(GLOBAL_RATES.get("bw", 1.0)),
+        "color": float(GLOBAL_RATES.get("color", 5.0)),
+        "delivery_fee": float(GLOBAL_RATES.get("delivery_fee", 70.0))
+    }
 
 @app.put("/admin/settings/rates")
 async def update_global_rates(req: AdminSettingsUpdate, _admin: Dict[str, Any] = Depends(verify_admin)):
     bw = float(req.bw)
     color = float(req.color)
+    delivery_fee = float(req.delivery_fee if req.delivery_fee is not None else 70.0)
     if bw <= 0 or color <= 0:
         raise HTTPException(status_code=400, detail="Rates must be positive numbers")
+    if delivery_fee < 0:
+        raise HTTPException(status_code=400, detail="Delivery fee cannot be negative")
     GLOBAL_RATES["bw"] = round(bw, 2)
     GLOBAL_RATES["color"] = round(color, 2)
+    GLOBAL_RATES["delivery_fee"] = round(delivery_fee, 2)
 
     if supabase:
         try:
             payload = {
                 "key": "photocopy_rates",
-                "value": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}
+                "value": {
+                    "bw": GLOBAL_RATES["bw"],
+                    "color": GLOBAL_RATES["color"],
+                    "delivery_fee": GLOBAL_RATES["delivery_fee"]
+                }
             }
             supabase.table("settings").upsert(payload).execute()
         except Exception as e:
             logger.warning(f"Failed to save rates to database settings table: {e}")
 
-    return {"status": "ok", "rates": {"bw": GLOBAL_RATES["bw"], "color": GLOBAL_RATES["color"]}}
+    return {
+        "status": "ok",
+        "rates": {
+            "bw": GLOBAL_RATES["bw"],
+            "color": GLOBAL_RATES["color"],
+            "delivery_fee": GLOBAL_RATES["delivery_fee"]
+        }
+    }
 
 @app.get("/settings/offer")
 async def get_public_offer():

@@ -32,7 +32,7 @@ function getSupabase() {
 // Constants
 const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
-const DELIVERY_FEE = 70;
+let DELIVERY_FEE = 70;
 const CE_BINDING_FEES = { none: 0, spiral: 30, pin: 20 };
 const API_BASE = window.API_BASE_URL || (
   window.location.protocol === "http:" || window.location.protocol === "https:"
@@ -3654,6 +3654,10 @@ function renderCheckoutSummary() {
 
   const rawSubtotal = getCheckoutTotal();
   document.getElementById('checkoutSubtotal').textContent = formatPrice(rawSubtotal);
+  const checkoutDeliveryChargeEl = document.getElementById('checkoutDeliveryCharge');
+  if (checkoutDeliveryChargeEl) {
+    checkoutDeliveryChargeEl.textContent = DELIVERY_FEE === 0 ? 'Free' : formatPrice(DELIVERY_FEE);
+  }
   document.getElementById('checkoutTotal').textContent = formatPrice(rawSubtotal + DELIVERY_FEE);
 }
 
@@ -4606,14 +4610,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       const currentRates = getCeRates();
       document.getElementById('bwRateInput').value = currentRates.bw;
       document.getElementById('colorRateInput').value = currentRates.color;
+      const dfInput = document.getElementById('deliveryFeeInput');
+      if (dfInput) {
+        dfInput.value = typeof currentRates.delivery_fee === 'number' ? currentRates.delivery_fee : 70;
+      }
       pricingForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const bw = Number(parseFloat(document.getElementById('bwRateInput').value).toFixed(2));
         const color = Number(parseFloat(document.getElementById('colorRateInput').value).toFixed(2));
+        const delivery_fee = dfInput ? Number(parseInt(dfInput.value) || 0) : 70;
 
-        const ratesObj = { bw, color };
+        const ratesObj = { bw, color, delivery_fee };
         localStorage.setItem('shubham_ce_rates', JSON.stringify(ratesObj));
         if (window.globalRates) window.globalRates = ratesObj;
+        DELIVERY_FEE = delivery_fee;
         try {
           await apiFetch("/admin/settings/rates", { method: "PUT", body: ratesObj });
         } catch (err) {
@@ -4798,7 +4808,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#802a7e" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                 Delivered in 3-5 Days
               </p>
-              <p style="color: var(--text-muted); font-size: 0.95rem;">Flat delivery charge ₹70 on all orders.</p>
+              <p id="productDetailDeliveryCharge" style="color: var(--text-muted); font-size: 0.95rem;">${DELIVERY_FEE === 0 ? 'Free delivery on all orders.' : `Flat delivery charge ₹${DELIVERY_FEE} on all orders.`}</p>
             </div>
 
             <div style="margin-bottom: 40px;">
@@ -5834,11 +5844,23 @@ let ceState = {
 
 window.globalRates = null;
 function getCeRates() {
-  if (window.globalRates) return window.globalRates;
+  if (window.globalRates) {
+    if (typeof window.globalRates.delivery_fee === 'number') {
+      DELIVERY_FEE = window.globalRates.delivery_fee;
+    }
+    return window.globalRates;
+  }
   try {
-    return JSON.parse(localStorage.getItem('shubham_ce_rates')) || { bw: 1, color: 5 };
+    const parsed = JSON.parse(localStorage.getItem('shubham_ce_rates'));
+    if (parsed) {
+      if (typeof parsed.delivery_fee === 'number') {
+        DELIVERY_FEE = Number(parsed.delivery_fee);
+      }
+      return parsed;
+    }
+    return { bw: 1, color: 5, delivery_fee: 70 };
   } catch (e) {
-    return { bw: 1, color: 5 };
+    return { bw: 1, color: 5, delivery_fee: 70 };
   }
 }
 
@@ -5847,8 +5869,27 @@ async function syncCeRatesFromServer() {
     const rates = await apiFetch("/settings/rates", { method: "GET", auth: false });
     if (rates && typeof rates.bw === 'number' && typeof rates.color === 'number') {
       window.globalRates = { bw: Number(rates.bw), color: Number(rates.color) };
+      if (typeof rates.delivery_fee === 'number') {
+        window.globalRates.delivery_fee = Number(rates.delivery_fee);
+        DELIVERY_FEE = window.globalRates.delivery_fee;
+      } else {
+        window.globalRates.delivery_fee = 70;
+      }
       localStorage.setItem('shubham_ce_rates', JSON.stringify(window.globalRates));
       if (typeof updateHeroRates === 'function') updateHeroRates();
+      
+      const pdDeliveryEl = document.getElementById('productDetailDeliveryCharge');
+      if (pdDeliveryEl) {
+        pdDeliveryEl.textContent = DELIVERY_FEE === 0 ? 'Free delivery on all orders.' : `Flat delivery charge ₹${DELIVERY_FEE} on all orders.`;
+      }
+      
+      if (typeof renderCheckoutSummary === 'function' && document.getElementById('checkoutForm')) {
+        renderCheckoutSummary();
+      }
+      
+      if (typeof recalcEstimate === 'function') {
+        recalcEstimate();
+      }
     }
   } catch (e) {
     // Ignore fetch errors; local cache will be used.

@@ -117,8 +117,8 @@
       </div>
 
       <div class="admin-card" style="margin-bottom: 60px;">
-        <h2 style="font-size: 1.35rem; margin-bottom: 16px;">Photocopy Pricing Settings</h2>
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">Set current per-page rates used in photocopy orders.</p>
+        <h2 style="font-size: 1.35rem; margin-bottom: 16px;">Photocopy &amp; Delivery Settings</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">Set current per-page rates and flat delivery charges used across the store.</p>
         <form id="pricingForm" style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-end;">
           <div>
             <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:6px;">B&W Rate (₹/page)</label>
@@ -127,6 +127,10 @@
           <div>
             <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:6px;">Colour Rate (₹/page)</label>
             <input type="number" id="colorRateInput" min="0" step="0.01" style="width:140px; padding:10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main);" required>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:6px;">Delivery Charge (₹)</label>
+            <input type="number" id="deliveryFeeInput" min="0" step="1" style="width:140px; padding:10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main);" required>
           </div>
           <button type="submit" class="btn btn-primary" style="padding:10px 24px;">Save Settings</button>
         </form>
