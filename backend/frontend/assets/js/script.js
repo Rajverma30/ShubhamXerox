@@ -3539,8 +3539,51 @@ async function renderMyOrders() {
     try {
       dbOrders = JSON.parse(localStorage.getItem('shubham_guest_book_orders') || '[]');
       photoOrders = JSON.parse(localStorage.getItem('shubham_guest_photocopy_orders') || '[]');
+      
+      const supabase = getSupabase();
+      if (supabase) {
+        // 1. Sync guest book orders
+        if (dbOrders.length > 0) {
+          const bookOrderIds = dbOrders.map(o => o.id);
+          const { data: latestBooks, error: err1 } = await supabase
+            .from('orders')
+            .select('*')
+            .in('id', bookOrderIds);
+          
+          if (latestBooks && latestBooks.length > 0 && !err1) {
+            dbOrders = dbOrders.map(orig => {
+              const matched = latestBooks.find(b => String(b.id) === String(orig.id));
+              if (matched) {
+                return { ...orig, ...matched };
+              }
+              return orig;
+            });
+            localStorage.setItem('shubham_guest_book_orders', JSON.stringify(dbOrders));
+          }
+        }
+        
+        // 2. Sync guest photocopy orders
+        if (photoOrders.length > 0) {
+          const photoOrderIds = photoOrders.map(o => o.id);
+          const { data: latestPhotos, error: err2 } = await supabase
+            .from('photocopy_orders')
+            .select('*')
+            .in('id', photoOrderIds);
+            
+          if (latestPhotos && latestPhotos.length > 0 && !err2) {
+            photoOrders = photoOrders.map(orig => {
+              const matched = latestPhotos.find(p => String(p.id) === String(orig.id));
+              if (matched) {
+                return { ...orig, ...matched };
+              }
+              return orig;
+            });
+            localStorage.setItem('shubham_guest_photocopy_orders', JSON.stringify(photoOrders));
+          }
+        }
+      }
     } catch (e) {
-      console.error("Failed to load guest orders:", e);
+      console.error("Failed to sync guest orders from database:", e);
     }
     alertHtml = `
       <div style="background: rgba(128, 42, 126, 0.08); border: 1px solid rgba(128, 42, 126, 0.2); padding: 16px; border-radius: 8px; margin-bottom: 24px; color: var(--text-main); font-size: 0.95rem;">
