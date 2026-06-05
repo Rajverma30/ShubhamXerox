@@ -5611,6 +5611,10 @@ function renderFreeNotesGrid(notesToDisplay) {
 
   container.innerHTML = notesToDisplay.map((note, index) => {
     const bg = colors[index % colors.length];
+    const priceParam = (note.is_paid && !hasUnlockedNote(note.id)) ? note.price : 0;
+    const onClickAction = note.is_paid 
+      ? `openPdfViewer('${note.file_url}', ${priceParam}, '${note.id}', '${note.title.replace(/'/g, "\\'")}')` 
+      : `window.open('${note.file_url}', '_blank')`;
     return `
     <div class="note-card" style="border: none; background: transparent; box-shadow: none; padding: 10px; display: flex; flex-direction: column; align-items: center; position: relative;">
       
@@ -5619,7 +5623,7 @@ function renderFreeNotesGrid(notesToDisplay) {
         ${note.is_paid ? `PAID (₹${note.price})` : 'FREE'}
       </div>
 
-      <div class="note-icon" id="pdf-icon-${note.id}" style="width: 160px; height: 160px; margin: 0 auto 20px; background: ${bg}; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; border: 4px solid var(--card-bg); box-shadow: var(--shadow-md); position: relative; overflow: hidden;">
+      <div class="note-icon" id="pdf-icon-${note.id}" onclick="${onClickAction}" style="cursor: pointer; width: 160px; height: 160px; margin: 0 auto 20px; background: ${bg}; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; border: 4px solid var(--card-bg); box-shadow: var(--shadow-md); position: relative; overflow: hidden;">
         <div class="fallback-ui" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; transition: opacity 0.3s; z-index: 1;">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
           <span style="font-size: 0.85rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">${note.is_paid ? 'PRO PDF' : 'FREE PDF'}</span>
@@ -5628,17 +5632,8 @@ function renderFreeNotesGrid(notesToDisplay) {
       </div>
       <div class="note-details" style="text-align: center; width: 100%;">
         <h3 class="note-title" style="font-size: 1.1rem; line-height: 1.4; margin-bottom: 4px;">${note.title}</h3>
-        <p class="note-meta" style="margin-bottom: 16px;">${new Date(note.created_at).toLocaleDateString()}</p>
+        <p class="note-meta" style="margin-bottom: 0;">${new Date(note.created_at).toLocaleDateString()}</p>
       </div>
-      ${note.is_paid && !hasUnlockedNote(note.id) ? `
-      <button onclick="openPdfViewer('${note.file_url}', ${note.price}, '${note.id}', '${note.title.replace(/'/g, "\\'")}')" class="btn note-download-btn" aria-label="Preview & Buy ${note.title}" style="border-radius: var(--radius-full); width: auto; padding: 10px 20px; font-size: 0.95rem; background: var(--primary); color: #000;">
-        Preview & Buy (₹${note.price}) <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-      </button>
-      ` : `
-      ${note.is_paid
-        ? `<button onclick="openPdfViewer('${note.file_url}', ${note.price || 0}, '${note.id}', '${note.title.replace(/'/g, "\\'")}')" class="btn note-download-btn" aria-label="View ${note.title}" style="border-radius: var(--radius-full); width: auto; padding: 10px 20px; font-size: 0.95rem;">Open Secure Viewer <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 9h6v6H9z"></path></svg></button>`
-        : `<a href="${note.file_url}" target="_blank" rel="noopener noreferrer" class="btn note-download-btn" aria-label="Open ${note.title}" style="border-radius: var(--radius-full); width: auto; padding: 10px 20px; font-size: 0.95rem;">Open PDF <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 9h6v6H9z"></path></svg></a>`
-      }`}
     </div>
   `}).join('');
 
