@@ -84,6 +84,9 @@ if os.path.isdir(os.path.join(FRONTEND_DIR, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
 if os.path.isdir(os.path.join(FRONTEND_DIR, "images")):
     app.mount("/images", StaticFiles(directory=os.path.join(FRONTEND_DIR, "images")), name="images")
+if os.path.isdir(os.path.join(FRONTEND_DIR, "all-products_files")):
+    app.mount("/all-products_files", StaticFiles(directory=os.path.join(FRONTEND_DIR, "all-products_files")), name="all-products_files")
+
 
 @app.get("/healthz")
 async def healthz():
