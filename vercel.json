@@ -9,7 +9,7 @@
   ],
   "routes": [
     {
-      "src": "/product($|/.*)",
+      "src": "/product/(.*)",
       "status": 308,
       "headers": { "Location": "/products.html" }
     },

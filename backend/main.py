@@ -1394,6 +1394,18 @@ async def redirect_html_page(request: Request, page_name: str):
 async def render_page(request: Request, page_name: str):
     if page_name == "index":
         return RedirectResponse(url="/", status_code=301)
+    
+    if page_name == "product":
+        product_id = request.query_params.get("id", "").strip()
+        is_valid = False
+        if product_id:
+            if product_id.startswith('-'):
+                is_valid = product_id[1:].isdigit()
+            else:
+                is_valid = product_id.isdigit()
+        if not is_valid:
+            return RedirectResponse(url="/products.html", status_code=308)
+
     path = os.path.join(FRONTEND_DIR, f"{page_name}.html")
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Page not found")
