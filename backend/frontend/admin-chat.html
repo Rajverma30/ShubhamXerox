@@ -128,7 +128,7 @@
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => {
-        if (!currentUser || currentUser.phone !== ADMIN_PHONE) {
+        if (!currentUser || (currentUser.role !== 'admin' && currentUser.phone !== ADMIN_PHONE)) {
           window.location.href = '/';
         } else {
           initAdminChatCenter();

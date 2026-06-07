@@ -2432,7 +2432,7 @@ async function handleAddCategory(e) {
   renderAdminCategories();
 }
 function checkAdminAccess() {
-  if (!currentUser || currentUser.phone !== ADMIN_PHONE) {
+  if (!currentUser || (currentUser.role !== 'admin' && currentUser.phone !== ADMIN_PHONE)) {
     showToast("Access Denied");
     setTimeout(() => window.location.href = "/", 1000);
   } else {
@@ -3045,7 +3045,7 @@ async function renderAdminUsers() {
         <div class="admin-list-item">
           <div><strong>${u.name}</strong> <span style="font-size:0.8rem; background:var(--bg-color); padding:2px 6px; border-radius:4px;">${u.role}</span></div>
           <div style="color:var(--text-muted);">${u.phone}</div>
-          <button class="remove-btn" onclick="deleteUser('${u.phone}')" ${u.phone === ADMIN_PHONE ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Delete</button>
+          <button class="remove-btn" onclick="deleteUser('${u.phone}')" ${u.phone === ADMIN_PHONE || u.role === 'admin' ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Delete</button>
         </div>
       `).join('');
     }
@@ -4698,7 +4698,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkAdminAccess();
     // Free notes admin UI binds itself by element presence; ensure list loads
     setTimeout(() => {
-      if (document.getElementById('adminFreeNotesList') && currentUser && currentUser.phone === ADMIN_PHONE) {
+      if (document.getElementById('adminFreeNotesList') && currentUser && (currentUser.role === 'admin' || currentUser.phone === ADMIN_PHONE)) {
         loadAdminFreeNotes();
       }
     }, 900);
@@ -5897,7 +5897,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (slider) slider.addEventListener('scroll', updateFreeNotesNav, { passive: true });
       window.addEventListener('resize', updateFreeNotesNav);
     }
-    if (document.getElementById('adminFreeNotesList') && currentUser && currentUser.phone === ADMIN_PHONE) {
+    if (document.getElementById('adminFreeNotesList') && currentUser && (currentUser.role === 'admin' || currentUser.phone === ADMIN_PHONE)) {
       loadAdminFreeNotes();
     }
   }, 1000); // Give supabase a second to boot up

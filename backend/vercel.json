@@ -9,6 +9,11 @@
   ],
   "routes": [
     {
+      "src": "/product($|/.*)",
+      "status": 308,
+      "headers": { "Location": "/products.html" }
+    },
+    {
       "src": "/(.*)",
       "dest": "api/index.py"
     }
