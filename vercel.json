@@ -14,6 +14,11 @@
       "headers": { "Location": "/products.html" }
     },
     {
+      "src": "/category/(.*)",
+      "status": 308,
+      "headers": { "Location": "/" }
+    },
+    {
       "src": "/(.*)",
       "dest": "backend/api/index.py"
     }
