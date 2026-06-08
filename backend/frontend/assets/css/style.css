@@ -3297,3 +3297,56 @@ input:checked + .theme-slider:before {
   height: 100%;
   object-fit: cover;
 }
+
+/* --- Mobile Hero Slider Responsive Adjustments --- */
+@media (max-width: 768px) {
+  .hero {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    padding: 0 0 35px 0;
+    background: #f5f7fa;
+  }
+  
+  [data-theme="dark"] .hero {
+    background: #1e272e;
+  }
+
+  .slider-container {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-bottom: 54.54%; /* Maintain 1408:768 image aspect ratio */
+  }
+
+  .slide {
+    background-size: cover;
+    background-position: center;
+  }
+
+  .slide::after {
+    background: linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.2) 65%, #f5f7fa 100%) !important;
+  }
+
+  [data-theme="dark"] .slide::after {
+    background: linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.4) 65%, #1e272e 100%) !important;
+  }
+
+  .slider-dots {
+    bottom: 12px;
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 10;
+    text-align: center;
+    margin: 24px auto 0;
+    padding: 0 20px;
+    width: 100%;
+  }
+
+  .hero p {
+    color: var(--text-main) !important;
+    text-shadow: none !important;
+  }
+}
