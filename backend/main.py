@@ -904,7 +904,7 @@ async def list_public_products_helper(
         if cat_filter:
             url += f"&category=eq.{quote(cat_filter, safe='')}"
         if search_q:
-            url += f"&name=ilike.*{quote(search_q, safe='')}*"
+            url += f"&or=(name.ilike.*{quote(search_q, safe='')}*,category.ilike.*{quote(search_q, safe='')}*)"
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -1004,7 +1004,7 @@ async def original_list_public_products_body(
         if cat_filter:
             url += f"&category=eq.{quote(cat_filter, safe='')}"
         if search_q:
-            url += f"&name=ilike.*{quote(search_q, safe='')}*"
+            url += f"&or=(name.ilike.*{quote(search_q, safe='')}*,category.ilike.*{quote(search_q, safe='')}*)"
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",

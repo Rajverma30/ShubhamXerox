@@ -98,27 +98,7 @@
                 <label for="desc">Manual Description Content</label>
                 <textarea id="desc" class="form-control" rows="3" placeholder="Enter manual description here..."></textarea>
               </div>
-              <div class="form-group">
-                <label>Target Exam(s) <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Select multiple if applicable)</span></label>
-                <div id="examCheckboxes" style="display: flex; flex-wrap: wrap; gap: 10px; max-height: 180px; overflow-y: auto; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="MPPSC"> MPPSC</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="UPSC/IAS"> UPSC/IAS</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="SSC CGL"> SSC CGL</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="SSC CHSL"> SSC CHSL</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="Banking PO"> Banking PO</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="Banking Clerk"> Banking Clerk</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="Patwari"> Patwari</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="Railway RRB NTPC"> Railway RRB NTPC</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="Railway Group D"> Railway Group D</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="MPSI"> MPSI</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="MP Police Constable"> MP Police Constable</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="CTET/TET"> CTET/TET</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="NDA/CDS"> NDA/CDS</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="State PSC"> State PSC</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="GATE"> GATE</label>
-                  <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="exam_opts" value="JEE/NEET"> JEE/NEET</label>
-                </div>
-              </div>
+
               <div class="form-group">
                 <label for="imgUpload1">Main Image</label>
                 <input type="file" id="imgUpload1" class="form-control" accept="image/*">
@@ -136,15 +116,15 @@
               <small style="color: var(--text-muted); display: block; margin-top: -10px; margin-bottom: 12px;">Capture from camera or select file. Multi-images show as a slider.</small>
               <div style="text-align: center; margin: 12px 0; color: var(--text-muted); font-size: 0.9rem;">OR</div>
               <div class="form-group">
-                <label for="bookPdfPreview">Upload PDF to auto-generate 3 Images</label>
+                <label for="bookPdfPreview">Upload PDF to auto-generate 5 Images</label>
                 <input type="file" id="bookPdfPreview" class="form-control" accept="application/pdf">
-                <small style="color: var(--text-muted); display: block; margin-top: 4px;">Locally grabs the first 3 pages and compresses them as product images.</small>
+                <small style="color: var(--text-muted); display: block; margin-top: 4px;">Locally grabs the first 5 pages and compresses them as product images.</small>
               </div>
               <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-top: 20px;">
                 <h3 style="font-size: 1rem; margin-bottom: 12px;">Attach PDF to Book <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional)</span></h3>
                 <label for="bookAttachedPdf">Upload PDF</label>
                 <input type="file" id="bookAttachedPdf" class="form-control" accept="application/pdf" style="margin-bottom: 12px;">
-                <small style="color: var(--text-muted); display: block; margin-bottom: 12px;">If attached, it will appear in Free Notes section and Book Details page. It will also auto-generate 3 preview images if no other images are uploaded.</small>
+                <small style="color: var(--text-muted); display: block; margin-bottom: 12px;">If attached, it will appear in Free Notes section and Book Details page. It will also auto-generate 5 preview images if no other images are uploaded.</small>
                 
                 <label for="bookPdfType">PDF Access Type</label>
                 <select id="bookPdfType" class="form-control" onchange="document.getElementById('bookPdfPriceGroup').style.display = this.value === 'paid' ? 'block' : 'none'" style="margin-bottom: 12px;">
@@ -172,7 +152,7 @@
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="/config.js"></script>
-  <script defer src="assets/js/script.js?v=4.0"></script>
+  <script defer src="assets/js/script.js?v=4.1"></script>
 </body>
 </html>
 

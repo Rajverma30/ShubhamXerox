@@ -3896,7 +3896,7 @@ async function renderMyOrders() {
 
       const timeline = `
         <div style="background:var(--bg-color); padding: 16px; border-radius:8px; margin: 16px 0; border: 1px solid var(--border-color);">
-           <strong style="display:block; margin-bottom:4px; font-size:1.1rem;">Status: <span style="color: ${statusStr === 'Delivered' ? '#10b981' : 'var(--primary)'};">${o.delivery_status || statusStr}</span></strong>
+           <strong style="display:block; margin-bottom:4px; font-size:1.1rem;">Status: <span style="color: ${statusStr === 'Delivered' ? '#10b981' : 'var(--primary)'};">${(o.delivery_status || statusStr) === 'Pending' ? 'Work in Progress' : (o.delivery_status || statusStr)}</span></strong>
            ${timelineStepsHtml}
            ${statusStr !== 'Cancelled' && statusStr.indexOf('Return') === -1 ? trackingBtn : ''}
         </div>
@@ -3916,7 +3916,7 @@ async function renderMyOrders() {
             : statusStr === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
               : statusStr === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
                 : statusStr === 'Delivered' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Delivered</span>`
-                  : (statusStr === 'Pending' ? `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">Pending</span>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+                  : (statusStr === 'Pending' ? `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">Work in Progress</span>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
 
@@ -3958,7 +3958,7 @@ async function renderMyOrders() {
           <div style="text-align: right;">
             ${st === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
         : (st === 'Delivered' || st === 'Completed') ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">${st}</span>`
-          : (st === 'Pending' ? `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">Pending</span>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+          : (st === 'Pending' ? `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">Work in Progress</span>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
 
