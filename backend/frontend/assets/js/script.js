@@ -6937,7 +6937,7 @@ let viewerNotePrice = 0;
 let viewerNoteTitle = '';
 let viewerSecureModeEnabled = false;
 let viewerRequiresPurchase = false;
-const MAX_PREVIEW_PAGES = 2;
+const MAX_PREVIEW_PAGES = 5;
 
 let pdfViewerGuardBound = false;
 const pdfViewerGuards = { onContextMenu: null, onKeydown: null, onDragStart: null, onVisibility: null, onBlur: null, onPageHide: null };
@@ -7663,6 +7663,30 @@ async function initTodaysOffer() {
 }
 
 document.addEventListener('DOMContentLoaded', initTodaysOffer);
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Add Book description type change listener
+  const descType = document.getElementById('descriptionType');
+  if (descType) {
+    descType.addEventListener('change', (e) => {
+      const textGroup = document.getElementById('descriptionTextGroup');
+      if (textGroup) {
+        textGroup.style.display = e.target.value === 'manual' ? 'block' : 'none';
+      }
+    });
+  }
+
+  // Edit Book description type change listener
+  const editDescType = document.getElementById('editDescriptionType');
+  if (editDescType) {
+    editDescType.addEventListener('change', (e) => {
+      const editTextGroup = document.getElementById('editDescriptionTextGroup');
+      if (editTextGroup) {
+        editTextGroup.style.display = e.target.value === 'manual' ? 'block' : 'none';
+      }
+    });
+  }
+});
 
 
 
