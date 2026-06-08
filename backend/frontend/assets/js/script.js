@@ -29,6 +29,13 @@ function getSupabase() {
   return _supabaseInstance;
 }
 
+window.toggleDescriptionField = function (val, targetId) {
+  const el = document.getElementById(targetId);
+  if (el) {
+    el.style.display = val === 'manual' ? 'block' : 'none';
+  }
+};
+
 // Constants
 const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
@@ -1555,31 +1562,103 @@ async function uploadPdfToAvailableBucket(supabase, file, pathPrefix) {
 }
 
 async function uploadBookPdfAttachment(file, { name, pdfType, pdfPrice }) {
-  const params = new URLSearchParams({
-    filename: file.name || 'book.pdf',
-    title: name,
-    pdf_type: pdfType || 'free',
-    price: String(Number.isFinite(Number(pdfPrice)) ? Number(pdfPrice) : 0)
-  });
-  const headers = { 'Content-Type': file.type || 'application/pdf' };
-  const token = getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${API_BASE}/admin/book-pdf?${params.toString()}`, {
-    method: 'POST',
-    headers,
-    body: file
-  });
-  const text = await response.text();
-  let res = null;
-  try { res = text ? JSON.parse(text) : null; } catch (e) { res = null; }
-  if (!response.ok) {
-    const detail = (res && (res.detail || res.message)) || text || `PDF upload failed (${response.status})`;
-    throw new Error(detail);
+  const supabase = getSupabase();
+  if (!supabase) {
+    throw new Error('Supabase client not initialized.');
   }
-  if (!res?.free_note_id) {
+
+  const cleanName = (file.name || 'book.pdf').replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const timestamp = Math.floor(Date.now() / 1000);
+  const randomNum = Math.floor(100000 + Math.random() * 900000);
+  const file_name = `book-attachments/${timestamp}_${randomNum}_${cleanName}`;
+
+  let upload_bucket = 'free-notes';
+  let uploadResult = null;
+  
+  try {
+    uploadResult = await supabase.storage.from('free-notes').upload(file_name, file, {
+      contentType: 'application/pdf',
+      upsert: true
+    });
+    if (uploadResult.error) throw uploadResult.error;
+  } catch (err) {
+    console.warn("Upload to free-notes bucket failed, trying products bucket", err);
+    upload_bucket = 'products';
+    const retryResult = await supabase.storage.from('products').upload(file_name, file, {
+      contentType: 'application/pdf',
+      upsert: true
+    });
+    if (retryResult.error) {
+      throw new Error(`Storage upload failed: ${retryResult.error.message || retryResult.error}`);
+    }
+  }
+
+  const { data: urlData } = supabase.storage.from(upload_bucket).getPublicUrl(file_name);
+  const public_url = urlData.publicUrl;
+
+  const isPaid = (pdfType || 'free').toLowerCase() === 'paid';
+  const note_payload = {
+    title: name,
+    file_url: public_url,
+    is_paid: isPaid,
+    price: isPaid ? (parseFloat(pdfPrice) || 0) : 0
+  };
+
+  let note_data = null;
+  const { data: noteInsertData, error: dbErr } = await supabase
+    .from('free_notes')
+    .insert(note_payload)
+    .select('*');
+
+  if (dbErr) {
+    if (dbErr.message && (dbErr.message.includes('is_paid') || dbErr.message.includes('price'))) {
+      const fallback_payload = {
+        title: name,
+        file_url: public_url
+      };
+      const { data: fallbackInsertData, error: fallbackDbErr } = await supabase
+        .from('free_notes')
+        .insert(fallback_payload)
+        .select('*');
+      if (fallbackDbErr) {
+        throw new Error(`Database insert failed: ${fallbackDbErr.message}`);
+      }
+      note_data = fallbackInsertData ? fallbackInsertData[0] : null;
+    } else {
+      throw new Error(`Database insert failed: ${dbErr.message}`);
+    }
+  } else {
+    note_data = noteInsertData ? noteInsertData[0] : null;
+  }
+
+  if (!note_data || !note_data.id) {
     throw new Error('PDF uploaded, but note link was not returned.');
   }
-  return res;
+
+  // Trigger compression in background via backend API `/compress-pdf`
+  try {
+    fetch(`${API_BASE}/compress-pdf`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getAuthToken()}`
+      },
+      body: JSON.stringify({
+        bucket: upload_bucket,
+        file_name: file_name
+      })
+    }).catch(e => console.warn("Failed to trigger PDF compression endpoint:", e));
+  } catch (e) {
+    console.warn("Failed to trigger PDF compression", e);
+  }
+
+  return {
+    bucket: upload_bucket,
+    file_name: file_name,
+    public_url: public_url,
+    note: note_data,
+    free_note_id: note_data.id
+  };
 }
 
 async function uploadPhotocopyPdf(file, { orderId, index }) {
@@ -2707,6 +2786,9 @@ async function handleAddProduct(e) {
     const examValues = Array.from(examCheckboxes).map(cb => cb.value);
     const exam = examValues.length > 0 ? examValues.join(', ') : null;
 
+    const descriptionType = document.getElementById('descriptionType') ? document.getElementById('descriptionType').value : 'default';
+    const descriptionValue = (descriptionType === 'manual' && document.getElementById('desc')) ? document.getElementById('desc').value.trim() : null;
+
     let imgUrl = document.getElementById('img').value;
     const pdfAttachedInput = document.getElementById('bookAttachedPdf');
     const previewPdfFile = pdfAttachedInput && pdfAttachedInput.files ? pdfAttachedInput.files[0] : null;
@@ -2763,33 +2845,54 @@ async function handleAddProduct(e) {
       return null;
     };
 
-    const images = await Promise.all([
-      readImage(document.getElementById('imgUpload1')),
-      readImage(document.getElementById('imgUpload2')),
-      readImage(document.getElementById('imgUpload3'))
-    ]);
+    let finalImg = null;
 
-    let finalImages = images.filter(Boolean);
-    if (finalImages.length === 0) {
-      if (imgUrl) {
-        finalImages = [imgUrl];
-      } else if (imagesPdfFile) {
-        finalImages = await generatePreviewImagesFromPdf(imagesPdfFile, 3);
-        if (finalImages.length) {
-          showToast('Created 3 preview images from PDF.');
-        }
-      }
-      if (finalImages.length === 0) {
-        finalImages = ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
+    // A. Check if a PDF is selected to auto-generate preview images (5 pages)
+    if (imagesPdfFile) {
+      const generated = await generatePreviewImagesFromPdf(imagesPdfFile, 5);
+      if (generated && generated.length > 0) {
+        finalImg = generated.join('|');
+        showToast('Created 5 preview images from PDF.');
       }
     }
 
-    const finalImg = finalImages.join('|');
+    // B. Check if custom images are uploaded
+    if (!finalImg) {
+      const images = await Promise.all([
+        readImage(document.getElementById('imgUpload1')),
+        readImage(document.getElementById('imgUpload2')),
+        readImage(document.getElementById('imgUpload3'))
+      ]);
+      const finalImages = images.filter(Boolean);
+      if (finalImages.length > 0) {
+        finalImg = finalImages.join('|');
+      }
+    }
+
+    // C. Check if a PDF is attached, generate 5 preview images if no other image is provided
+    if (!finalImg && previewPdfFile) {
+      const generated = await generatePreviewImagesFromPdf(previewPdfFile, 5);
+      if (generated && generated.length > 0) {
+        finalImg = generated.join('|');
+        showToast('Created 5 preview images from attached PDF.');
+      }
+    }
+
+    // D. Fallback to image URL
+    if (!finalImg && imgUrl) {
+      finalImg = imgUrl;
+    }
+
+    // E. Default fallback
+    if (!finalImg) {
+      finalImg = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+    }
 
     const addNode = async (imageSrc) => {
       const payload = { name, price, category, img: imageSrc };
       if (original_price) payload.original_price = original_price;
       if (exam) payload.exam = exam;
+      if (descriptionValue) payload.desc = descriptionValue;
 
       try {
         let pdfWarning = '';
@@ -3089,6 +3192,64 @@ window.openEditModal = function (id) {
     });
   }
 
+  // Load description
+  const descTypeSelect = document.getElementById('editDescriptionType');
+  const descTextarea = document.getElementById('editDesc');
+  const descGroup = document.getElementById('editDescriptionTextGroup');
+  if (product.desc) {
+    if (descTypeSelect) descTypeSelect.value = 'manual';
+    if (descTextarea) descTextarea.value = product.desc;
+    if (descGroup) descGroup.style.display = 'block';
+  } else {
+    if (descTypeSelect) descTypeSelect.value = 'default';
+    if (descTextarea) descTextarea.value = '';
+    if (descGroup) descGroup.style.display = 'none';
+  }
+
+  // Load PDF info
+  const pdfInfoEl = document.getElementById('editCurrentPdfInfo');
+  if (pdfInfoEl) pdfInfoEl.innerHTML = '';
+  
+  if (product.free_note_id) {
+    if (pdfInfoEl) pdfInfoEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.9rem;">Loading attached PDF details...</span>';
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('free_notes').select('*').eq('id', product.free_note_id).single()
+        .then(({ data, error }) => {
+          if (data && !error) {
+            const isPaid = data.is_paid || (data.price && data.price > 0);
+            if (pdfInfoEl) {
+              pdfInfoEl.innerHTML = `
+                <div style="background:rgba(128,42,126,0.1); padding:8px 12px; border-radius:6px; margin-bottom:12px; font-size:0.9rem; border:1px solid rgba(128,42,126,0.2);">
+                  <strong>Attached PDF:</strong> ${data.title} (${isPaid ? `Paid: ₹${data.price}` : 'Free'})
+                </div>
+              `;
+            }
+            const typeSelect = document.getElementById('editBookPdfType');
+            if (typeSelect) {
+              typeSelect.value = isPaid ? 'paid' : 'free';
+              const priceGroup = document.getElementById('editBookPdfPriceGroup');
+              if (priceGroup) priceGroup.style.display = isPaid ? 'block' : 'none';
+            }
+            const priceInput = document.getElementById('editBookPdfPrice');
+            if (priceInput) priceInput.value = data.price || '';
+          } else {
+            if (pdfInfoEl) pdfInfoEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.9rem;">No PDF details found or error loading.</span>';
+          }
+        })
+        .catch(err => {
+          if (pdfInfoEl) pdfInfoEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.9rem;">Error loading PDF details.</span>';
+        });
+    }
+  } else {
+    const typeSelect = document.getElementById('editBookPdfType');
+    if (typeSelect) typeSelect.value = 'free';
+    const priceGroup = document.getElementById('editBookPdfPriceGroup');
+    if (priceGroup) priceGroup.style.display = 'none';
+    const priceInput = document.getElementById('editBookPdfPrice');
+    if (priceInput) priceInput.value = '';
+  }
+
   document.getElementById('editImg').value = product.img;
 
   const modal = document.getElementById('editProductModal');
@@ -3122,30 +3283,110 @@ async function handleEditProduct(e) {
   const examValues = Array.from(examCheckboxes).map(cb => cb.value);
   const exam = examValues.length > 0 ? examValues.join(', ') : null;
 
+  // Description
+  const descriptionType = document.getElementById('editDescriptionType') ? document.getElementById('editDescriptionType').value : 'default';
+  const descriptionValue = (descriptionType === 'manual' && document.getElementById('editDesc')) ? document.getElementById('editDesc').value.trim() : null;
+
   let imgUrl = document.getElementById('editImg').value;
   const fileInput = document.getElementById('editImgUpload');
   const editPdfPreviewInput = document.getElementById('editBookPdfPreview');
   const editPreviewPdfFile = editPdfPreviewInput && editPdfPreviewInput.files ? editPdfPreviewInput.files[0] : null;
 
+  // Attached PDF
+  const editBookAttachedPdfInput = document.getElementById('editBookAttachedPdf');
+  const editBookAttachedPdfFile = editBookAttachedPdfInput && editBookAttachedPdfInput.files ? editBookAttachedPdfInput.files[0] : null;
+  const editBookPdfType = document.getElementById('editBookPdfType') ? document.getElementById('editBookPdfType').value : 'free';
+  const editBookPdfPrice = document.getElementById('editBookPdfPrice') ? parseFloat(document.getElementById('editBookPdfPrice').value) : 0;
+
   const updateNode = async (imageSrc) => {
-    let finalImg = imageSrc;
-    if (!finalImg && editPreviewPdfFile) {
-      const generated = await generatePreviewImagesFromPdf(editPreviewPdfFile, 3);
+    let finalImg = null;
+
+    // A. Check if a PDF is selected to auto-generate preview images (5 pages)
+    if (editPreviewPdfFile) {
+      const generated = await generatePreviewImagesFromPdf(editPreviewPdfFile, 5);
       if (generated && generated.length > 0) {
         finalImg = generated.join('|');
-        showToast('Created 3 preview images from PDF.');
+        showToast('Created 5 preview images from PDF.');
       }
     }
+
+    // B. Check if custom images are uploaded
+    if (!finalImg && fileInput.files && fileInput.files[0]) {
+      finalImg = await window.compressImage(fileInput.files[0]);
+    }
+
+    // C. Check if a PDF is attached, generate 5 preview images if no other image is provided
+    if (!finalImg && editBookAttachedPdfFile) {
+      const generated = await generatePreviewImagesFromPdf(editBookAttachedPdfFile, 5);
+      if (generated && generated.length > 0) {
+        finalImg = generated.join('|');
+        showToast('Created 5 preview images from attached PDF.');
+      }
+    }
+
+    // D. Fallback to existing imageSrc / URL
+    if (!finalImg) {
+      finalImg = imageSrc;
+    }
+
+    // E. Default fallback
     finalImg = finalImg || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
 
-    const payload = { name, price, category, img: finalImg, original_price: original_price || null };
+    const product = products.find(p => String(p.id) === String(id));
+    let free_note_id = product ? product.free_note_id : null;
+
+    const payload = { 
+      name, 
+      price, 
+      category, 
+      img: finalImg, 
+      original_price: original_price || null,
+      desc: descriptionValue
+    };
     if (exam) payload.exam = exam;
+
     try {
+      let pdfWarning = '';
+      
+      // 1. Upload new attached PDF if provided
+      if (editBookAttachedPdfFile) {
+        if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Uploading PDF...</span>';
+        try {
+          const upload = await uploadBookPdfAttachment(editBookAttachedPdfFile, { name, pdfType: editBookPdfType, pdfPrice: editBookPdfPrice });
+          free_note_id = upload.free_note_id;
+        } catch (pdfErr) {
+          console.error("PDF upload/link error:", pdfErr);
+          pdfWarning = `PDF attach failed: ${pdfErr.message || pdfErr}`;
+        }
+        if (submitBtn) submitBtn.innerHTML = '<span class="btn-loader"></span><span>Saving Product...</span>';
+      } 
+      // 2. Otherwise update existing attached PDF settings if type/price changed
+      else if (free_note_id) {
+        const supabase = getSupabase();
+        if (supabase) {
+          const isPaid = editBookPdfType === 'paid';
+          const updatePayload = {
+            is_paid: isPaid,
+            price: isPaid ? editBookPdfPrice : 0
+          };
+          try {
+            await supabase.from('free_notes').update(updatePayload).eq('id', free_note_id);
+          } catch (e) {
+            console.error("Failed to update existing note price/type:", e);
+          }
+        }
+      }
+
+      if (free_note_id) {
+        payload.free_note_id = free_note_id;
+      }
+
       await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
       const idx = products.findIndex(p => String(p.id) === String(id));
       if (idx > -1) products[idx] = { ...products[idx], ...payload };
       if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
-      showToast("Product updated successfully!");
+      
+      showToast(pdfWarning ? `Product updated. ${pdfWarning}` : "Product updated successfully!");
       closeEditModal();
       await renderAdminList();
     } catch (err) {

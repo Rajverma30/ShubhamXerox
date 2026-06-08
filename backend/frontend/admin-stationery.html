@@ -105,6 +105,17 @@
           </datalist>
         </div>
         <div class="form-group">
+          <label for="editDescriptionType">Book Description</label>
+          <select id="editDescriptionType" class="form-control" onchange="toggleDescriptionField(this.value, 'editDescriptionTextGroup')">
+            <option value="default">Default Description</option>
+            <option value="manual">Manual Description</option>
+          </select>
+        </div>
+        <div class="form-group" id="editDescriptionTextGroup" style="display: none;">
+          <label for="editDesc">Manual Description Content</label>
+          <textarea id="editDesc" class="form-control" rows="3" placeholder="Enter manual description here..."></textarea>
+        </div>
+        <div class="form-group">
           <label>Target Exam(s) <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Select multiple if applicable)</span></label>
           <div id="editExamCheckboxes" style="display: flex; flex-wrap: wrap; gap: 10px; max-height: 180px; overflow-y: auto; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
             <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;"><input type="checkbox" name="edit_exam_opts" value="MPPSC"> MPPSC</label>
@@ -130,8 +141,26 @@
           <input type="file" id="editImgUpload" class="form-control" accept="image/*">
         </div>
         <div class="form-group">
-          <label for="editBookPdfPreview">Book PDF <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional: auto-generate first 3 preview images)</span></label>
+          <label for="editBookPdfPreview">Book PDF <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional: auto-generate first 5 preview images)</span></label>
           <input type="file" id="editBookPdfPreview" class="form-control" accept="application/pdf">
+        </div>
+        <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-top: 20px;">
+          <h3 style="font-size: 1rem; margin-bottom: 12px;">Attach PDF to Book <span style="font-size:0.8rem; color:var(--text-muted); font-weight:normal;">(Optional)</span></h3>
+          <div id="editCurrentPdfInfo"></div>
+          <label for="editBookAttachedPdf">Upload PDF</label>
+          <input type="file" id="editBookAttachedPdf" class="form-control" accept="application/pdf" style="margin-bottom: 12px;">
+          <small style="color: var(--text-muted); display: block; margin-bottom: 12px;">If attached, it will appear in Free Notes section and Book Details page.</small>
+          
+          <label for="editBookPdfType">PDF Access Type</label>
+          <select id="editBookPdfType" class="form-control" onchange="document.getElementById('editBookPdfPriceGroup').style.display = this.value === 'paid' ? 'block' : 'none'" style="margin-bottom: 12px;">
+            <option value="free">Free</option>
+            <option value="paid">Paid</option>
+          </select>
+
+          <div id="editBookPdfPriceGroup" style="display:none;">
+            <label for="editBookPdfPrice">PDF Price (₹)</label>
+            <input type="number" id="editBookPdfPrice" class="form-control" placeholder="50" min="1" step="1">
+          </div>
         </div>
         <div style="text-align: center; margin: 12px 0; color: var(--text-muted); font-size: 0.9rem;">OR</div>
         <div class="form-group">
