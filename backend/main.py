@@ -1,6 +1,7 @@
 import os
 import re
 import hmac
+import base64
 from urllib.parse import quote
 import hashlib
 import logging
@@ -1527,6 +1528,13 @@ def _normalize_product_image_url(src: Any, base_url: str) -> str:
         path = f"/images/books_new/{path.split('/')[-1]}"
     else:
         path = re.sub(r"^\./", "", path)
+        if re.search(r"\.(png|jpe?g|webp|gif|avif)(\?.*)?$", path, flags=re.IGNORECASE) and not path.startswith(("images/", "assets/", "all-products_files/", "/")):
+            bucket = "products"
+            object_path = path[len(f"{bucket}/"):] if path.startswith(f"{bucket}/") else path
+            object_path = quote(object_path, safe="/%:@?&=+$,#")
+            storage_base = str(SUPABASE_URL or "").rstrip("/")
+            if storage_base:
+                return f"{storage_base}/storage/v1/object/public/{bucket}/{object_path}"
         if not path.startswith("/"):
             path = f"/{path}"
     return f"{base_url}{quote(path, safe='/%:@?&=+$,#')}"
@@ -1609,7 +1617,12 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
 
     name = str(product.get("name") or fallback_title).strip()
     desc = _product_description(product)
-    image = _normalize_product_image_url(product.get("img"), base_url)
+    selected_image = _select_main_product_image(product.get("img"))
+    image = (
+        f"{base_url}/product-og-image/{quote(str(product_id), safe='-')}"
+        if selected_image.startswith("data:image/")
+        else _normalize_product_image_url(product.get("img"), base_url)
+    )
     return {
         "meta_title": f"{name} | Shubham Xerox",
         "meta_description": desc,
@@ -1621,6 +1634,41 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
         "og_type": "product",
         "initial_products": json.dumps([product]),
     }
+
+@app.get('/product-og-image/{product_id}')
+async def get_product_og_image(product_id: str):
+    resolved_product_id = _extract_product_id(product_id)
+    if not resolved_product_id:
+        raise HTTPException(status_code=404, detail="Product image not found")
+
+    product = None
+    try:
+        product = _load_db_product(resolved_product_id)
+    except Exception:
+        logger.exception("Failed to load DB product OG image")
+    if not product:
+        product = _load_static_product(resolved_product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product image not found")
+
+    selected_image = _select_main_product_image(product.get("img"))
+    if not selected_image.startswith("data:image/"):
+        raise HTTPException(status_code=404, detail="Product image is not embedded")
+
+    match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", selected_image, flags=re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=404, detail="Invalid product image")
+
+    try:
+        image_bytes = base64.b64decode(match.group(2), validate=False)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Invalid product image")
+
+    return Response(
+        content=image_bytes,
+        media_type=match.group(1),
+        headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
+    )
 
 def _extract_product_id(product_path: str) -> Optional[str]:
     value = str(product_path or "").strip()

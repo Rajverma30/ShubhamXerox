@@ -1530,6 +1530,15 @@ function jsArg(value) {
   return `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function isMissingStorageBucketError(error) {
   const message = String(error?.message || error?.error || error || '').toLowerCase();
   return message.includes('bucket') && (message.includes('not found') || message.includes('missing'));
@@ -1945,6 +1954,15 @@ function normalizeProductImagePath(src) {
   if (/^(images|assets|all-products_files)\//i.test(path)) {
     return `/${path}`;
   }
+
+  if (/\.(png|jpe?g|webp|gif|avif)(\?.*)?$/i.test(path) && !path.includes('://')) {
+    const baseUrl = String(window.ENV_SUPABASE_URL || '').replace(/\/$/, '');
+    if (baseUrl) {
+      const bucket = path.startsWith('products/') ? 'products' : 'products';
+      const objectPath = path.startsWith(`${bucket}/`) ? path.slice(bucket.length + 1) : path;
+      return `${baseUrl}/storage/v1/object/public/${bucket}/${objectPath.split('/').map(encodeURIComponent).join('/')}`;
+    }
+  }
   return path;
 }
 
@@ -1984,6 +2002,32 @@ function normalizeProductImagePaths(imgString) {
 function getMainProductImage(imgValue, fallback = DEFAULT_BOOK_SVG) {
   return normalizeProductImagePaths(imgValue).split('|').filter(Boolean)[0] || fallback;
 }
+
+function getProductImageList(imgValue, fallback = DEFAULT_BOOK_SVG) {
+  const images = normalizeProductImagePaths(imgValue).split('|').filter(Boolean);
+  return images.length ? images : [fallback];
+}
+
+window.setMainProductImage = function (src, thumb) {
+  const main = document.getElementById('mainProductImg');
+  if (!main || !src) return;
+  main.src = src;
+  document.querySelectorAll('.product-slider-thumbs img').forEach(el => {
+    el.style.borderColor = 'transparent';
+  });
+  if (thumb) thumb.style.borderColor = 'var(--primary)';
+};
+
+window.handleMainProductImageError = function () {
+  const main = document.getElementById('mainProductImg');
+  if (!main || main.dataset.fallbackApplied === '1') return;
+  const candidates = String(main.dataset.fallbacks || '').split('|').filter(Boolean);
+  const next = candidates.find(src => src && src !== main.src);
+  if (next) {
+    main.dataset.fallbackApplied = '1';
+    main.src = next;
+  }
+};
 
 async function shareProductLink(product, description = '') {
   const id = product && product.id != null ? String(product.id) : '';
@@ -5179,11 +5223,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      const mainProductImage = getMainProductImage(
+      const productImages = getProductImageList(
         product.img,
         "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"
       );
-      const imgGalleryHtml = `<img src="${mainProductImage}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
+      const mainProductImage = productImages[0];
+      const imgGalleryHtml = productImages.length > 1
+        ? `
+          <div class="product-slider-container" style="position:relative; width:100%;">
+            <div class="product-slider-main">
+              <img id="mainProductImg" src="${mainProductImage}" data-fallbacks="${productImages.map(escapeHtml).join('|')}" onerror="handleMainProductImageError()" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
+            </div>
+            <div class="product-slider-thumbs" style="display:flex; gap:10px; margin-top:15px; overflow-x:auto;">
+              ${productImages.map((src, i) => `
+                <img src="${src}" loading="lazy" decoding="async" onclick="setMainProductImage(${jsArg(src)}, this)" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i === 0 ? 'var(--primary)' : 'transparent'};">
+              `).join('')}
+            </div>
+          </div>
+        `
+        : `<img id="mainProductImg" src="${mainProductImage}" data-fallbacks="${escapeHtml(productImages.join('|'))}" onerror="handleMainProductImageError()" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
       detailContainer.innerHTML = `
