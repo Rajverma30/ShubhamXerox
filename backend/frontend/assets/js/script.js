@@ -2026,6 +2026,12 @@ window.handleMainProductImageError = function () {
   if (next) {
     main.dataset.fallbackApplied = '1';
     main.src = next;
+    return;
+  }
+  const proxyFallback = main.dataset.ogFallback;
+  if (proxyFallback && main.src !== proxyFallback) {
+    main.dataset.fallbackApplied = '1';
+    main.src = proxyFallback;
   }
 };
 
@@ -5228,11 +5234,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"
       );
       const mainProductImage = productImages[0];
+      const proxyImageFallback = `/product-og-image/${encodeURIComponent(String(product.id))}`;
       const imgGalleryHtml = productImages.length > 1
         ? `
           <div class="product-slider-container" style="position:relative; width:100%;">
             <div class="product-slider-main">
-              <img id="mainProductImg" src="${mainProductImage}" data-fallbacks="${productImages.map(escapeHtml).join('|')}" onerror="handleMainProductImageError()" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
+              <img id="mainProductImg" src="${mainProductImage}" data-fallbacks="${productImages.map(escapeHtml).join('|')}" data-og-fallback="${proxyImageFallback}" onerror="handleMainProductImageError()" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
             </div>
             <div class="product-slider-thumbs" style="display:flex; gap:10px; margin-top:15px; overflow-x:auto;">
               ${productImages.map((src, i) => `
@@ -5241,7 +5248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
           </div>
         `
-        : `<img id="mainProductImg" src="${mainProductImage}" data-fallbacks="${escapeHtml(productImages.join('|'))}" onerror="handleMainProductImageError()" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
+        : `<img id="mainProductImg" src="${mainProductImage}" data-fallbacks="${escapeHtml(productImages.join('|'))}" data-og-fallback="${proxyImageFallback}" onerror="handleMainProductImageError()" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
       detailContainer.innerHTML = `

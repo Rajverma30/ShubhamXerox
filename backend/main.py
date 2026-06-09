@@ -1620,8 +1620,8 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
     selected_image = _select_main_product_image(product.get("img"))
     image = (
         f"{base_url}/product-og-image/{quote(str(product_id), safe='-')}"
-        if selected_image.startswith("data:image/")
-        else _normalize_product_image_url(product.get("img"), base_url)
+        if selected_image
+        else f"{base_url}/images/logo.png"
     )
     return {
         "meta_title": f"{name} | Shubham Xerox",
@@ -1635,8 +1635,28 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
         "initial_products": json.dumps([product]),
     }
 
+def _local_image_file_response(path: str) -> Optional[FileResponse]:
+    clean_path = re.sub(r"^\./", "", str(path or "").strip()).lstrip("/")
+    allowed_roots = {
+        "images": os.path.join(FRONTEND_DIR, "images"),
+        "assets": os.path.join(FRONTEND_DIR, "assets"),
+        "all-products_files": os.path.join(FRONTEND_DIR, "all-products_files"),
+    }
+    root_name = clean_path.split("/", 1)[0]
+    root = allowed_roots.get(root_name)
+    if not root:
+        return None
+    relative = clean_path.split("/", 1)[1] if "/" in clean_path else ""
+    file_path = os.path.abspath(os.path.join(root, relative))
+    if not file_path.startswith(os.path.abspath(root)) or not os.path.isfile(file_path):
+        return None
+    return FileResponse(
+        file_path,
+        headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
+    )
+
 @app.get('/product-og-image/{product_id}')
-async def get_product_og_image(product_id: str):
+async def get_product_og_image(request: Request, product_id: str):
     resolved_product_id = _extract_product_id(product_id)
     if not resolved_product_id:
         raise HTTPException(status_code=404, detail="Product image not found")
@@ -1652,23 +1672,52 @@ async def get_product_og_image(product_id: str):
         raise HTTPException(status_code=404, detail="Product image not found")
 
     selected_image = _select_main_product_image(product.get("img"))
-    if not selected_image.startswith("data:image/"):
-        raise HTTPException(status_code=404, detail="Product image is not embedded")
+    if not selected_image:
+        logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")
+        return FileResponse(logo_path, headers={"Cache-Control": "public, max-age=86400, s-maxage=604800"})
 
-    match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", selected_image, flags=re.DOTALL)
-    if not match:
-        raise HTTPException(status_code=404, detail="Invalid product image")
+    if selected_image.startswith("data:image/"):
+        match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", selected_image, flags=re.DOTALL)
+        if not match:
+            raise HTTPException(status_code=404, detail="Invalid product image")
+        try:
+            image_bytes = base64.b64decode(match.group(2), validate=False)
+        except Exception:
+            raise HTTPException(status_code=404, detail="Invalid product image")
+        return Response(
+            content=image_bytes,
+            media_type=match.group(1),
+            headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
+        )
 
-    try:
-        image_bytes = base64.b64decode(match.group(2), validate=False)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Invalid product image")
+    local_response = _local_image_file_response(selected_image)
+    if local_response:
+        return local_response
 
-    return Response(
-        content=image_bytes,
-        media_type=match.group(1),
-        headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
-    )
+    image_url = _normalize_product_image_url(selected_image, _request_base_url(request))
+    local_path_match = re.match(r"^https?://[^/]+/(images|assets|all-products_files)/(.+)$", image_url)
+    if local_path_match:
+        local_response = _local_image_file_response(f"{local_path_match.group(1)}/{local_path_match.group(2)}")
+        if local_response:
+            return local_response
+
+    if image_url.startswith(("http://", "https://")):
+        try:
+            upstream = requests.get(image_url, timeout=(5, 20))
+            upstream.raise_for_status()
+            media_type = upstream.headers.get("content-type", "image/jpeg").split(";")[0]
+            if not media_type.startswith("image/"):
+                media_type = "image/jpeg"
+            return Response(
+                content=upstream.content,
+                media_type=media_type,
+                headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
+            )
+        except Exception:
+            logger.exception("Failed to proxy product OG image")
+
+    logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")
+    return FileResponse(logo_path, headers={"Cache-Control": "public, max-age=86400, s-maxage=604800"})
 
 def _extract_product_id(product_path: str) -> Optional[str]:
     value = str(product_path or "").strip()
