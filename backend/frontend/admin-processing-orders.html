@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Add Stationery Item | Admin</title>
+  <title>Processing Orders | Shubham Xerox</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -13,9 +13,9 @@
 <body style="background-color: var(--bg-color);">
   <nav class="navbar">
     <div class="container">
-      <a href="/" class="logo" style="display:flex; flex-direction:column; gap:2px; padding:4px 0;">
+      <a href="/" class="logo" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0;">
         <img src="images/logo.png" alt="Shubham Xerox" style="width:45px; height:45px; object-fit:contain;">
-        <span style="font-size:0.75rem; letter-spacing:1px; color:var(--text-main); font-weight:800; margin-top:-6px;">SHUBHAM XEROX</span>
+        <span style="font-size: 0.75rem; letter-spacing: 1px; color: var(--text-main); font-weight: 800; margin-top: -6px;">SHUBHAM XEROX</span>
       </a>
       <div class="nav-links" id="adminNavLinks" style="display: none;">
         <a href="/admin">Dashboard</a>
@@ -54,32 +54,14 @@
     </div>
   </nav>
 
-  <main class="section" style="padding-top:40px; min-height:80vh;">
-    <div class="container" style="max-width:700px;">
-      <div class="admin-card">
-        <h1 style="font-size:1.45rem; margin-bottom:16px;">Add Stationery Item</h1>
-        <p style="color:var(--text-muted); margin-bottom:18px;">You can add notebooks in the stationery section as well.</p>
-        <form id="adminStationeryForm">
-          <div class="form-group">
-            <label for="stationeryName">Product Name</label>
-            <input type="text" id="stationeryName" class="form-control" required placeholder="e.g. A4 Notebook, Pen Set">
-          </div>
-          <div class="form-group">
-            <label for="stationeryPrice">Selling Price (₹)</label>
-            <input type="number" id="stationeryPrice" class="form-control" min="0" step="0.01" required placeholder="99">
-          </div>
-          <div class="form-group">
-            <label for="stationeryImageFile">Photo</label>
-            <input type="file" id="stationeryImageFile" class="form-control" accept="image/*">
-          </div>
-          <div style="text-align:center; margin: 10px 0; color:var(--text-muted);">OR</div>
-          <div class="form-group">
-            <label for="stationeryImageUrl">Image URL</label>
-            <input type="url" id="stationeryImageUrl" class="form-control" placeholder="https://...">
-          </div>
-          <button type="submit" class="btn btn-primary" style="width:100%; margin-top:12px;">Add Stationery Item</button>
-        </form>
+  <main class="section" style="padding-top: 40px; min-height: 80vh;">
+    <div class="container">
+      <h1 id="adminOrdersTitle" class="section-title" style="text-align: left; margin-bottom: 8px;">Processing Orders</h1>
+      <p id="adminOrdersCountLabel" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 28px;">Processing book orders: &mdash;</p>
+      <div style="max-width: 640px; margin: 0 0 22px 0;">
+        <input id="adminOrdersSearch" type="text" class="form-control" placeholder="Search by Order ID, phone, or customer name" style="border-radius: var(--radius-full); padding: 12px 18px;">
       </div>
+      <div class="admin-list" id="adminOrdersList"></div>
     </div>
   </main>
 
@@ -88,6 +70,3 @@
   <script defer src="assets/js/script.js?v=4.5"></script>
 </body>
 </html>
-
-
-

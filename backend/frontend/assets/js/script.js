@@ -1778,7 +1778,7 @@ function normalizeOrderItems(items) {
 }
 
 const ORDER_TRACKING_DURATION_MS = 48 * 60 * 60 * 1000;
-const ORDER_TRACK_LABELS = ['Order placed', 'Printing', 'Ready', 'Out for delivery', 'Delivered'];
+const ORDER_TRACK_LABELS = ['Order received', 'Processing', 'Out for delivery', 'Delivered'];
 
 function getBookOrderPlacedAtMs(o) {
   if (o.created_at) {
@@ -1793,15 +1793,27 @@ function getBookOrderPlacedAtMs(o) {
 }
 
 function computeBookTrackingCompletedSteps(o) {
+  const st = String(o.status || 'Pending').trim();
+  if (st === 'Cancelled') return -1;
+  if (st === 'Delivered') return 4;
   const placed = getBookOrderPlacedAtMs(o);
   const elapsed = Math.max(0, Date.now() - placed);
-  const phaseMs = ORDER_TRACKING_DURATION_MS / 4;
-  let completed = 1 + Math.floor(elapsed / phaseMs);
-  completed = Math.min(5, Math.max(1, completed));
-  const st = String(o.status || 'Pending').trim();
-  if (st === 'Delivered') completed = 5;
-  else if (st === 'Shipped' || /^out for delivery$/i.test(st)) completed = Math.max(completed, 4);
+  const phaseMs = ORDER_TRACKING_DURATION_MS / 3;
+  let completed = Math.floor(elapsed / phaseMs);
+  completed = Math.min(2, Math.max(0, completed));
+  if (st === 'Processing') completed = Math.max(completed, 1);
+  else if (st === 'Shipped' || /^out for delivery$/i.test(st)) completed = Math.max(completed, 2);
   return completed;
+}
+
+function getBookCustomerStatusLabel(o) {
+  const st = String(o.status || 'Pending').trim();
+  if (st === 'Delivered') return 'Delivered';
+  if (st === 'Cancelled' || st.indexOf('Return') !== -1) return st;
+  const completed = computeBookTrackingCompletedSteps(o);
+  if (completed >= 2) return 'Out for delivery';
+  if (completed >= 1) return 'Processing';
+  return 'Order received';
 }
 
 function getPhotocopyPlacedAtMs(o) {
@@ -3577,6 +3589,43 @@ async function renderAdminOrders(useCache = false) {
   if (!container) return;
 
   const countLabel = document.getElementById('adminOrdersCountLabel');
+  const titleEl = document.getElementById('adminOrdersTitle');
+  const statusFromPath = (() => {
+    const path = window.location.pathname;
+    if (path.includes('admin-processing-orders')) return 'processing';
+    if (path.includes('admin-delivered-orders')) return 'delivered';
+    const queryStatus = new URLSearchParams(window.location.search).get('status');
+    return ['pending', 'processing', 'delivered'].includes(queryStatus) ? queryStatus : 'pending';
+  })();
+  const viewMeta = {
+    pending: {
+      title: 'Pending Orders',
+      empty: 'No pending orders.',
+      nextStatus: 'Processing',
+      actionLabel: 'Move to Processing',
+      actionColor: '#3b82f6',
+      href: '/admin-orders'
+    },
+    processing: {
+      title: 'Processing Orders',
+      empty: 'No processing orders.',
+      nextStatus: 'Delivered',
+      actionLabel: 'Mark Delivered',
+      actionColor: '#10b981',
+      href: '/admin-processing-orders'
+    },
+    delivered: {
+      title: 'Delivered Orders',
+      empty: 'No delivered orders.',
+      nextStatus: null,
+      actionLabel: '',
+      actionColor: '#10b981',
+      href: '/admin-delivered-orders'
+    }
+  };
+  const currentView = viewMeta[statusFromPath] || viewMeta.pending;
+  if (titleEl) titleEl.textContent = currentView.title;
+
   let dbOrders = [];
   if (useCache && Array.isArray(window._adminOrdersRaw)) {
     dbOrders = window._adminOrdersRaw;
@@ -3628,31 +3677,38 @@ async function renderAdminOrders(useCache = false) {
         return idM || phoneM || nameM;
       })
     : physicalOrders;
-  if (!filteredOrders.length) {
-    container.innerHTML = `<div style="padding: 24px; color: var(--text-muted); text-align:center;">No orders match this Order ID.</div>`;
-    return;
+
+  const counts = {
+    pending: physicalOrders.filter(o => String(o.status || 'Pending').trim().toLowerCase() === 'pending').length,
+    processing: physicalOrders.filter(o => String(o.status || '').trim().toLowerCase() === 'processing').length,
+    delivered: physicalOrders.filter(o => String(o.status || '').trim().toLowerCase() === 'delivered').length
+  };
+  const ordersForView = filteredOrders.filter(o => String(o.status || 'Pending').trim().toLowerCase() === statusFromPath);
+  if (countLabel) {
+    countLabel.textContent = `${currentView.title}: ${ordersForView.length} | Pending: ${counts.pending} | Processing: ${counts.processing} | Delivered: ${counts.delivered}`;
   }
 
-  const activeOrders = filteredOrders.filter(o => o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return'));
-  const completedOrders = filteredOrders.filter(o => o.status === 'Delivered' || o.status === 'Cancelled' || String(o.status || '').includes('Return'));
-
   const renderList = (list) => {
-    if (!list.length) return `<div style="padding: 12px; color: var(--text-muted);">No orders in this category.</div>`;
+    if (!list.length) {
+      const message = q ? 'No orders match this search.' : currentView.empty;
+      return `<div style="padding: 24px; color: var(--text-muted); text-align:center;">${message}</div>`;
+    }
     return list.map(o => {
-      const statusClass = `status-${String(o.status || 'Pending').toLowerCase()}`;
+      const statusRaw = String(o.status || 'Pending').trim();
+      const statusKey = statusRaw.toLowerCase();
+      const statusColor = statusKey === 'pending' ? '#f59e0b' : (statusKey === 'processing' ? '#3b82f6' : '#10b981');
+      const orderId = String(o.id).replace(/'/g, "\\'");
       return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
           <div>
-            <strong style="font-size: 1.1rem;">${o.id}</strong><br>
-            <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date}</span>
+            <strong style="font-size: 1.1rem;">${adminEscapeHtml(o.id)}</strong><br>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">${adminEscapeHtml(o.date || new Date(o.created_at || Date.now()).toLocaleString('en-IN'))}</span>
           </div>
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:var(--bg-color); color:var(--text-main); border:1px solid var(--border-color); padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
-            
-            ${(o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button type="button" onclick="updateOrderStatus('${String(o.id).replace(/'/g, "\\'")}', 'Delivered')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Delivered</button>` : ''}
-            
-            <button type="button" onclick="deleteOrder('${String(o.id).replace(/'/g, "\\'")}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
+            <span style="background:${statusColor}15; color:${statusColor}; border:1px solid ${statusColor}40; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${adminEscapeHtml(statusRaw)}</span>
+            ${currentView.nextStatus ? `<button type="button" onclick="updateOrderStatus('${orderId}', '${currentView.nextStatus}')" style="background:${currentView.actionColor}15; color:${currentView.actionColor}; border:1px solid ${currentView.actionColor}40; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='${currentView.actionColor}25'" onmouseout="this.style.background='${currentView.actionColor}15'">${currentView.actionLabel}</button>` : ''}
+            <button type="button" onclick="deleteOrder('${orderId}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
           </div>
         </div>
         
@@ -3679,17 +3735,18 @@ async function renderAdminOrders(useCache = false) {
   };
 
   container.innerHTML = `
-    <div style="background:var(--primary); color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Orders
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;">
+      ${Object.entries(viewMeta).map(([key, meta]) => {
+        const active = key === statusFromPath;
+        const color = key === 'pending' ? '#f59e0b' : (key === 'processing' ? '#3b82f6' : '#10b981');
+        return `<a href="${meta.href}" style="text-decoration:none; background:${active ? color : 'var(--card-bg)'}; color:${active ? '#fff' : 'var(--text-main)'}; border:1px solid ${active ? color : 'var(--border-color)'}; padding:9px 14px; border-radius:var(--radius-full); font-size:0.9rem; font-weight:800;">${meta.title} (${counts[key]})</a>`;
+      }).join('')}
     </div>
-    <div style="background:rgba(0,0,0, 0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; margin-bottom:32px; box-shadow:var(--shadow-sm);">
-      ${renderList(activeOrders)}
+    <div style="background:${statusFromPath === 'pending' ? '#f59e0b' : currentView.actionColor}; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
+      ${currentView.title}
     </div>
-    <div style="background:#10b981; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Completed & Cancelled
-    </div>
-    <div style="background:rgba(16,185,129,0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; box-shadow:var(--shadow-sm);">
-      ${renderList(completedOrders)}
+    <div style="background:rgba(0,0,0, 0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; box-shadow:var(--shadow-sm);">
+      ${renderList(ordersForView)}
     </div>
   `;
 }
@@ -3979,40 +4036,21 @@ async function renderMyOrders() {
   container.innerHTML = alertHtml + merged.map(({ kind, o }) => {
     if (kind === 'book') {
       const statusStr = String(o.status || 'Pending').trim();
+      const customerStatusLabel = getBookCustomerStatusLabel(o);
       const hasTracking = o.tracking_link || o.tracking_url;
       const trackingBtn = hasTracking
         ? `<a href="${hasTracking}" target="_blank" style="display:inline-block; margin-top: 12px; background:var(--primary); color:#000; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem; display:flex; align-items:center; gap:8px; width:fit-content;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg> Track Order</a>`
         : `<p style="color:var(--text-muted); font-size:0.85rem; margin-top:12px;">Tracking will be available shortly.</p>`;
 
-      let timelineStepsHtml = '';
-      if (statusStr !== 'Cancelled' && statusStr.indexOf('Return') === -1) {
-          const steps = ['Order Confirmed', 'Rider Assigned', 'Out For Delivery', 'Delivered'];
-          let currentStepIdx = 0;
-          if (o.delivery_status === 'Rider Assigned') currentStepIdx = 1;
-          if (o.delivery_status === 'Out For Delivery' || o.status === 'Out For Delivery') currentStepIdx = 2;
-          if (o.delivery_status === 'Delivered' || o.status === 'Delivered') currentStepIdx = 3;
-          
-          const stepNodes = steps.map((s, idx) => {
-              const isDone = idx <= currentStepIdx;
-              const isLast = idx === steps.length - 1;
-              const color = isDone ? '#10b981' : 'var(--border-color)';
-              return `
-                  <div style="display:flex; align-items:center; gap:8px;">
-                      <div style="width:24px; height:24px; border-radius:50%; background:${isDone ? '#10b981' : 'transparent'}; border:2px solid ${color}; display:flex; justify-content:center; align-items:center; color:#fff;">
-                          ${isDone ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
-                      </div>
-                      <span style="font-size:0.85rem; font-weight:${isDone ? '600' : '400'}; color:${isDone ? 'var(--text-main)' : 'var(--text-muted)'};">${s}</span>
-                  </div>
-                  ${!isLast ? `<div style="height:2px; flex:1; background:${idx < currentStepIdx ? '#10b981' : 'var(--border-color)'}; margin: 0 4px;"></div>` : ''}
-              `;
-          }).join('');
-          
-          timelineStepsHtml = `<div style="display:flex; align-items:center; margin: 16px 0; overflow-x:auto;">${stepNodes}</div>`;
-      }
+      const timelineStepsHtml = buildOrderTrackingTimelineHTML(
+        computeBookTrackingCompletedSteps(o),
+        { hint: 'Order status updates automatically for 48 hours. It stays Out for delivery until the shop marks it Delivered.' },
+        o
+      );
 
       const timeline = `
         <div style="background:var(--bg-color); padding: 16px; border-radius:8px; margin: 16px 0; border: 1px solid var(--border-color);">
-           <strong style="display:block; margin-bottom:4px; font-size:1.1rem;">Status: <span style="color: ${statusStr === 'Delivered' ? '#10b981' : 'var(--primary)'};">${(o.delivery_status || statusStr) === 'Pending' ? 'Work in Progress' : (o.delivery_status || statusStr)}</span></strong>
+           <strong style="display:block; margin-bottom:4px; font-size:1.1rem;">Status: <span style="color: ${statusStr === 'Delivered' ? '#10b981' : 'var(--primary)'};">${adminEscapeHtml(customerStatusLabel)}</span></strong>
            ${timelineStepsHtml}
            ${statusStr !== 'Cancelled' && statusStr.indexOf('Return') === -1 ? trackingBtn : ''}
         </div>
@@ -4032,7 +4070,7 @@ async function renderMyOrders() {
             : statusStr === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
               : statusStr === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
                 : statusStr === 'Delivered' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Delivered</span>`
-                  : (statusStr === 'Pending' ? `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">Work in Progress</span>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
+                  : `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">${adminEscapeHtml(customerStatusLabel)}</span>`}
           </div>
         </div>
 
@@ -5060,7 +5098,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 900);
   }
 
-  if (path.includes('admin-orders')) {
+  if (path.includes('admin-orders') || path.includes('admin-processing-orders') || path.includes('admin-delivered-orders')) {
     checkAdminAccess();
     await renderAdminOrders();
   }
