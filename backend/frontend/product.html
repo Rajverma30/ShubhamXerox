@@ -3,7 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Product Details | Shubham Xerox</title>
+  <title>{{ meta_title | default('Product Details | Shubham Xerox') }}</title>
+  <meta name="description" content="{{ meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.') | e }}">
+  <link rel="canonical" href="{{ meta_url | default('https://shubhamxerox.in/products') | e }}">
+  <meta property="og:title" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
+  <meta property="og:description" content="{{ og_description | default(meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.')) | e }}">
+  <meta property="og:image" content="{{ og_image | default('https://shubhamxerox.in/images/logo.png') | e }}">
+  <meta property="og:image:secure_url" content="{{ og_image | default('https://shubhamxerox.in/images/logo.png') | e }}">
+  <meta property="og:url" content="{{ og_url | default(meta_url | default('https://shubhamxerox.in/products')) | e }}">
+  <meta property="og:type" content="{{ og_type | default('product') | e }}">
+  <meta property="og:site_name" content="Shubham Xerox">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
+  <meta name="twitter:description" content="{{ og_description | default(meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.')) | e }}">
+  <meta name="twitter:image" content="{{ og_image | default('https://shubhamxerox.in/images/logo.png') | e }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">

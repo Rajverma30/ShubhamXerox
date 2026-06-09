@@ -1474,6 +1474,128 @@ def _fetch_static_product_ids() -> List[int]:
             continue
     return product_ids
 
+def _request_base_url(request: Request) -> str:
+    configured = os.getenv("SITE_BASE_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "shubhamxerox.in"
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    return f"{scheme}://{host}".rstrip("/")
+
+def _normalize_product_image_url(src: Any, base_url: str) -> str:
+    path = str(src or "").split("|")[0].strip()
+    if not path:
+        return f"{base_url}/images/logo.png"
+    if path.startswith(("http://", "https://")):
+        return path
+    if path.startswith("data:"):
+        return f"{base_url}/images/logo.png"
+    if "./MPPSC" in path or "./Products -" in path:
+        path = f"/images/books_new/{path.split('/')[-1]}"
+    else:
+        path = re.sub(r"^\./", "", path)
+        if not path.startswith("/"):
+            path = f"/{path}"
+    return f"{base_url}{quote(path, safe='/%:@?&=+$,#')}"
+
+def _product_description(product: Dict[str, Any]) -> str:
+    desc = str(product.get("desc") or "").strip()
+    if desc.startswith("COMBO_DETAILS:"):
+        desc = ""
+    if not desc:
+        name = str(product.get("name") or "Study material").strip()
+        category = str(product.get("category") or "books and notes").strip()
+        desc = f"{name} available at Shubham Xerox. Premium {category} for exam preparation and study needs."
+    desc = re.sub(r"\s+", " ", desc)
+    return desc[:280]
+
+def _load_static_product(product_id: str) -> Optional[Dict[str, Any]]:
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read static products for product metadata")
+        return None
+    rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("id")) == str(product_id):
+            return row
+    return None
+
+def _load_db_product(product_id: str) -> Optional[Dict[str, Any]]:
+    if not product_id.isdigit():
+        return None
+    base_url = str(SUPABASE_URL or "").rstrip("/")
+    api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+    if not base_url or not api_key:
+        return None
+    url = (
+        f"{base_url}/rest/v1/products"
+        "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+        f"&id=eq.{quote(product_id, safe='')}&limit=1"
+    )
+    headers = {
+        "apikey": api_key,
+        "Authorization": f"Bearer {api_key}",
+    }
+    resp = requests.get(url, headers=headers, timeout=(5, 15))
+    resp.raise_for_status()
+    rows = resp.json() if resp.content else []
+    if isinstance(rows, list) and rows:
+        return rows[0]
+    return None
+
+def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
+    base_url = _request_base_url(request)
+    product = None
+    try:
+        product = _load_db_product(product_id)
+    except Exception:
+        logger.exception("Failed to load DB product metadata")
+    if not product:
+        product = _load_static_product(product_id)
+
+    fallback_title = "Product Details | Shubham Xerox"
+    fallback_desc = "Buy study material, books, notes and print services from Shubham Xerox."
+    product_url = f"{base_url}/products/{quote(str(product_id), safe='-')}"
+    if not product:
+        return {
+            "meta_title": fallback_title,
+            "meta_description": fallback_desc,
+            "meta_url": product_url,
+            "og_title": fallback_title,
+            "og_description": fallback_desc,
+            "og_image": f"{base_url}/images/logo.png",
+            "og_url": product_url,
+            "og_type": "product",
+            "initial_products": "[]",
+        }
+
+    name = str(product.get("name") or fallback_title).strip()
+    desc = _product_description(product)
+    image = _normalize_product_image_url(product.get("img"), base_url)
+    return {
+        "meta_title": f"{name} | Shubham Xerox",
+        "meta_description": desc,
+        "meta_url": product_url,
+        "og_title": name,
+        "og_description": desc,
+        "og_image": image,
+        "og_url": product_url,
+        "og_type": "product",
+        "initial_products": json.dumps([product]),
+    }
+
+def _extract_product_id(product_path: str) -> Optional[str]:
+    value = str(product_path or "").strip()
+    if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
+        return value
+    match = re.search(r"-?\d+", value)
+    return match.group(0) if match else None
+
 @app.get('/sitemap.xml')
 async def get_sitemap_xml(request: Request):
     base_url = _sitemap_base_url(request)
@@ -1519,9 +1641,11 @@ async def get_sitemap_xml(request: Request):
 
 @app.get('/products/{product_id}', response_class=HTMLResponse)
 async def render_product_detail(request: Request, product_id: str):
-    if not (product_id.isdigit() or (product_id.startswith("-") and product_id[1:].isdigit())):
+    resolved_product_id = _extract_product_id(product_id)
+    if not resolved_product_id:
         raise HTTPException(status_code=404, detail="Product not found")
-    return templates.TemplateResponse("product.html", {"request": request, "initial_products": "[]"})
+    context = {"request": request, **_product_meta_context(request, resolved_product_id)}
+    return templates.TemplateResponse("product.html", context)
 
 @app.get('/index.html')
 async def redirect_index_html(request: Request):
@@ -1576,6 +1700,10 @@ async def render_page(request: Request, page_name: str):
             logger.warning(f"Failed to load initial {page_name} products: {e}")
         
     try:
+        if page_name == "product":
+            product_id = request.query_params.get("id", "").strip()
+            context = {"request": request, **_product_meta_context(request, product_id)}
+            return templates.TemplateResponse("product.html", context)
         return templates.TemplateResponse(f"{page_name}.html", {"request": request, "initial_products": json.dumps(products)})
     except Exception:
         raise HTTPException(status_code=404, detail="Page not found")

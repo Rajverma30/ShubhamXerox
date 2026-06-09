@@ -1956,6 +1956,29 @@ function normalizeProductImagePaths(imgString) {
     .join('|');
 }
 
+async function shareProductLink(product, description = '') {
+  const id = product && product.id != null ? String(product.id) : '';
+  const url = `${window.location.origin}/products/${encodeURIComponent(id)}`;
+  const title = product?.name || 'Shubham Xerox Product';
+  const text = description || product?.desc || 'View this product on Shubham Xerox.';
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    showToast('Product link copied');
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Product link copied');
+    } catch (copyErr) {
+      window.prompt('Copy product link', url);
+    }
+  }
+}
+
 function createProductCard(product) {
   const fixImgPath = normalizeProductImagePaths;
 
@@ -5046,7 +5069,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (detailContainer) {
     const urlParams = new URLSearchParams(window.location.search);
     const pathProductMatch = window.location.pathname.match(/\/products\/([^/?#]+)/);
-    const productIdRaw = urlParams.get('id') || (pathProductMatch ? decodeURIComponent(pathProductMatch[1]) : '');
+    const productPathValue = urlParams.get('id') || (pathProductMatch ? decodeURIComponent(pathProductMatch[1]) : '');
+    const productIdMatch = String(productPathValue || '').match(/-?\d+/);
+    const productIdRaw = productIdMatch ? productIdMatch[0] : productPathValue;
     const productId = /^\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
     let product = products.find(p => String(p.id) === String(productIdRaw));
 
@@ -5080,6 +5105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (product) {
+      window.currentProductDetail = product;
       window.buyNow = function (pid) {
         const productToBuy = products.find(p => String(p.id) === String(pid));
         if (productToBuy) {
@@ -5181,12 +5207,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             ${attachedPdfHtml}
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 40px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 40px;">
               <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="addToCart(${jsArg(product.id)})">
                 Add To Cart
               </button>
               <button class="btn btn-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="buyNow(${jsArg(product.id)})">
                 Buy Now
+              </button>
+              <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="shareProductLink(window.currentProductDetail || products.find(p => String(p.id) === ${jsArg(String(product.id))}), ${jsArg(pDesc)})">
+                Share
               </button>
             </div>
 
