@@ -77,6 +77,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+
+    if path.startswith(("/assets/", "/images/", "/all-products_files/")):
+        if path.endswith(("products.json", ".html")):
+            response.headers.setdefault("Cache-Control", "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600")
+        else:
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, s-maxage=31536000, immutable")
+    elif path == "/config.js":
+        response.headers.setdefault("Cache-Control", "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600")
+    elif path == "/robots.txt":
+        response.headers.setdefault("Cache-Control", "public, max-age=3600, s-maxage=86400")
+
+    return response
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 templates = Jinja2Templates(directory=FRONTEND_DIR)
@@ -900,7 +917,7 @@ async def list_public_products_helper(
 
         url = (
             f"{base_url}/rest/v1/products"
-            "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+            "?select=id,name,category,price,original_price,img,exam,free_note_id"
             f"&order=id.desc&offset={offset}&limit={limit + 1}"
         )
         if cat_filter:
@@ -1000,7 +1017,7 @@ async def original_list_public_products_body(
 
         url = (
             f"{base_url}/rest/v1/products"
-            "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+            "?select=id,name,category,price,original_price,img,exam,free_note_id"
             f"&order=id.desc&offset={offset}&limit={limit + 1}"
         )
         if cat_filter:
@@ -1494,7 +1511,11 @@ async def get_sitemap_xml(request: Request):
         + "\n".join(urls)
         + "\n</urlset>\n"
     )
-    return Response(content=xml, media_type="application/xml")
+    return Response(
+        content=xml,
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=300, s-maxage=900, stale-while-revalidate=3600"},
+    )
 
 @app.get('/products/{product_id}', response_class=HTMLResponse)
 async def render_product_detail(request: Request, product_id: str):

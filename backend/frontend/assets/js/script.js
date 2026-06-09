@@ -75,6 +75,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-09';
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
 let productsServerCategoryFilter = '';
 let featuredRevealCount = 0;
@@ -258,7 +259,7 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
     const supabase = getSupabase();
     if (!supabase) return [];
 
-    let dbQuery = supabase.from('products').select('*');
+    let dbQuery = supabase.from('products').select('id,name,category,price,original_price,img,exam,free_note_id');
 
     const q = (query || '').trim().toLowerCase();
     const hasQuery = q.length >= 2;
@@ -920,10 +921,10 @@ async function fetchProducts() {
   try {
     let res;
     try {
-      res = await fetch(`${API_BASE}/assets/products.json?v=${new Date().getTime()}`);
+      res = await fetch(`${API_BASE}/assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
     } catch (err) {
       // Fallback if local backend is not running
-      res = await fetch(`assets/products.json?v=${new Date().getTime()}`);
+      res = await fetch(`assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
     }
     if (res && res.ok) {
       const staticProducts = await res.json();
@@ -1010,7 +1011,7 @@ async function fetchProducts() {
       if (!supabase) return;
       let q = supabase
         .from('products')
-        .select('*')
+        .select('id,name,category,price,original_price,img,exam,free_note_id')
         .order('id', { ascending: false })
         .range(0, firstPageLimit - 1);
       if (productsServerCategoryFilter) {
@@ -4599,7 +4600,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (document.getElementById('spiralCopiesGrid') && typeof renderSpiralCopies === 'function') {
         renderSpiralCopies();
       }
-      if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
+      if (document.getElementById('adminProductsList')) {
         startBackgroundAutoFetch();
       }
       if (needsBooksForCategoryList && typeof renderAdminCategories === 'function') {
@@ -7236,16 +7237,16 @@ document.addEventListener('DOMContentLoaded', updateHeroRates);
 
 // --- Spiral Copies Page ---
 const defaultSpiralCopies = [
-  { id: 'spiral-10-50', name: 'Spiral Copy 10-50 Pages', price: 50, category: 'Spiral Copies', pagesMin: 10, pagesMax: 50, img: 'images/about-books.png' },
-  { id: 'spiral-51-100', name: 'Spiral Copy 50-100 Pages', price: 80, category: 'Spiral Copies', pagesMin: 51, pagesMax: 100, img: 'images/about-books.png' },
-  { id: 'spiral-101-150', name: 'Spiral Copy 100-150 Pages', price: 110, category: 'Spiral Copies', pagesMin: 101, pagesMax: 150, img: 'images/about-books.png' },
-  { id: 'spiral-151-200', name: 'Spiral Copy 150-200 Pages', price: 140, category: 'Spiral Copies', pagesMin: 151, pagesMax: 200, img: 'images/about-books.png' },
-  { id: 'spiral-201-250', name: 'Spiral Copy 200-250 Pages', price: 170, category: 'Spiral Copies', pagesMin: 201, pagesMax: 250, img: 'images/about-books.png' },
-  { id: 'spiral-251-300', name: 'Spiral Copy 250-300 Pages', price: 200, category: 'Spiral Copies', pagesMin: 251, pagesMax: 300, img: 'images/about-books.png' },
-  { id: 'spiral-301-350', name: 'Spiral Copy 300-350 Pages', price: 230, category: 'Spiral Copies', pagesMin: 301, pagesMax: 350, img: 'images/about-books.png' },
-  { id: 'spiral-351-400', name: 'Spiral Copy 350-400 Pages', price: 260, category: 'Spiral Copies', pagesMin: 351, pagesMax: 400, img: 'images/about-books.png' },
-  { id: 'spiral-401-450', name: 'Spiral Copy 400-450 Pages', price: 290, category: 'Spiral Copies', pagesMin: 401, pagesMax: 450, img: 'images/about-books.png' },
-  { id: 'spiral-451-500', name: 'Spiral Copy 450-500 Pages', price: 320, category: 'Spiral Copies', pagesMin: 451, pagesMax: 500, img: 'images/about-books.png' }
+  { id: 'spiral-10-50', name: 'Spiral Copy 10-50 Pages', price: 50, category: 'Spiral Copies', pagesMin: 10, pagesMax: 50, img: 'images/about-books.webp' },
+  { id: 'spiral-51-100', name: 'Spiral Copy 50-100 Pages', price: 80, category: 'Spiral Copies', pagesMin: 51, pagesMax: 100, img: 'images/about-books.webp' },
+  { id: 'spiral-101-150', name: 'Spiral Copy 100-150 Pages', price: 110, category: 'Spiral Copies', pagesMin: 101, pagesMax: 150, img: 'images/about-books.webp' },
+  { id: 'spiral-151-200', name: 'Spiral Copy 150-200 Pages', price: 140, category: 'Spiral Copies', pagesMin: 151, pagesMax: 200, img: 'images/about-books.webp' },
+  { id: 'spiral-201-250', name: 'Spiral Copy 200-250 Pages', price: 170, category: 'Spiral Copies', pagesMin: 201, pagesMax: 250, img: 'images/about-books.webp' },
+  { id: 'spiral-251-300', name: 'Spiral Copy 250-300 Pages', price: 200, category: 'Spiral Copies', pagesMin: 251, pagesMax: 300, img: 'images/about-books.webp' },
+  { id: 'spiral-301-350', name: 'Spiral Copy 300-350 Pages', price: 230, category: 'Spiral Copies', pagesMin: 301, pagesMax: 350, img: 'images/about-books.webp' },
+  { id: 'spiral-351-400', name: 'Spiral Copy 350-400 Pages', price: 260, category: 'Spiral Copies', pagesMin: 351, pagesMax: 400, img: 'images/about-books.webp' },
+  { id: 'spiral-401-450', name: 'Spiral Copy 400-450 Pages', price: 290, category: 'Spiral Copies', pagesMin: 401, pagesMax: 450, img: 'images/about-books.webp' },
+  { id: 'spiral-451-500', name: 'Spiral Copy 450-500 Pages', price: 320, category: 'Spiral Copies', pagesMin: 451, pagesMax: 500, img: 'images/about-books.webp' }
 ];
 
 function getSpiralCopies() {
@@ -7253,7 +7254,7 @@ function getSpiralCopies() {
   return added.map((p, index) => ({
     ...p,
     id: p.id || `spiral-added-${index}`,
-    img: p.img || 'images/about-books.png'
+    img: p.img || 'images/about-books.webp'
   }));
 }
 
