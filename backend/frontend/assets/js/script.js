@@ -2003,7 +2003,7 @@ function createProductCard(product) {
 
   return `
     <div class="product-card catalog-card">
-      <a href="/product?id=${product.id}" class="product-link-wrapper" style="display:block;">
+      <a href="/products/${encodeURIComponent(product.id)}" class="product-link-wrapper" style="display:block;">
         <div class="product-img-wrapper" style="position:relative; overflow: hidden;">
           ${hasDiscount ? `<div class="catalog-discount-ribbon">${discountPct}% OFF</div>` : ``}
           ${imagesHtml}
@@ -5031,7 +5031,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const detailContainer = document.getElementById('productDetailContainer');
   if (detailContainer) {
     const urlParams = new URLSearchParams(window.location.search);
-    const productIdRaw = urlParams.get('id') || '';
+    const pathProductMatch = window.location.pathname.match(/\/products\/([^/?#]+)/);
+    const productIdRaw = urlParams.get('id') || (pathProductMatch ? decodeURIComponent(pathProductMatch[1]) : '');
     const productId = /^\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
     let product = products.find(p => String(p.id) === String(productIdRaw));
 

@@ -45,6 +45,8 @@ logger = logging.getLogger("shubhamxerox.api")
 OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 PRODUCTS_CACHE: Dict[str, Dict[str, Any]] = {}
 PRODUCTS_CACHE_TTL_SECONDS = 20
+SITEMAP_CACHE: Dict[str, Any] = {}
+SITEMAP_CACHE_TTL_SECONDS = 300
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
 GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0, "delivery_fee": 70.0}
 
@@ -1359,12 +1361,146 @@ async def get_robots_txt():
         return FileResponse(path, media_type="text/plain")
     raise HTTPException(status_code=404, detail="Not Found")
 
-@app.get('/sitemap.xml', response_class=FileResponse)
-async def get_sitemap_xml():
-    path = os.path.join(FRONTEND_DIR, "sitemap.xml")
-    if os.path.isfile(path):
-        return FileResponse(path, media_type="application/xml")
-    raise HTTPException(status_code=404, detail="Not Found")
+def _xml_escape(value: Any) -> str:
+    text = str(value or "")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+def _sitemap_base_url(request: Request) -> str:
+    configured = os.getenv("SITE_BASE_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "shubhamxerox.in"
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    if "localhost" in host or host.startswith("127.0.0.1"):
+        return f"{scheme}://{host}".rstrip("/")
+    return "https://shubhamxerox.in"
+
+def _build_sitemap_url(loc: str, lastmod: str, changefreq: str, priority: str) -> str:
+    return (
+        "  <url>\n"
+        f"    <loc>{_xml_escape(loc)}</loc>\n"
+        f"    <lastmod>{_xml_escape(lastmod)}</lastmod>\n"
+        f"    <changefreq>{_xml_escape(changefreq)}</changefreq>\n"
+        f"    <priority>{_xml_escape(priority)}</priority>\n"
+        "  </url>"
+    )
+
+def _fetch_sitemap_product_ids() -> List[int]:
+    now = time.time()
+    cached = SITEMAP_CACHE.get("product_ids")
+    if cached and now < float(cached.get("expires_at", 0.0)):
+        return list(cached.get("data", []))
+
+    base_url = str(SUPABASE_URL or "").rstrip("/")
+    api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+    if not base_url or not api_key:
+        logger.warning("Supabase config missing; sitemap will include static URLs only")
+        return []
+
+    product_ids: List[int] = []
+    limit = 1000
+    offset = 0
+    headers = {
+        "apikey": api_key,
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    while True:
+        url = f"{base_url}/rest/v1/products?select=id&order=id.asc&offset={offset}&limit={limit}"
+        resp = requests.get(url, headers=headers, timeout=(5, 20))
+        resp.raise_for_status()
+        rows = resp.json() if resp.content else []
+        if not isinstance(rows, list) or not rows:
+            break
+
+        for row in rows:
+            try:
+                product_ids.append(int(row.get("id")))
+            except (TypeError, ValueError):
+                continue
+
+        if len(rows) < limit:
+            break
+        offset += limit
+
+    SITEMAP_CACHE["product_ids"] = {
+        "data": product_ids,
+        "expires_at": now + SITEMAP_CACHE_TTL_SECONDS,
+    }
+    return product_ids
+
+def _fetch_static_product_ids() -> List[int]:
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read static products for sitemap")
+        return []
+
+    rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
+    product_ids: List[int] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            product_ids.append(int(row.get("id")))
+        except (TypeError, ValueError):
+            continue
+    return product_ids
+
+@app.get('/sitemap.xml')
+async def get_sitemap_xml(request: Request):
+    base_url = _sitemap_base_url(request)
+    today = datetime.now(timezone.utc).date().isoformat()
+    static_pages = [
+        ("/", "daily", "1.0"),
+        ("/products", "daily", "0.9"),
+        ("/e-books", "weekly", "0.8"),
+        ("/spiral-copies", "monthly", "0.7"),
+        ("/combo-deals", "monthly", "0.7"),
+        ("/stationery", "monthly", "0.6"),
+    ]
+
+    urls = [
+        _build_sitemap_url(f"{base_url}{path}", today, changefreq, priority)
+        for path, changefreq, priority in static_pages
+    ]
+
+    static_product_ids = set(_fetch_static_product_ids())
+    try:
+        dynamic_product_ids = set(_fetch_sitemap_product_ids())
+    except Exception:
+        logger.exception("Failed to fetch products for sitemap")
+        dynamic_product_ids = set(SITEMAP_CACHE.get("product_ids", {}).get("data", []))
+
+    product_ids = sorted(static_product_ids | dynamic_product_ids)
+    urls.extend(
+        _build_sitemap_url(f"{base_url}/products/{product_id}", today, "weekly", "0.8")
+        for product_id in product_ids
+    )
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(urls)
+        + "\n</urlset>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
+
+@app.get('/products/{product_id}', response_class=HTMLResponse)
+async def render_product_detail(request: Request, product_id: str):
+    if not (product_id.isdigit() or (product_id.startswith("-") and product_id[1:].isdigit())):
+        raise HTTPException(status_code=404, detail="Product not found")
+    return templates.TemplateResponse("product.html", {"request": request, "initial_products": "[]"})
 
 @app.get('/index.html')
 async def redirect_index_html(request: Request):

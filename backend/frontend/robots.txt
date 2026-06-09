@@ -3,4 +3,4 @@ Allow: /
 Disallow: /admin
 Disallow: /admin-*
 
-Sitemap: https://www.shubhamxerox.in/sitemap.xml
+Sitemap: https://shubhamxerox.in/sitemap.xml
