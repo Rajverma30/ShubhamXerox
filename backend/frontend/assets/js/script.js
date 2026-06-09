@@ -5150,26 +5150,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      const imgs = product.img
-        ? normalizeProductImagePaths(product.img).split('|').filter(Boolean)
-        : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
-      let imgGalleryHtml = '';
-      if (imgs.length > 1) {
-        imgGalleryHtml = `
-          <div class="product-slider-container" style="position:relative; width:100%;">
-            <div class="product-slider-main">
-              <img id="mainProductImg" src="${imgs[0]}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
-            </div>
-            <div class="product-slider-thumbs" style="display:flex; gap:10px; margin-top:15px; overflow-x:auto;">
-              ${imgs.map((src, i) => `
-                <img src="${src.trim()}" loading="lazy" decoding="async" onclick="document.getElementById('mainProductImg').src=${jsArg(src.trim())}; document.querySelectorAll('.product-slider-thumbs img').forEach(el=>el.style.borderColor='transparent'); this.style.borderColor='var(--primary)';" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i === 0 ? 'var(--primary)' : 'transparent'};">
-              `).join('')}
-            </div>
-          </div>
-        `;
-      } else {
-        imgGalleryHtml = `<img src="${imgs[0]}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
-      }
+      const mainProductImage = product.img
+        ? normalizeProductImagePaths(product.img).split('|').filter(Boolean)[0]
+        : "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+      const imgGalleryHtml = `<img src="${mainProductImage}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
       detailContainer.innerHTML = `
@@ -5282,7 +5266,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           "@context": "https://schema.org/",
           "@type": "Product",
           "name": product.name,
-          "image": imgs[0],
+          "image": mainProductImage,
           "description": pDesc,
           "offers": {
             "@type": "Offer",
