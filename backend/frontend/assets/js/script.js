@@ -1884,7 +1884,7 @@ function buildOrderTrackingTimelineHTML(completedSteps, opts, orderObj) {
   return `
     <div class="order-tracking">
       <div class="order-tracking-title">Track your order</div>
-      <p class="order-tracking-hint">${hint}</p>
+      ${hint ? `<p class="order-tracking-hint">${hint}</p>` : ''}
       <ol class="order-tracking-steps" aria-label="Order progress">${items}</ol>
     </div>`;
 }
@@ -3842,13 +3842,18 @@ window.deleteOrder = async function (orderId) {
 };
 
 window.updateOrderStatus = async function (orderId, newStatus) {
+  showGlobalLoader(true, newStatus === 'Processing' ? 'Moving order to processing...' : 'Marking order as delivered...');
   try {
     await apiFetch(`/admin/orders/${encodeURIComponent(orderId)}?order_type=books`, { method: "PATCH", body: { status: newStatus } });
   } catch (err) {
+    showGlobalLoader(false);
     showToast(err.message || "Update failed");
     return;
   }
+  window._adminOrdersRaw = null;
+  showToast(newStatus === 'Processing' ? 'Order moved to processing.' : 'Order marked delivered.');
   await renderAdminOrders();
+  showGlobalLoader(false);
 };
 
 window.startDelivery = async function (orderId) {
@@ -4044,7 +4049,7 @@ async function renderMyOrders() {
 
       const timelineStepsHtml = buildOrderTrackingTimelineHTML(
         computeBookTrackingCompletedSteps(o),
-        { hint: 'Order status updates automatically for 48 hours. It stays Out for delivery until the shop marks it Delivered.' },
+        { hint: '' },
         o
       );
 
