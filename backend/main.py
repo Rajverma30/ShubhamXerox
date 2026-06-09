@@ -936,10 +936,10 @@ async def list_public_products_helper(
         has_more = len(rows) > limit
         products = rows[:limit] if has_more else rows
         
-        # Strip all but the main image to drastically reduce payload size for list views
+        # Strip all but the first usable image to drastically reduce payload size for list views
         for p in products:
             if p.get("img") and isinstance(p["img"], str):
-                p["img"] = p["img"].split("|")[0]
+                p["img"] = _select_main_product_image(p["img"])
                 
         # Cache results
         PRODUCTS_CACHE[cache_key] = {
@@ -1036,10 +1036,10 @@ async def original_list_public_products_body(
         has_more = len(rows) > limit
         products = rows[:limit] if has_more else rows
         
-        # Strip all but the main image to drastically reduce payload size for list views
+        # Strip all but the first usable image to drastically reduce payload size for list views
         for p in products:
             if p.get("img") and isinstance(p["img"], str):
-                p["img"] = p["img"].split("|")[0]
+                p["img"] = _select_main_product_image(p["img"])
                 
         PRODUCTS_CACHE[cache_key] = {
             "data": products,
@@ -1482,8 +1482,41 @@ def _request_base_url(request: Request) -> str:
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
     return f"{scheme}://{host}".rstrip("/")
 
+def _parse_product_images(src: Any) -> List[str]:
+    if isinstance(src, list):
+        return [str(item or "").strip() for item in src]
+    raw = str(src or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(item or "").strip() for item in parsed]
+        except Exception:
+            pass
+    if "|" in raw:
+        return [item.strip() for item in raw.split("|")]
+    if "\n" in raw:
+        return [item.strip() for item in raw.splitlines()]
+    if not raw.startswith("data:") and "," in raw:
+        return [item.strip() for item in raw.split(",")]
+    return [raw]
+
+def _is_usable_product_image(src: str) -> bool:
+    path = str(src or "").strip().lower()
+    if not path:
+        return False
+    return not (path == "logo.png" or path.endswith("/logo.png") or "images/logo.png" in path)
+
+def _select_main_product_image(src: Any) -> str:
+    for item in _parse_product_images(src):
+        if _is_usable_product_image(item):
+            return item
+    return ""
+
 def _normalize_product_image_url(src: Any, base_url: str) -> str:
-    path = str(src or "").split("|")[0].strip()
+    path = _select_main_product_image(src)
     if not path:
         return f"{base_url}/images/logo.png"
     if path.startswith(("http://", "https://")):

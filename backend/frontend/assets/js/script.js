@@ -522,7 +522,7 @@ function initHeroQuickSearch() {
         <div style="padding:10px 14px; font-weight:600; color:var(--text-main); border-bottom:1px solid var(--border-color);">Product Suggestions</div>
         ${matches.map((p) => {
           const name = String(p?.name || '').trim();
-          const img = String(p?.img || '').split('|')[0] || 'images/logo.png';
+          const img = getMainProductImage(p?.img, '/images/logo.png');
           const selling = formatPrice(p?.price || 0);
           const original = (p?.original_price && Number(p.original_price) > Number(p.price || 0)) ? formatPrice(p.original_price) : '';
           return `
@@ -869,7 +869,7 @@ function saveProductsToCache(productList) {
   try {
     const forCache = productList.map((p) => ({
       ...p,
-      img: p.img ? String(p.img).split('|')[0] : '',
+      img: getMainProductImage(p.img, ''),
     }));
     localStorage.setItem('shubham_products_cache', JSON.stringify(forCache));
   } catch (e) {
@@ -885,7 +885,7 @@ function preloadFirstFoldProductImages(productList, count = 4) {
   const seen = new Set();
   const urls = [];
   for (const p of productList) {
-    const src = String(p?.img || '').split('|')[0]?.trim();
+    const src = getMainProductImage(p?.img, '').trim();
     if (!src || src.startsWith('data:') || seen.has(src)) continue;
     seen.add(src);
     urls.push(src);
@@ -1030,7 +1030,7 @@ async function fetchProducts() {
         // Always strip extra images for the main list view to save memory/cache
         const strippedProducts = loaded.map(p => ({
           ...p,
-          img: p.img ? String(p.img).split('|')[0] : ''
+          img: getMainProductImage(p.img, '')
         }));
         // MERGE DB products with static products based on ID
         const byId = new Map();
@@ -1948,12 +1948,41 @@ function normalizeProductImagePath(src) {
   return path;
 }
 
+function parseProductImageList(imgValue) {
+  if (Array.isArray(imgValue)) return imgValue;
+
+  const raw = String(imgValue || '').trim();
+  if (!raw) return [];
+
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {}
+  }
+
+  if (raw.includes('|')) return raw.split('|');
+  if (raw.includes('\n')) return raw.split(/\r?\n/);
+  if (!raw.startsWith('data:') && raw.includes(',')) return raw.split(',');
+  return [raw];
+}
+
+function isUsableProductImagePath(src) {
+  const path = String(src || '').trim().toLowerCase();
+  if (!path) return false;
+  if (path.includes('images/logo.png') || path.endsWith('/logo.png') || path === 'logo.png') return false;
+  return true;
+}
+
 function normalizeProductImagePaths(imgString) {
-  return String(imgString || '')
-    .split('|')
+  return parseProductImageList(imgString)
     .map(normalizeProductImagePath)
-    .filter(Boolean)
+    .filter(isUsableProductImagePath)
     .join('|');
+}
+
+function getMainProductImage(imgValue, fallback = DEFAULT_BOOK_SVG) {
+  return normalizeProductImagePaths(imgValue).split('|').filter(Boolean)[0] || fallback;
 }
 
 async function shareProductLink(product, description = '') {
@@ -5075,10 +5104,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const productId = /^\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
     let product = products.find(p => String(p.id) === String(productIdRaw));
 
-    if (!product && typeof fetchPromise !== 'undefined') {
+    if (typeof fetchPromise !== 'undefined') {
       detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
       await fetchPromise;
-      product = products.find(p => String(p.id) === String(productIdRaw));
+      product = products.find(p => String(p.id) === String(productIdRaw)) || product;
     }
 
     // Always fetch the FULL product details directly from Supabase so we get ALL images 
@@ -5150,9 +5179,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      const mainProductImage = product.img
-        ? normalizeProductImagePaths(product.img).split('|').filter(Boolean)[0]
-        : "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+      const mainProductImage = getMainProductImage(
+        product.img,
+        "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"
+      );
       const imgGalleryHtml = `<img src="${mainProductImage}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
