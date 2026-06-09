@@ -1931,20 +1931,33 @@ async function handleCheckout(e) {
 // --- Rendering Data UI ---
 const DEFAULT_BOOK_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='260' viewBox='0 0 200 260'><rect width='200' height='260' fill='%23f3f4f6'/><path d='M40 40h120v180H40z' fill='%23e5e7eb'/><rect x='60' y='60' width='80' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='90' width='60' height='15' fill='%23d1d5db' rx='4'/><rect x='60' y='120' width='70' height='15' fill='%23d1d5db' rx='4'/></svg>`;
 
+function normalizeProductImagePath(src) {
+  let path = String(src || '').trim();
+  if (!path) return '';
+  if (/^(https?:|data:|blob:|\/)/i.test(path)) return path;
+
+  if (path.includes('./MPPSC') || path.includes('./Products -')) {
+    const parts = path.split('/');
+    return `/images/books_new/${parts[parts.length - 1]}`;
+  }
+
+  path = path.replace(/^\.\//, '');
+  if (/^(images|assets|all-products_files)\//i.test(path)) {
+    return `/${path}`;
+  }
+  return path;
+}
+
+function normalizeProductImagePaths(imgString) {
+  return String(imgString || '')
+    .split('|')
+    .map(normalizeProductImagePath)
+    .filter(Boolean)
+    .join('|');
+}
+
 function createProductCard(product) {
-  const fixImgPath = (imgString) => {
-    let str = imgString || '';
-    if (str.includes('./MPPSC') || str.includes('./Products -')) {
-      return str.split('|').map(path => {
-        if (path.includes('./')) {
-          const parts = path.split('/');
-          return 'images/books_new/' + parts[parts.length - 1];
-        }
-        return path;
-      }).join('|');
-    }
-    return str;
-  };
+  const fixImgPath = normalizeProductImagePaths;
 
   let imgStr = fixImgPath(product.img);
   const images = imgStr ? imgStr.split('|').filter(i => i.trim() !== '') : [];
@@ -5111,23 +5124,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      const imgs = product.img ? product.img.split('|') : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
+      const imgs = product.img
+        ? normalizeProductImagePaths(product.img).split('|').filter(Boolean)
+        : ["https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"];
       let imgGalleryHtml = '';
       if (imgs.length > 1) {
         imgGalleryHtml = `
           <div class="product-slider-container" style="position:relative; width:100%;">
             <div class="product-slider-main">
-              <img id="mainProductImg" src="${imgs[0]}" alt="${product.name}" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
+              <img id="mainProductImg" src="${imgs[0]}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">
             </div>
             <div class="product-slider-thumbs" style="display:flex; gap:10px; margin-top:15px; overflow-x:auto;">
               ${imgs.map((src, i) => `
-                <img src="${src.trim()}" onclick="document.getElementById('mainProductImg').src='${src.trim()}'; document.querySelectorAll('.product-slider-thumbs img').forEach(el=>el.style.borderColor='transparent'); this.style.borderColor='var(--primary)';" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i === 0 ? 'var(--primary)' : 'transparent'};">
+                <img src="${src.trim()}" loading="lazy" decoding="async" onclick="document.getElementById('mainProductImg').src=${jsArg(src.trim())}; document.querySelectorAll('.product-slider-thumbs img').forEach(el=>el.style.borderColor='transparent'); this.style.borderColor='var(--primary)';" style="width:80px; height:80px; object-fit:cover; border-radius:8px; cursor:pointer; border: 2px solid ${i === 0 ? 'var(--primary)' : 'transparent'};">
               `).join('')}
             </div>
           </div>
         `;
       } else {
-        imgGalleryHtml = `<img src="${imgs[0]}" alt="${product.name}" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
+        imgGalleryHtml = `<img src="${imgs[0]}" alt="${product.name}" loading="eager" decoding="async" style="width: 100%; border-radius: var(--radius-md); object-fit: cover;">`;
       }
 
       // The inner HTML is identical to what the user had, minus the dynamic DB load loop which we do via JS functions.
