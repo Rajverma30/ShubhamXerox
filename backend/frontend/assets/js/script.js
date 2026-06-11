@@ -4054,7 +4054,7 @@ async function renderMyOrders() {
     `;
   } else {
     try {
-      const res = await apiFetch('/my-orders');
+      const res = await apiFetch('/user/orders');
       dbOrders = res.books || [];
       photoOrders = res.photocopy || [];
     } catch (e) {

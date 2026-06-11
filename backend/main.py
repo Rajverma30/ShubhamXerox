@@ -661,8 +661,8 @@ async def verify_otp(req: VerifyOtpRequest):
 async def me(user: Dict[str, Any] = Depends(verify_user)):
     return {"user": {"phone": user["phone"], "role": user["role"], "name": user.get("name", "")}}
 
-@app.get("/my-orders")
-async def my_orders(user: Dict[str, Any] = Depends(verify_user)):
+@app.get("/user/orders")
+async def user_orders(user: Dict[str, Any] = Depends(verify_user)):
     sb = _require_supabase()
     variants = _phone_variants(user.get("phone", ""))
     if not variants:
