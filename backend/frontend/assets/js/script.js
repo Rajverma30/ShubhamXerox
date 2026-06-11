@@ -602,6 +602,75 @@ function loadCurrentUserFromToken() {
   return { phone: payload.phone, role: payload.role || "user", name: payload.name || "" };
 }
 
+function normalizePhoneNumber(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+}
+
+function getPhoneLookupVariants(phone) {
+  const normalized = normalizePhoneNumber(phone);
+  if (!normalized) return [];
+  return [...new Set([normalized, `+91${normalized}`, `91${normalized}`, `0${normalized}`])];
+}
+
+async function fetchOrdersByPhone(supabase, table, phoneField, phone) {
+  const variants = getPhoneLookupVariants(phone);
+  if (!supabase || !variants.length) return [];
+  const orFilter = variants.map((variant) => `${phoneField}.eq.${variant}`).join(',');
+  const orderField = table === 'orders' ? 'date' : 'created_at';
+  const { data, error } = await supabase.from(table).select('*').or(orFilter).order(orderField, { ascending: false });
+  if (error) {
+    console.warn(`Failed to fetch ${table} orders:`, error);
+    return [];
+  }
+  const byId = {};
+  (data || []).forEach((row) => {
+    byId[String(row.id)] = row;
+  });
+  return Object.values(byId);
+}
+
+function rememberRecentOrder(orderData, orderType) {
+  if (!orderData || !orderData.id) return;
+  try {
+    sessionStorage.setItem('shubham_recent_order', JSON.stringify({
+      id: String(orderData.id),
+      type: orderType,
+      ts: Date.now()
+    }));
+  } catch (e) { }
+}
+
+async function mergeRecentOrderIfMissing(dbOrders, photoOrders) {
+  let recent = null;
+  try {
+    recent = JSON.parse(sessionStorage.getItem('shubham_recent_order') || 'null');
+  } catch (e) {
+    recent = null;
+  }
+  if (!recent || !recent.id || Date.now() - Number(recent.ts || 0) > 6 * 60 * 60 * 1000) return { dbOrders, photoOrders };
+
+  const recentId = String(recent.id);
+  const isPhotocopy = recent.type === 'photocopy';
+  const existing = isPhotocopy
+    ? photoOrders.some((o) => String(o.id) === recentId)
+    : dbOrders.some((o) => String(o.id) === recentId);
+  if (existing) return { dbOrders, photoOrders };
+
+  const supabase = getSupabase();
+  if (!supabase) return { dbOrders, photoOrders };
+
+  const table = isPhotocopy ? 'photocopy_orders' : 'orders';
+  const { data, error } = await supabase.from(table).select('*').eq('id', recentId).limit(1);
+  if (error || !data || !data.length) return { dbOrders, photoOrders };
+
+  if (isPhotocopy) {
+    return { dbOrders, photoOrders: [data[0], ...photoOrders] };
+  }
+  return { dbOrders: [data[0], ...dbOrders], photoOrders };
+}
+
 async function apiFetch(path, options = {}) {
   const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   const method = options.method || "GET";
@@ -1453,6 +1522,7 @@ async function processSecureRazorpayPayment(amount, orderData, orderType, onComp
           });
 
           if (verifyRes.ok) {
+            rememberRecentOrder(orderData, orderType);
             if (!currentUser) {
               try {
                 const key = orderType === 'photocopy' ? 'shubham_guest_photocopy_orders' : 'shubham_guest_book_orders';
@@ -1794,7 +1864,6 @@ function getBookOrderPlacedAtMs(o) {
 
 function computeBookTrackingCompletedSteps(o) {
   const st = String(o.status || 'Pending').trim();
-  if (st === 'Cancelled') return -1;
   if (st === 'Delivered') return 4;
   const placed = getBookOrderPlacedAtMs(o);
   const elapsed = Math.max(0, Date.now() - placed);
@@ -1809,7 +1878,7 @@ function computeBookTrackingCompletedSteps(o) {
 function getBookCustomerStatusLabel(o) {
   const st = String(o.status || 'Pending').trim();
   if (st === 'Delivered') return 'Delivered';
-  if (st === 'Cancelled' || st.indexOf('Return') !== -1) return st;
+  if (st.indexOf('Return') !== -1) return st;
   const completed = computeBookTrackingCompletedSteps(o);
   if (completed >= 2) return 'Out for delivery';
   if (completed >= 1) return 'Processing';
@@ -1828,7 +1897,6 @@ function getPhotocopyPlacedAtMs(o) {
 
 function computePhotocopyTrackingCompletedSteps(o) {
   const st = String(o.status || 'Pending').trim();
-  if (st === 'Cancelled') return -1;
   const placed = getPhotocopyPlacedAtMs(o);
   const elapsed = Math.max(0, Date.now() - placed);
   const phaseMs = ORDER_TRACKING_DURATION_MS / 4;
@@ -1856,13 +1924,6 @@ function getTrackingLabelsArray(o) {
 
 function buildOrderTrackingTimelineHTML(completedSteps, opts, orderObj) {
   const hint = (opts && opts.hint) || 'Status moves forward automatically over about 48 hours. We also update when your order ships.';
-  if (completedSteps < 0) {
-    return `
-      <div class="order-tracking order-tracking--cancelled">
-        <div class="order-tracking-title">Order status</div>
-        <p class="order-tracking-cancel-msg">This order was cancelled.</p>
-      </div>`;
-  }
   const labels = getTrackingLabelsArray(orderObj);
   const items = labels.map((label, i) => {
     const done = i < completedSteps;
@@ -1902,7 +1963,14 @@ async function handleCheckout(e) {
   }
 
   const name = document.getElementById('fullName').value.trim();
-  const phone = ((document.getElementById('phoneNumber') || {}).value || '').trim();
+  const phoneInput = ((document.getElementById('phoneNumber') || {}).value || '').trim();
+  const phone = currentUser && currentUser.phone
+    ? normalizePhoneNumber(currentUser.phone)
+    : normalizePhoneNumber(phoneInput);
+  if (!phone || phone.length !== 10) {
+    showToast("Please enter a valid 10-digit phone number.");
+    return;
+  }
   const street = (document.getElementById('address').value || '').trim();
   const cityEl = document.getElementById('city');
   const pinEl = document.getElementById('pincode');
@@ -3678,12 +3746,16 @@ async function renderAdminOrders(useCache = false) {
       })
     : physicalOrders;
 
-  const counts = {
-    pending: physicalOrders.filter(o => String(o.status || 'Pending').trim().toLowerCase() === 'pending').length,
-    processing: physicalOrders.filter(o => String(o.status || '').trim().toLowerCase() === 'processing').length,
-    delivered: physicalOrders.filter(o => String(o.status || '').trim().toLowerCase() === 'delivered').length
+  const getAdminBookStatusKey = (o) => {
+    const raw = String(o.status || 'Pending').trim();
+    return (raw === 'Cancelled' ? 'Pending' : raw).toLowerCase();
   };
-  const ordersForView = filteredOrders.filter(o => String(o.status || 'Pending').trim().toLowerCase() === statusFromPath);
+  const counts = {
+    pending: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'pending').length,
+    processing: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'processing').length,
+    delivered: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'delivered').length
+  };
+  const ordersForView = filteredOrders.filter(o => getAdminBookStatusKey(o) === statusFromPath);
   if (countLabel) {
     countLabel.textContent = `${currentView.title}: ${ordersForView.length} | Pending: ${counts.pending} | Processing: ${counts.processing} | Delivered: ${counts.delivered}`;
   }
@@ -3694,7 +3766,8 @@ async function renderAdminOrders(useCache = false) {
       return `<div style="padding: 24px; color: var(--text-muted); text-align:center;">${message}</div>`;
     }
     return list.map(o => {
-      const statusRaw = String(o.status || 'Pending').trim();
+      const rawStatusRaw = String(o.status || 'Pending').trim();
+      const statusRaw = rawStatusRaw === 'Cancelled' ? 'Pending' : rawStatusRaw;
       const statusKey = statusRaw.toLowerCase();
       const statusColor = statusKey === 'pending' ? '#f59e0b' : (statusKey === 'processing' ? '#3b82f6' : '#10b981');
       const orderId = String(o.id).replace(/'/g, "\\'");
@@ -3914,36 +3987,6 @@ window.returnUserOrder = async function (orderId, type) {
   await renderMyOrders();
 };
 
-window.cancelUserOrder = async function (orderId, type) {
-  if (!confirm("Are you sure you want to cancel this order?")) return;
-  const table = type === 'book' ? 'orders' : 'photocopy_orders';
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      await supabase.from(table).update({ status: 'Cancelled' }).eq('id', orderId);
-    } catch (e) { console.error('Cancel error:', e); }
-  } else {
-    try {
-      let local = JSON.parse(localStorage.getItem(table) || '[]');
-      local = local.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
-      localStorage.setItem(table, JSON.stringify(local));
-    } catch (e) { }
-  }
-
-  // Update local guest storage if guest
-  if (!currentUser) {
-    try {
-      const guestKey = (type === 'book' || type === 'orders') ? 'shubham_guest_book_orders' : 'shubham_guest_photocopy_orders';
-      let guestLocal = JSON.parse(localStorage.getItem(guestKey) || '[]');
-      guestLocal = guestLocal.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
-      localStorage.setItem(guestKey, JSON.stringify(guestLocal));
-    } catch (e) { }
-  }
-
-  showToast("Order Cancelled");
-  await renderMyOrders();
-};
-
 async function renderMyOrders() {
   const container = document.getElementById('myOrdersList');
   if (!container) return;
@@ -4010,22 +4053,25 @@ async function renderMyOrders() {
       </div>
     `;
   } else {
-    const supabase = getSupabase();
-    if (supabase) {
-      const { data: books } = await supabase.from('orders').select('*').eq('customerphone', currentUser.phone).order('date', { ascending: false });
-      dbOrders = books || [];
-      const { data: copies } = await supabase
-        .from('photocopy_orders')
-        .select('*')
-        .eq('customer_phone', currentUser.phone)
-        .order('created_at', { ascending: false });
-      photoOrders = copies || [];
-    } else {
-      try {
-        dbOrders = JSON.parse(localStorage.getItem('orders') || '[]').filter(o => o.customerphone === currentUser.phone);
-        photoOrders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]').filter(o => o.customer_phone === currentUser.phone);
-      } catch (e) { }
+    try {
+      const res = await apiFetch('/my-orders');
+      dbOrders = res.books || [];
+      photoOrders = res.photocopy || [];
+    } catch (e) {
+      console.warn('Failed to load orders from API, falling back to Supabase client:', e);
+      const supabase = getSupabase();
+      if (supabase) {
+        dbOrders = await fetchOrdersByPhone(supabase, 'orders', 'customerphone', currentUser.phone);
+        photoOrders = await fetchOrdersByPhone(supabase, 'photocopy_orders', 'customer_phone', currentUser.phone);
+      } else {
+        try {
+          const userPhone = normalizePhoneNumber(currentUser.phone);
+          dbOrders = JSON.parse(localStorage.getItem('orders') || '[]').filter(o => normalizePhoneNumber(o.customerphone) === userPhone);
+          photoOrders = JSON.parse(localStorage.getItem('photocopy_orders') || '[]').filter(o => normalizePhoneNumber(o.customer_phone) === userPhone);
+        } catch (err) { }
+      }
     }
+    ({ dbOrders, photoOrders } = await mergeRecentOrderIfMissing(dbOrders, photoOrders));
   }
 
   const merged = [
@@ -4040,7 +4086,8 @@ async function renderMyOrders() {
 
   container.innerHTML = alertHtml + merged.map(({ kind, o }) => {
     if (kind === 'book') {
-      const statusStr = String(o.status || 'Pending').trim();
+      const rawStatusStr = String(o.status || 'Pending').trim();
+      const statusStr = rawStatusStr === 'Cancelled' ? 'Pending' : rawStatusStr;
       const customerStatusLabel = getBookCustomerStatusLabel(o);
       const hasTracking = o.tracking_link || o.tracking_url;
       const trackingBtn = hasTracking
@@ -4057,7 +4104,7 @@ async function renderMyOrders() {
         <div style="background:var(--bg-color); padding: 16px; border-radius:8px; margin: 16px 0; border: 1px solid var(--border-color);">
            <strong style="display:block; margin-bottom:4px; font-size:1.1rem;">Status: <span style="color: ${statusStr === 'Delivered' ? '#10b981' : 'var(--primary)'};">${adminEscapeHtml(customerStatusLabel)}</span></strong>
            ${timelineStepsHtml}
-           ${statusStr !== 'Cancelled' && statusStr.indexOf('Return') === -1 ? trackingBtn : ''}
+           ${statusStr.indexOf('Return') === -1 ? trackingBtn : ''}
         </div>
       `;
 
@@ -4070,8 +4117,7 @@ async function renderMyOrders() {
             <span style="color: var(--text-muted); font-size: 0.9rem;">${o.date || ''}</span>
           </div>
           <div style="text-align: right;">
-            ${statusStr === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
-          : statusStr === 'Return Requested' ? `<span style="color: #ff9800; font-weight: bold; font-size: 0.9rem;">Return Requested</span>`
+            ${statusStr === 'Return Requested' ? `<span style="color: #ff9800; font-weight: bold; font-size: 0.9rem;">Return Requested</span>`
             : statusStr === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
               : statusStr === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
                 : statusStr === 'Delivered' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Delivered</span>`
@@ -4101,7 +4147,8 @@ async function renderMyOrders() {
     }
 
     const steps = computePhotocopyTrackingCompletedSteps(o);
-    const st = o.status || 'Pending';
+    const rawSt = o.status || 'Pending';
+    const st = rawSt === 'Cancelled' ? 'Pending' : rawSt;
     const timeline = buildOrderTrackingTimelineHTML(steps, {
       hint: 'Photocopy progress updates over about 48 hours. Shop status (Processing / Ready) can move you forward faster.'
     }, o);
@@ -4115,8 +4162,7 @@ async function renderMyOrders() {
             <span style="color: var(--text-muted); font-size: 0.9rem;">${when}</span>
           </div>
           <div style="text-align: right;">
-            ${st === 'Cancelled' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Cancelled</span>`
-        : (st === 'Delivered' || st === 'Completed') ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">${st}</span>`
+            ${(st === 'Delivered' || st === 'Completed') ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">${st}</span>`
           : (st === 'Pending' ? `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">Work in Progress</span>` : `<span style="color: #10b981; font-weight: 600; font-size: 0.9rem;">Processing</span>`)}
           </div>
         </div>
@@ -4227,7 +4273,7 @@ window.exportOrdersToCSV = async function (filterType = 'all') {
 
     if (stdOrders) {
       stdOrders.forEach(o => {
-        let isPending = o.status !== 'Delivered' && o.status !== 'Cancelled' && o.status !== 'Returned';
+        let isPending = o.status !== 'Delivered' && o.status !== 'Returned';
         if (filterType === 'pending' && !isPending) return;
         if (filterType === 'completed' && o.status !== 'Delivered') return;
 
@@ -4260,7 +4306,7 @@ window.exportOrdersToCSV = async function (filterType = 'all') {
 
     if (photoOrders) {
       photoOrders.forEach(po => {
-        let isPending = po.status !== 'Completed' && po.status !== 'Delivered' && po.status !== 'Cancelled' && po.status !== 'Returned';
+        let isPending = po.status !== 'Completed' && po.status !== 'Delivered' && po.status !== 'Returned';
         if (filterType === 'pending' && !isPending) return;
         if (filterType === 'completed' && po.status !== 'Completed' && po.status !== 'Delivered') return;
 
@@ -4390,14 +4436,14 @@ async function renderAdminDashboard() {
             if (o.status === 'Delivered') {
               totalRevenue += Number(o.total) || 0;
               deliveredBooks++;
-            } else if (o.status !== 'Cancelled' && o.status !== 'Returned') {
+            } else if (o.status !== 'Returned') {
               pendingRevenue += Number(o.total) || 0;
             }
           } else {
             if (o.status === 'Delivered') {
               totalRevenue += Number(o.total) || 0;
               deliveredBooks++;
-            } else if (o.status !== 'Cancelled' && o.status !== 'Returned') {
+            } else if (o.status !== 'Returned') {
               pendingRevenue += Number(o.total) || 0;
             }
           }
@@ -4408,7 +4454,7 @@ async function renderAdminDashboard() {
         photocopyOrders.forEach(po => {
           if (po.status === 'Completed' || po.status === 'Delivered') {
             totalRevenue += Number(po.total_cost || po.total) || 0;
-          } else if (po.status !== 'Cancelled' && po.status !== 'Returned') {
+          } else if (po.status !== 'Returned') {
             pendingRevenue += Number(po.total_cost || po.total) || 0;
           }
         });
@@ -4449,17 +4495,25 @@ async function renderAdminDashboard() {
     let totalVisits = 0;
 
     if (supabase) {
-      const { data: visits } = await supabase.from('site_visits').select('created_at');
-      if (visits) {
-        totalVisits = visits.length;
-        visits.forEach(v => {
-          const vDate = v.created_at.split('T')[0];
-          const idx = last7Days.indexOf(vDate);
-          if (idx !== -1) {
-            chartData[idx]++;
-          }
-        });
-      }
+      const { count } = await supabase
+        .from('site_visits')
+        .select('*', { count: 'exact', head: true });
+      totalVisits = Number(count) || 0;
+
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+      sevenDaysAgo.setHours(0, 0, 0, 0);
+      const { data: visits } = await supabase
+        .from('site_visits')
+        .select('created_at')
+        .gte('created_at', sevenDaysAgo.toISOString());
+      (visits || []).forEach(v => {
+        const vDate = v.created_at.split('T')[0];
+        const idx = last7Days.indexOf(vDate);
+        if (idx !== -1) {
+          chartData[idx]++;
+        }
+      });
     }
 
     if (document.getElementById('statVisitors')) {
@@ -6798,8 +6852,8 @@ window.placeCopyOrder = async function (e) {
     return;
   }
   const name = (currentUser.name || '').trim() || 'Customer';
-  const phone = (currentUser.phone || '').trim();
-  if (!phone) {
+  const phone = normalizePhoneNumber(currentUser.phone || '');
+  if (!phone || phone.length !== 10) {
     showToast('Your account has no phone number. Update your profile after login.');
     return;
   }
@@ -6959,14 +7013,14 @@ async function renderAdminPhotocopyOrders(useCache = false) {
     })
   );
 
-  const activeOrders = rows.filter(o => o.status !== 'Completed' && o.status !== 'Delivered' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return'));
-  const completedOrders = rows.filter(o => o.status === 'Completed' || o.status === 'Delivered' || o.status === 'Cancelled' || String(o.status || '').includes('Return'));
+  const activeOrders = rows.filter(o => o.status !== 'Completed' && o.status !== 'Delivered' && !String(o.status || '').includes('Return'));
+  const completedOrders = rows.filter(o => o.status === 'Completed' || o.status === 'Delivered' || String(o.status || '').includes('Return'));
 
   const renderList = (list) => {
     if (!list.length) return `<div style="padding: 12px; color: var(--text-muted);">No orders in this category.</div>`;
     return list.map(o => {
       const date = o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '\u2013';
-      const statusColor = { Pending: '#f59e0b', Processing: '#3b82f6', Ready: '#8b5cf6', Completed: '#10b981', Cancelled: '#ef4444' };
+      const statusColor = { Pending: '#f59e0b', Processing: '#3b82f6', Ready: '#8b5cf6', Completed: '#10b981' };
       const sc = statusColor[o.status] || '#888';
       const docPathForDel = o.doc_path || '';
       const docPathEncoded = docPathForDel ? encodeURIComponent(docPathForDel) : '';
@@ -6997,9 +7051,9 @@ async function renderAdminPhotocopyOrders(useCache = false) {
               <div style="font-size:0.82rem; color:var(--text-muted); margin-top:2px;">${date}</div>
             </div>
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-              ${o.status === 'Cancelled' ? `<span style="background:#ff3b3020; color:#ff3b30; border:1px solid #ff3b30; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">Cancelled</span>` : `<span style="background:${sc}20; color:${sc}; border:1px solid ${sc}; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status || 'Pending'}</span>`}
+              <span style="background:${sc}20; color:${sc}; border:1px solid ${sc}; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${o.status === 'Cancelled' ? 'Pending' : (o.status || 'Pending')}</span>
               
-              ${(o.status !== 'Completed' && o.status !== 'Cancelled' && !String(o.status || '').includes('Return')) ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>
+              ${(o.status !== 'Completed' && !String(o.status || '').includes('Return')) ? `<button onclick="updatePhotocopyStatus('${o.id}', 'Completed')" style="background:#10b98115; color:#10b981; border:1px solid #10b98140; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#10b98125'" onmouseout="this.style.background='#10b98115'">Mark Completed</button>
               ${!o.tracking_url ? `<button id="btn-sr-photo-${o.id}" onclick="createPhotocopyShiprocketOrder('${o.id}')" style="background:#2575fc15; color:#2575fc; border:1px solid #2575fc40; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#2575fc25'" onmouseout="this.style.background='#2575fc15'">Create Shiprocket Order</button>` : `<a href="${o.tracking_url}" target="_blank" style="font-size:0.8rem; color:#2575fc; border:1px solid #2575fc; padding:4px 8px; border-radius:4px; text-decoration:none;">Track</a>`}` : ''}
               
               <button onclick="deletePhotocopyOrder('${o.id}', '${docPathEncoded}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
@@ -7042,7 +7096,7 @@ async function renderAdminPhotocopyOrders(useCache = false) {
       ${renderList(activeOrders)}
     </div>
     <div style="background:#10b981; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Completed & Cancelled
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Completed Orders
     </div>
     <div style="background:rgba(16,185,129,0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; box-shadow:var(--shadow-sm);">
       ${renderList(completedOrders)}
@@ -7358,7 +7412,7 @@ function purchaseNote(id, price, title) {
   const orderData = {
     id: "NORD" + Date.now(),
     customer: currentUser.name,
-    customerphone: currentUser.phone,
+    customerphone: normalizePhoneNumber(currentUser.phone),
     address: 'Digital Product',
     items: [{ id: id, name: title, price: price, quantity: 1, type: 'note' }],
     total: price,

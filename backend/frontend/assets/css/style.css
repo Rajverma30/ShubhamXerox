@@ -2988,18 +2988,6 @@ input:checked + .theme-slider:before {
   border-radius: 999px;
 }
 
-.order-tracking--cancelled {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.06);
-}
-
-.order-tracking-cancel-msg {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #ef4444;
-  font-weight: 600;
-}
-
 /* --- Document Scanner UI --- */
 #scannerModal {
   display: none; 

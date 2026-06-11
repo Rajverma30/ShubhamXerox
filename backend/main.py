@@ -349,6 +349,34 @@ otp_rate_limiter = PerPhoneRateLimiter(max_events=OTP_RATE_LIMIT_PER_MINUTE, win
 def _is_valid_phone(phone: str) -> bool:
     return bool(phone) and phone.isdigit() and len(phone) == 10
 
+def _normalize_phone(phone: str) -> str:
+    digits = re.sub(r"\D", "", str(phone or ""))
+    if len(digits) >= 10:
+        return digits[-10:]
+    return digits
+
+def _phone_variants(phone: str) -> List[str]:
+    normalized = _normalize_phone(phone)
+    if not normalized:
+        return []
+    return list(dict.fromkeys([normalized, f"+91{normalized}", f"91{normalized}", f"0{normalized}"]))
+
+def _normalize_order_phones(payload: Dict[str, Any], table: str) -> None:
+    if table == "orders":
+        for key in ("customerphone", "customerPhone", "customer_phone"):
+            if key in payload and payload[key]:
+                payload["customerphone"] = _normalize_phone(payload[key])
+                payload.pop("customerPhone", None)
+                payload.pop("customer_phone", None)
+                break
+    else:
+        for key in ("customer_phone", "customerphone", "customerPhone"):
+            if key in payload and payload[key]:
+                payload["customer_phone"] = _normalize_phone(payload[key])
+                payload.pop("customerphone", None)
+                payload.pop("customerPhone", None)
+                break
+
 def _seed_admin_user() -> None:
     """
     Backward compatibility:
@@ -633,6 +661,29 @@ async def verify_otp(req: VerifyOtpRequest):
 async def me(user: Dict[str, Any] = Depends(verify_user)):
     return {"user": {"phone": user["phone"], "role": user["role"], "name": user.get("name", "")}}
 
+@app.get("/my-orders")
+async def my_orders(user: Dict[str, Any] = Depends(verify_user)):
+    sb = _require_supabase()
+    variants = _phone_variants(user.get("phone", ""))
+    if not variants:
+        return {"books": [], "photocopy": []}
+
+    books_by_id: Dict[str, Dict[str, Any]] = {}
+    photo_by_id: Dict[str, Dict[str, Any]] = {}
+
+    for variant in variants:
+        books_res = sb.table("orders").select("*").eq("customerphone", variant).execute()
+        for row in books_res.data or []:
+            books_by_id[str(row.get("id"))] = row
+
+        photo_res = sb.table("photocopy_orders").select("*").eq("customer_phone", variant).execute()
+        for row in photo_res.data or []:
+            photo_by_id[str(row.get("id"))] = row
+
+    books = sorted(books_by_id.values(), key=lambda o: str(o.get("date") or o.get("created_at") or ""), reverse=True)
+    photocopy = sorted(photo_by_id.values(), key=lambda o: str(o.get("created_at") or ""), reverse=True)
+    return {"books": books, "photocopy": photocopy}
+
 @app.post("/create-order")
 async def create_order(req: CreateOrderRequest, user: Optional[Dict[str, Any]] = Depends(verify_user_optional)):
     if not rzp_client:
@@ -682,6 +733,13 @@ async def verify_payment(req: VerifyPaymentRequest, user: Optional[Dict[str, Any
     
     # 3. Augment data securely on backend
     payload["status"] = "Pending" # Order is valid financially, now pending fulfillment
+    if user and user.get("phone"):
+        normalized_phone = _normalize_phone(user["phone"])
+        if table == "orders":
+            payload["customerphone"] = normalized_phone
+        else:
+            payload["customer_phone"] = normalized_phone
+    _normalize_order_phones(payload, table)
     
     # Securely tag the payment method / transaction
     if table == "orders":
@@ -731,6 +789,13 @@ async def create_cod_order(req: CreateCodOrderRequest, user: Optional[Dict[str, 
     table = "orders" if req.order_type == "books" else "photocopy_orders"
     payload = req.order_data.copy()
     payload["status"] = "Pending"
+    if user and user.get("phone"):
+        normalized_phone = _normalize_phone(user["phone"])
+        if table == "orders":
+            payload["customerphone"] = normalized_phone
+        else:
+            payload["customer_phone"] = normalized_phone
+    _normalize_order_phones(payload, table)
     
     try:
         response = supabase.table(table).insert(payload).execute()
@@ -1233,6 +1298,8 @@ async def admin_list_orders(order_type: str = "books", _admin: Dict[str, Any] = 
 
 @app.patch("/admin/orders/{order_id}")
 async def admin_update_order_status(order_id: str, req: AdminOrderStatusUpdate, order_type: str = "books", _admin: Dict[str, Any] = Depends(verify_admin)):
+    if req.status.strip().lower() == "cancelled":
+        raise HTTPException(status_code=400, detail="Order cancellation is disabled")
     sb = _require_supabase()
     table = _orders_table_for(order_type)
     sb.table(table).update({"status": req.status}).eq("id", order_id).execute()
@@ -1320,7 +1387,7 @@ async def zippee_webhook(request: Request):
                 order_id = res.data[0]["id"]
                 update_payload = {
                     "delivery_status": status,
-                    "status": status if status in ["Delivered", "Cancelled"] else "Out For Delivery" # adjust main status if needed
+                    "status": status if status == "Delivered" else "Out For Delivery" # adjust main status if needed
                 }
                 
                 if status == "Out For Delivery":
