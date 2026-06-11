@@ -1619,6 +1619,114 @@ def _product_description(product: Dict[str, Any]) -> str:
     desc = re.sub(r"\s+", " ", desc)
     return desc[:280]
 
+def _social_title(name: str) -> str:
+    clean = re.sub(r"\s+", " ", str(name or "").strip())
+    if len(clean) <= 65:
+        return clean
+    trimmed = clean[:65].rsplit(" ", 1)[0].strip()
+    return f"{(trimmed or clean[:65]).rstrip(' ,-|')}..."
+
+def _social_description(desc: str) -> str:
+    clean = re.sub(r"\s+", " ", str(desc or "").strip())
+    if len(clean) <= 150:
+        return clean
+    trimmed = clean[:150].rsplit(" ", 1)[0].strip()
+    return f"{(trimmed or clean[:150]).rstrip(' ,.')}."
+
+def _shared_page_url(request: Request) -> str:
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "www.shubhamxerox.in"
+    return f"{scheme}://{host}{request.url.path}".rstrip("/")
+
+def _public_storage_object_url(bucket: str, object_path: str) -> str:
+    base_url = _supabase_storage_base_url()
+    return f"{base_url}/storage/v1/object/public/{quote(bucket, safe='')}/{quote(object_path, safe='/')}"
+
+def _product_source_image_bytes(product: Dict[str, Any], base_url: str) -> Optional[bytes]:
+    selected_image = _select_main_product_image(product.get("img"))
+    if not selected_image:
+        return None
+
+    if selected_image.startswith("data:image/"):
+        match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", selected_image, flags=re.DOTALL)
+        if not match:
+            return None
+        try:
+            return base64.b64decode(match.group(2), validate=False)
+        except Exception:
+            return None
+
+    local_bytes = _local_image_bytes(selected_image)
+    if local_bytes:
+        return local_bytes
+
+    image_url = _normalize_product_image_url(selected_image, base_url)
+    local_path_match = re.match(r"^https?://[^/]+/(images|assets|all-products_files)/(.+)$", image_url)
+    if local_path_match:
+        local_bytes = _local_image_bytes(f"{local_path_match.group(1)}/{local_path_match.group(2)}")
+        if local_bytes:
+            return local_bytes
+
+    if image_url.startswith(("http://", "https://")):
+        try:
+            upstream = requests.get(image_url, timeout=(5, 20))
+            upstream.raise_for_status()
+            return upstream.content
+        except Exception:
+            logger.exception("Failed to download product image for social preview")
+    return None
+
+OG_PREVIEW_BUCKET = "products"
+OG_PREVIEW_PREFIX = "og-previews"
+OG_IMAGE_BYTES_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def _og_preview_object_path(product_id: str) -> str:
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(product_id or "product")).strip("_") or "product"
+    return f"{OG_PREVIEW_PREFIX}/{safe_id}.jpg"
+
+def _ensure_product_og_preview_url(product_id: str, product: Dict[str, Any], base_url: str) -> str:
+    selected_image = _select_main_product_image(product.get("img"))
+    if not selected_image:
+        return f"{base_url}/images/logo.png"
+
+    fallback = f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
+    try:
+        object_path = _og_preview_object_path(product_id)
+        public_url = _public_storage_object_url(OG_PREVIEW_BUCKET, object_path)
+    except Exception:
+        return fallback
+    try:
+        head = requests.head(public_url, timeout=(4, 10))
+        if head.status_code == 200:
+            return public_url
+    except Exception:
+        pass
+
+    cache_key = str(product_id)
+    cached = OG_IMAGE_BYTES_CACHE.get(cache_key)
+    if cached and time.time() < float(cached.get("expires_at", 0.0)):
+        jpeg_bytes = cached.get("bytes")
+    else:
+        source_bytes = _product_source_image_bytes(product, base_url)
+        if not source_bytes:
+            return fallback
+        try:
+            jpeg_bytes = _build_social_jpeg_bytes(source_bytes)
+        except Exception:
+            logger.exception("Failed to build social JPEG for product %s", product_id)
+            return fallback
+        OG_IMAGE_BYTES_CACHE[cache_key] = {
+            "bytes": jpeg_bytes,
+            "expires_at": time.time() + 86400.0,
+        }
+
+    try:
+        _upload_storage_bytes(OG_PREVIEW_BUCKET, object_path, jpeg_bytes, "image/jpeg")
+        return public_url
+    except Exception:
+        logger.exception("Failed to upload OG preview for product %s", product_id)
+        return fallback
+
 def _load_static_product(product_id: str) -> Optional[Dict[str, Any]]:
     path = os.path.join(FRONTEND_DIR, "assets", "products.json")
     if not os.path.isfile(path):
@@ -1671,7 +1779,7 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
     fallback_title = "Product Details | Shubham Xerox"
     fallback_desc = "Buy study material, books, notes and print services from Shubham Xerox."
     canonical_slug = _canonical_product_slug(str(product_id))
-    product_url = f"{base_url}/products/{quote(canonical_slug, safe='-')}"
+    product_url = _shared_page_url(request) if str(request.url.path or "").startswith("/products/") else f"{base_url}/products/{quote(canonical_slug, safe='-')}"
     if not product:
         return {
             "meta_title": fallback_title,
@@ -1681,29 +1789,24 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
             "og_description": fallback_desc,
             "og_image": f"{base_url}/images/logo.png",
             "og_url": product_url,
-            "og_type": "product",
+            "og_type": "website",
             "initial_products": "[]",
         }
 
     name = str(product.get("name") or fallback_title).strip()
     desc = _product_description(product)
-    selected_image = _select_main_product_image(product.get("img"))
-    image = (
-        f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
-        if selected_image
-        else f"{base_url}/images/logo.png"
-    )
-    social_desc = desc[:200].rsplit(" ", 1)[0] if len(desc) > 200 else desc
+    image = _ensure_product_og_preview_url(str(product_id), product, base_url)
+    social_product = {**product, "img": _select_main_product_image(product.get("img"))}
     return {
         "meta_title": f"{name} | Shubham Xerox",
         "meta_description": desc,
         "meta_url": product_url,
-        "og_title": name,
-        "og_description": social_desc,
+        "og_title": _social_title(name),
+        "og_description": _social_description(desc),
         "og_image": image,
         "og_url": product_url,
-        "og_type": "product",
-        "initial_products": json.dumps([product]),
+        "og_type": "website",
+        "initial_products": json.dumps([social_product]),
     }
 
 def _local_image_file_response(path: str) -> Optional[FileResponse]:
@@ -1794,48 +1897,44 @@ async def get_product_og_image(request: Request, product_id: str):
     if not product:
         raise HTTPException(status_code=404, detail="Product image not found")
 
-    selected_image = _select_main_product_image(product.get("img"))
+    product_id = str(product.get("id") or segment)
+    object_path = _og_preview_object_path(product_id)
+    public_url = _public_storage_object_url(OG_PREVIEW_BUCKET, object_path)
+    try:
+        head = requests.head(public_url, timeout=(4, 10))
+        if head.status_code == 200:
+            return RedirectResponse(url=public_url, status_code=302)
+    except Exception:
+        pass
+
+    base_url = _request_base_url(request)
 
     def _respond(image_bytes: bytes) -> Response:
         return _jpeg_social_image_response(image_bytes, head_only=(request.method == "HEAD"))
 
-    if not selected_image:
+    source_bytes = _product_source_image_bytes(product, base_url)
+    if not source_bytes:
         logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")
         with open(logo_path, "rb") as f:
             return _respond(f.read())
 
-    if selected_image.startswith("data:image/"):
-        match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", selected_image, flags=re.DOTALL)
-        if not match:
-            raise HTTPException(status_code=404, detail="Invalid product image")
-        try:
-            image_bytes = base64.b64decode(match.group(2), validate=False)
-        except Exception:
-            raise HTTPException(status_code=404, detail="Invalid product image")
-        return _respond(image_bytes)
+    cache_key = product_id
+    cached = OG_IMAGE_BYTES_CACHE.get(cache_key)
+    if cached and time.time() < float(cached.get("expires_at", 0.0)):
+        return _respond(cached["bytes"])
 
-    local_bytes = _local_image_bytes(selected_image)
-    if local_bytes:
-        return _respond(local_bytes)
+    try:
+        jpeg_bytes = _build_social_jpeg_bytes(source_bytes)
+    except Exception:
+        logger.exception("Failed to build OG JPEG for product %s", product_id)
+        raise HTTPException(status_code=404, detail="Product image not found")
 
-    image_url = _normalize_product_image_url(selected_image, _request_base_url(request))
-    local_path_match = re.match(r"^https?://[^/]+/(images|assets|all-products_files)/(.+)$", image_url)
-    if local_path_match:
-        local_bytes = _local_image_bytes(f"{local_path_match.group(1)}/{local_path_match.group(2)}")
-        if local_bytes:
-            return _respond(local_bytes)
-
-    if image_url.startswith(("http://", "https://")):
-        try:
-            upstream = requests.get(image_url, timeout=(5, 20))
-            upstream.raise_for_status()
-            return _respond(upstream.content)
-        except Exception:
-            logger.exception("Failed to proxy product OG image")
-
-    logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")
-    with open(logo_path, "rb") as f:
-        return _respond(f.read())
+    OG_IMAGE_BYTES_CACHE[cache_key] = {"bytes": jpeg_bytes, "expires_at": time.time() + 86400.0}
+    try:
+        _upload_storage_bytes(OG_PREVIEW_BUCKET, object_path, jpeg_bytes, "image/jpeg")
+    except Exception:
+        logger.exception("Failed to upload OG preview for product %s", product_id)
+    return _respond(jpeg_bytes)
 
 def _slugify_product_name(name: Any) -> str:
     text = str(name or "").strip().lower()
@@ -2049,6 +2148,7 @@ async def render_product_detail(request: Request, product_path: str):
 
     context = {"request": request, **_product_meta_context(request, resolved_product_id)}
     response = templates.TemplateResponse("product.html", context)
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
     return response
 

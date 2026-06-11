@@ -3,11 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ meta_title | default('Product Details | Shubham Xerox') }}</title>
-  <meta name="description" content="{{ meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.') | e }}">
-  <link rel="canonical" href="{{ meta_url | default('https://shubhamxerox.in/products') | e }}">
-  <meta property="og:title" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
-  <meta property="og:description" content="{{ og_description | default(meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.')) | e }}">
   <meta property="og:image" content="{{ og_image | default('https://www.shubhamxerox.in/images/logo.png') | e }}">
   <meta property="og:image:secure_url" content="{{ og_image | default('https://www.shubhamxerox.in/images/logo.png') | e }}">
   <meta property="og:image:type" content="image/jpeg">
@@ -15,9 +10,15 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
   <link rel="image_src" href="{{ og_image | default('https://www.shubhamxerox.in/images/logo.png') | e }}">
-  <meta property="og:url" content="{{ og_url | default(meta_url | default('https://shubhamxerox.in/products')) | e }}">
-  <meta property="og:type" content="{{ og_type | default('product') | e }}">
+  <title>{{ meta_title | default('Product Details | Shubham Xerox') }}</title>
+  <meta name="description" content="{{ meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.') | e }}">
+  <link rel="canonical" href="{{ meta_url | default('https://www.shubhamxerox.in/products') | e }}">
+  <meta property="og:title" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
+  <meta property="og:description" content="{{ og_description | default(meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.')) | e }}">
+  <meta property="og:url" content="{{ og_url | default(meta_url | default('https://www.shubhamxerox.in/products')) | e }}">
+  <meta property="og:type" content="{{ og_type | default('website') | e }}">
   <meta property="og:site_name" content="Shubham Xerox">
+  <meta property="og:locale" content="en_IN">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
   <meta name="twitter:description" content="{{ og_description | default(meta_description | default('Buy study material, books, notes and print services from Shubham Xerox.')) | e }}">
