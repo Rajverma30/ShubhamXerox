@@ -5417,7 +5417,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"
       );
       const mainProductImage = productImages[0];
-      const proxyImageFallback = `/product-og-image/${encodeURIComponent(getProductSlug(product))}`;
+      const proxyImageFallback = `/product-og-image/${encodeURIComponent(String(product.id))}`;
       const imgGalleryHtml = productImages.length > 1
         ? `
           <div class="product-slider-container" style="position:relative; width:100%;">

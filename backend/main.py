@@ -1688,9 +1688,8 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
     name = str(product.get("name") or fallback_title).strip()
     desc = _product_description(product)
     selected_image = _select_main_product_image(product.get("img"))
-    image_version = str(product.get("id") or product_id)
     image = (
-        f"{base_url}/product-og-image/{quote(canonical_slug, safe='-')}.jpg?v={quote(image_version, safe='')}"
+        f"{base_url}/product-og-image/{quote(str(product_id), safe='')}"
         if selected_image
         else f"{base_url}/images/logo.png"
     )
@@ -1771,27 +1770,36 @@ def _jpeg_social_image_response(image_bytes: bytes) -> Response:
         headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
     )
 
-@app.get('/product-og-image/{product_id}')
-async def get_product_og_image(request: Request, product_id: str):
-    resolved_product_id = _extract_product_id(product_id)
-    if not resolved_product_id:
-        raise HTTPException(status_code=404, detail="Product image not found")
+def _normalize_product_og_image_path(product_path: str) -> str:
+    segment = str(product_path or "").strip().strip("/")
+    return re.sub(r"\.(jpg|jpeg|png|webp|gif)$", "", segment, flags=re.IGNORECASE)
 
-    product = None
-    try:
-        product = _load_db_product(resolved_product_id)
-    except Exception:
-        logger.exception("Failed to load DB product OG image")
+@app.api_route('/product-og-image/{product_id}', methods=['GET', 'HEAD'])
+async def get_product_og_image(request: Request, product_id: str):
+    segment = _normalize_product_og_image_path(product_id)
+    product = _resolve_product_from_path(segment)
     if not product:
-        product = _load_static_product(resolved_product_id)
+        resolved_product_id = _extract_product_id(segment)
+        if resolved_product_id:
+            product = _load_product_record(resolved_product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product image not found")
 
     selected_image = _select_main_product_image(product.get("img"))
+
+    def _respond(image_bytes: bytes) -> Response:
+        headers = {
+            "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800",
+            "Content-Type": "image/jpeg",
+        }
+        if request.method == "HEAD":
+            return Response(content=b"", headers=headers, media_type="image/jpeg")
+        return _jpeg_social_image_response(image_bytes)
+
     if not selected_image:
         logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")
         with open(logo_path, "rb") as f:
-            return _jpeg_social_image_response(f.read())
+            return _respond(f.read())
 
     if selected_image.startswith("data:image/"):
         match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", selected_image, flags=re.DOTALL)
@@ -1801,30 +1809,30 @@ async def get_product_og_image(request: Request, product_id: str):
             image_bytes = base64.b64decode(match.group(2), validate=False)
         except Exception:
             raise HTTPException(status_code=404, detail="Invalid product image")
-        return _jpeg_social_image_response(image_bytes)
+        return _respond(image_bytes)
 
     local_bytes = _local_image_bytes(selected_image)
     if local_bytes:
-        return _jpeg_social_image_response(local_bytes)
+        return _respond(local_bytes)
 
     image_url = _normalize_product_image_url(selected_image, _request_base_url(request))
     local_path_match = re.match(r"^https?://[^/]+/(images|assets|all-products_files)/(.+)$", image_url)
     if local_path_match:
         local_bytes = _local_image_bytes(f"{local_path_match.group(1)}/{local_path_match.group(2)}")
         if local_bytes:
-            return _jpeg_social_image_response(local_bytes)
+            return _respond(local_bytes)
 
     if image_url.startswith(("http://", "https://")):
         try:
             upstream = requests.get(image_url, timeout=(5, 20))
             upstream.raise_for_status()
-            return _jpeg_social_image_response(upstream.content)
+            return _respond(upstream.content)
         except Exception:
             logger.exception("Failed to proxy product OG image")
 
     logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")
     with open(logo_path, "rb") as f:
-        return _jpeg_social_image_response(f.read())
+        return _respond(f.read())
 
 def _slugify_product_name(name: Any) -> str:
     text = str(name or "").strip().lower()
