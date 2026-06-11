@@ -1626,12 +1626,9 @@ def _social_title(name: str) -> str:
     trimmed = clean[:65].rsplit(" ", 1)[0].strip()
     return f"{(trimmed or clean[:65]).rstrip(' ,-|')}..."
 
-def _social_description(desc: str) -> str:
-    clean = re.sub(r"\s+", " ", str(desc or "").strip())
-    if len(clean) <= 150:
-        return clean
-    trimmed = clean[:150].rsplit(" ", 1)[0].strip()
-    return f"{(trimmed or clean[:150]).rstrip(' ,.')}."
+def _social_description(name: str) -> str:
+    clean = _social_title(name)
+    return clean or "Shubham Xerox Books"
 
 def _shared_page_url(request: Request) -> str:
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
@@ -1677,7 +1674,7 @@ def _product_source_image_bytes(product: Dict[str, Any], base_url: str) -> Optio
     return None
 
 OG_PREVIEW_BUCKET = "products"
-OG_PREVIEW_PREFIX = "og-previews-v2"
+OG_PREVIEW_PREFIX = "og-previews-v3"
 OG_IMAGE_BYTES_CACHE: Dict[str, Dict[str, Any]] = {}
 
 def _og_preview_object_path(product_id: str) -> str:
@@ -1802,7 +1799,7 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
         "meta_description": desc,
         "meta_url": product_url,
         "og_title": _social_title(name),
-        "og_description": _social_description(desc),
+        "og_description": _social_description(name),
         "og_image": image,
         "og_url": product_url,
         "og_type": "website",
@@ -1856,25 +1853,22 @@ def _build_social_jpeg_bytes(image_bytes: bytes) -> bytes:
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA")
 
-    canvas_w, canvas_h = SOCIAL_IMAGE_WIDTH, SOCIAL_IMAGE_HEIGHT
-    max_w = int(canvas_w * 0.96)
-    max_h = int(canvas_h * 0.96)
-    image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
-
     if image.mode == "RGBA":
-        background = Image.new("RGBA", image.size, (252, 252, 250, 255))
+        background = Image.new("RGBA", image.size, (255, 255, 255, 255))
         background.alpha_composite(image)
         image = background.convert("RGB")
     else:
         image = image.convert("RGB")
 
-    canvas = Image.new("RGB", (canvas_w, canvas_h), (252, 252, 250))
-    x = (canvas_w - image.width) // 2
-    y = (canvas_h - image.height) // 2
-    canvas.paste(image, (x, y))
+    fitted = ImageOps.fit(
+        image,
+        (SOCIAL_IMAGE_WIDTH, SOCIAL_IMAGE_HEIGHT),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
 
     out = io.BytesIO()
-    canvas.save(out, format="JPEG", quality=90, optimize=True)
+    fitted.save(out, format="JPEG", quality=92, optimize=True)
     return out.getvalue()
 
 def _jpeg_social_image_response(image_bytes: bytes, *, head_only: bool = False) -> Response:
