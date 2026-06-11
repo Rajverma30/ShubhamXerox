@@ -1636,7 +1636,7 @@ def _load_static_product(product_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 def _load_db_product(product_id: str) -> Optional[Dict[str, Any]]:
-    if not product_id.isdigit():
+    if not _is_numeric_product_id(product_id):
         return None
     base_url = str(SUPABASE_URL or "").rstrip("/")
     api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
@@ -1670,7 +1670,8 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
 
     fallback_title = "Product Details | Shubham Xerox"
     fallback_desc = "Buy study material, books, notes and print services from Shubham Xerox."
-    product_url = f"{base_url}/products/{quote(str(product_id), safe='-')}"
+    canonical_slug = _canonical_product_slug(str(product_id))
+    product_url = f"{base_url}/products/{quote(canonical_slug, safe='-')}"
     if not product:
         return {
             "meta_title": fallback_title,
@@ -1689,7 +1690,7 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
     selected_image = _select_main_product_image(product.get("img"))
     image_version = str(product.get("id") or product_id)
     image = (
-        f"{base_url}/product-og-image/{quote(str(product_id), safe='-')}.jpg?v={quote(image_version, safe='')}"
+        f"{base_url}/product-og-image/{quote(canonical_slug, safe='-')}.jpg?v={quote(image_version, safe='')}"
         if selected_image
         else f"{base_url}/images/logo.png"
     )
@@ -1825,12 +1826,135 @@ async def get_product_og_image(request: Request, product_id: str):
     with open(logo_path, "rb") as f:
         return _jpeg_social_image_response(f.read())
 
+def _slugify_product_name(name: Any) -> str:
+    text = str(name or "").strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text[:120] or "product"
+
+def _assign_product_slugs(rows: List[Dict[str, Any]]) -> Dict[str, str]:
+    sorted_rows = sorted(rows, key=lambda row: int(row.get("id") or 0))
+    id_to_slug: Dict[str, str] = {}
+    base_seen: Dict[str, int] = {}
+    for row in sorted_rows:
+        base = _slugify_product_name(row.get("name", ""))
+        base_seen[base] = base_seen.get(base, 0) + 1
+        count = base_seen[base]
+        slug = base if count == 1 else f"{base}-{count}"
+        id_to_slug[str(row.get("id"))] = slug
+    return id_to_slug
+
+PRODUCT_SLUG_CACHE: Dict[str, Any] = {"expires_at": 0.0, "id_to_slug": {}, "slug_to_id": {}}
+
+def _load_static_products() -> List[Dict[str, Any]]:
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read static products")
+        return []
+    rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
+    return [row for row in rows if isinstance(row, dict)]
+
+def _load_all_db_products() -> List[Dict[str, Any]]:
+    base_url = str(SUPABASE_URL or "").rstrip("/")
+    api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+    if not base_url or not api_key:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    limit = 1000
+    offset = 0
+    headers = {
+        "apikey": api_key,
+        "Authorization": f"Bearer {api_key}",
+    }
+    while True:
+        url = (
+            f"{base_url}/rest/v1/products"
+            "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+            f"&order=id.asc&offset={offset}&limit={limit}"
+        )
+        resp = requests.get(url, headers=headers, timeout=(5, 20))
+        resp.raise_for_status()
+        batch = resp.json() if resp.content else []
+        if not isinstance(batch, list) or not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < limit:
+            break
+        offset += limit
+    return rows
+
+def _refresh_product_slug_cache(force: bool = False) -> None:
+    now = time.time()
+    if not force and now < float(PRODUCT_SLUG_CACHE.get("expires_at", 0.0)):
+        return
+
+    merged: Dict[str, Dict[str, Any]] = {}
+    for row in _load_static_products():
+        merged[str(row.get("id"))] = row
+    for row in _load_all_db_products():
+        merged[str(row.get("id"))] = row
+
+    id_to_slug = _assign_product_slugs(list(merged.values()))
+    slug_to_id = {slug: pid for pid, slug in id_to_slug.items()}
+    PRODUCT_SLUG_CACHE["id_to_slug"] = id_to_slug
+    PRODUCT_SLUG_CACHE["slug_to_id"] = slug_to_id
+    PRODUCT_SLUG_CACHE["expires_at"] = now + 300.0
+
+def _canonical_product_slug(product_id: str) -> str:
+    _refresh_product_slug_cache()
+    return PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(str(product_id), str(product_id))
+
+def _is_numeric_product_id(value: str) -> bool:
+    text = str(value or "").strip()
+    return text.isdigit() or (text.startswith("-") and text[1:].isdigit())
+
+def _load_product_record(product_id: str) -> Optional[Dict[str, Any]]:
+    product = None
+    try:
+        product = _load_db_product(product_id)
+    except Exception:
+        logger.exception("Failed to load DB product %s", product_id)
+    if not product:
+        product = _load_static_product(product_id)
+    return product
+
+def _resolve_product_from_path(product_path: str) -> Optional[Dict[str, Any]]:
+    segment = str(product_path or "").strip().strip("/")
+    if not segment:
+        return None
+
+    if _is_numeric_product_id(segment):
+        return _load_product_record(segment)
+
+    _refresh_product_slug_cache()
+    product_id = PRODUCT_SLUG_CACHE.get("slug_to_id", {}).get(segment.lower())
+    if not product_id:
+        product_id = PRODUCT_SLUG_CACHE.get("slug_to_id", {}).get(segment)
+    if product_id:
+        return _load_product_record(product_id)
+
+    # Case-insensitive fallback
+    for slug, pid in PRODUCT_SLUG_CACHE.get("slug_to_id", {}).items():
+        if slug.lower() == segment.lower():
+            return _load_product_record(pid)
+    return None
+
 def _extract_product_id(product_path: str) -> Optional[str]:
-    value = str(product_path or "").strip()
-    if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
-        return value
-    match = re.search(r"-?\d+", value)
-    return match.group(0) if match else None
+    segment = str(product_path or "").strip().strip("/")
+    if not segment:
+        return None
+    if _is_numeric_product_id(segment):
+        return segment
+    product = _resolve_product_from_path(segment)
+    if product and product.get("id") is not None:
+        return str(product.get("id"))
+    return None
 
 @app.get('/sitemap.xml')
 async def get_sitemap_xml(request: Request):
@@ -1858,8 +1982,14 @@ async def get_sitemap_xml(request: Request):
         dynamic_product_ids = set(SITEMAP_CACHE.get("product_ids", {}).get("data", []))
 
     product_ids = sorted(static_product_ids | dynamic_product_ids)
+    _refresh_product_slug_cache(force=True)
     urls.extend(
-        _build_sitemap_url(f"{base_url}/products/{product_id}", today, "weekly", "0.8")
+        _build_sitemap_url(
+            f"{base_url}/products/{quote(_canonical_product_slug(str(product_id)), safe='-')}",
+            today,
+            "weekly",
+            "0.8",
+        )
         for product_id in product_ids
     )
 
@@ -1875,11 +2005,37 @@ async def get_sitemap_xml(request: Request):
         headers={"Cache-Control": "public, max-age=300, s-maxage=900, stale-while-revalidate=3600"},
     )
 
-@app.get('/products/{product_id}', response_class=HTMLResponse)
-async def render_product_detail(request: Request, product_id: str):
-    resolved_product_id = _extract_product_id(product_id)
-    if not resolved_product_id:
+@app.get('/products/lookup/{product_slug}')
+async def lookup_product_by_slug(product_slug: str):
+    product = _resolve_product_from_path(product_slug)
+    if not product or product.get("id") is None:
         raise HTTPException(status_code=404, detail="Product not found")
+    product_id = str(product.get("id"))
+    return {
+        "product": product,
+        "id": product_id,
+        "canonical_slug": _canonical_product_slug(product_id),
+        "canonical_path": f"/products/{quote(_canonical_product_slug(product_id), safe='-')}",
+    }
+
+@app.get('/products/{product_path:path}', response_class=HTMLResponse)
+async def render_product_detail(request: Request, product_path: str):
+    segment = str(product_path or "").strip().strip("/")
+    if not segment:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    product = _resolve_product_from_path(segment)
+    if not product or product.get("id") is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    resolved_product_id = str(product.get("id"))
+    canonical_slug = _canonical_product_slug(resolved_product_id)
+    if segment != canonical_slug and segment.lower() != canonical_slug.lower():
+        redirect_url = f"/products/{quote(canonical_slug, safe='-')}"
+        if request.url.query:
+            redirect_url = f"{redirect_url}?{request.url.query}"
+        return RedirectResponse(url=redirect_url, status_code=301)
+
     context = {"request": request, **_product_meta_context(request, resolved_product_id)}
     response = templates.TemplateResponse("product.html", context)
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
@@ -1940,6 +2096,9 @@ async def render_page(request: Request, page_name: str):
     try:
         if page_name == "product":
             product_id = request.query_params.get("id", "").strip()
+            if product_id and _is_numeric_product_id(product_id):
+                slug = _canonical_product_slug(product_id)
+                return RedirectResponse(url=f"/products/{quote(slug, safe='-')}", status_code=301)
             context = {"request": request, **_product_meta_context(request, product_id)}
             response = templates.TemplateResponse("product.html", context)
             response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"

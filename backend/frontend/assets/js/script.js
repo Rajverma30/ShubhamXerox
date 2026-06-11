@@ -75,7 +75,9 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-09';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-11';
+let productSlugById = {};
+let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
 let productsServerCategoryFilter = '';
 let featuredRevealCount = 0;
@@ -1002,6 +1004,7 @@ async function fetchProducts() {
         staticProducts.forEach(p => byId.set(String(p.id), p));
         ssrProducts.forEach(p => byId.set(String(p.id), p));
         products = sortProductsByLatest(Array.from(byId.values()));
+        rebuildProductSlugIndex(products);
         hasLocalCache = true;
         isProductsLoading = false; // We have data, so stop skeleton
         preloadFirstFoldProductImages(products, 4);
@@ -1016,6 +1019,7 @@ async function fetchProducts() {
   // If static JSON failed or was empty but we have SSR, use SSR
   if (!hasLocalCache && ssrProducts.length > 0) {
     products = sortProductsByLatest(ssrProducts);
+    rebuildProductSlugIndex(products);
     hasLocalCache = true;
     isProductsLoading = false;
     preloadFirstFoldProductImages(products, 4);
@@ -1031,6 +1035,7 @@ async function fetchProducts() {
           const cachedProducts = JSON.parse(cachedProductsStr);
           if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
             products = sortProductsByLatest(cachedProducts);
+            rebuildProductSlugIndex(products);
             hasLocalCache = true;
             isProductsLoading = false; 
             preloadFirstFoldProductImages(products, 4);
@@ -1114,6 +1119,7 @@ async function fetchProducts() {
           console.warn('LocalStorage quota exceeded or cache save failed:', cacheErr);
         }
         products = newProducts;
+        rebuildProductSlugIndex(products);
         preloadFirstFoldProductImages(products, 4);
       } else {
         // Keep static products if DB is empty for this category
@@ -2115,9 +2121,47 @@ window.handleMainProductImageError = function () {
   }
 };
 
+function slugifyProductName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 120) || 'product';
+}
+
+function rebuildProductSlugIndex(list = products) {
+  const rows = Array.isArray(list) ? [...list] : [];
+  rows.sort((a, b) => (Number(a?.id) || 0) - (Number(b?.id) || 0));
+  const nextSlugById = {};
+  const nextIdBySlug = {};
+  const baseSeen = {};
+  rows.forEach((product) => {
+    const base = slugifyProductName(product?.name);
+    baseSeen[base] = (baseSeen[base] || 0) + 1;
+    const count = baseSeen[base];
+    const slug = count === 1 ? base : `${base}-${count}`;
+    const id = String(product.id);
+    nextSlugById[id] = slug;
+    nextIdBySlug[slug] = id;
+  });
+  productSlugById = nextSlugById;
+  productIdBySlug = nextIdBySlug;
+}
+
+function getProductSlug(product) {
+  if (!product || product.id == null) return 'product';
+  rebuildProductSlugIndex();
+  return productSlugById[String(product.id)] || slugifyProductName(product.name);
+}
+
+function getProductUrl(product) {
+  return `/products/${encodeURIComponent(getProductSlug(product))}`;
+}
+
 async function shareProductLink(product, description = '') {
-  const id = product && product.id != null ? String(product.id) : '';
-  const url = `${window.location.origin}/products/${encodeURIComponent(id)}`;
+  const url = `${window.location.origin}${getProductUrl(product || {})}`;
   const title = product?.name || 'Shubham Xerox Product';
   const text = description || product?.desc || 'View this product on Shubham Xerox.';
   try {
@@ -2199,7 +2243,7 @@ function createProductCard(product) {
 
   return `
     <div class="product-card catalog-card">
-      <a href="/products/${encodeURIComponent(product.id)}" class="product-link-wrapper" style="display:block;">
+      <a href="${getProductUrl(product)}" class="product-link-wrapper" style="display:block;">
         <div class="product-img-wrapper" style="position:relative; overflow: hidden;">
           ${hasDiscount ? `<div class="catalog-discount-ribbon">${discountPct}% OFF</div>` : ``}
           ${imagesHtml}
@@ -5246,16 +5290,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     const urlParams = new URLSearchParams(window.location.search);
     const pathProductMatch = window.location.pathname.match(/\/products\/([^/?#]+)/);
     const productPathValue = urlParams.get('id') || (pathProductMatch ? decodeURIComponent(pathProductMatch[1]) : '');
-    const productIdMatch = String(productPathValue || '').match(/-?\d+/);
-    const productIdRaw = productIdMatch ? productIdMatch[0] : productPathValue;
-    const productId = /^\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
-    let product = products.find(p => String(p.id) === String(productIdRaw));
+    const isNumericProductPath = /^-?\d+$/.test(String(productPathValue || '').trim());
+    let productIdRaw = String(productPathValue || '').trim();
+    let product = null;
 
     if (typeof fetchPromise !== 'undefined') {
       detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
       await fetchPromise;
-      product = products.find(p => String(p.id) === String(productIdRaw)) || product;
     }
+
+    rebuildProductSlugIndex();
+    if (isNumericProductPath) {
+      product = products.find((p) => String(p.id) === productIdRaw) || null;
+    } else if (productIdBySlug[productPathValue]) {
+      productIdRaw = productIdBySlug[productPathValue];
+      product = products.find((p) => String(p.id) === productIdRaw) || null;
+    } else {
+      const slugMatch = Object.keys(productIdBySlug).find((slug) => slug.toLowerCase() === productPathValue.toLowerCase());
+      if (slugMatch) {
+        productIdRaw = productIdBySlug[slugMatch];
+        product = products.find((p) => String(p.id) === productIdRaw) || null;
+      }
+    }
+
+    if (!product && productPathValue) {
+      try {
+        const lookupRes = await fetch(`${API_BASE}/products/lookup/${encodeURIComponent(productPathValue)}`);
+        if (lookupRes.ok) {
+          const lookupData = await lookupRes.json();
+          if (lookupData && lookupData.product) {
+            product = lookupData.product;
+            productIdRaw = String(lookupData.id || product.id);
+            rebuildProductSlugIndex([...products, product]);
+            const canonicalPath = lookupData.canonical_path || getProductUrl(product);
+            if (!isNumericProductPath && window.location.pathname !== canonicalPath) {
+              history.replaceState({}, '', canonicalPath);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Product slug lookup failed:', e);
+      }
+    }
+
+    const productId = /^-?\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
 
     // Always fetch the FULL product details directly from Supabase so we get ALL images 
     // instead of just the main thumbnail from the list API
@@ -5274,10 +5352,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             product.original_price = data.original_price;
             product.exam = data.exam;
           }
+          rebuildProductSlugIndex([...products, product]);
         }
       }
     } catch (e) {
       console.error("Failed to load full product images", e);
+    }
+
+    if (product && isNumericProductPath) {
+      const canonicalPath = getProductUrl(product);
+      if (window.location.pathname !== canonicalPath) {
+        history.replaceState({}, '', canonicalPath);
+      }
     }
 
     if (product) {
@@ -5331,7 +5417,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80"
       );
       const mainProductImage = productImages[0];
-      const proxyImageFallback = `/product-og-image/${encodeURIComponent(String(product.id))}`;
+      const proxyImageFallback = `/product-og-image/${encodeURIComponent(getProductSlug(product))}`;
       const imgGalleryHtml = productImages.length > 1
         ? `
           <div class="product-slider-container" style="position:relative; width:100%;">
