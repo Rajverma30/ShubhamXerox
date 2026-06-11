@@ -2174,11 +2174,11 @@ async function shareProductLink(product, description = '') {
   const url = `${window.location.origin}${getProductUrl(item)}`;
   const title = String(item.name || 'Shubham Xerox Product').slice(0, 120);
   const text = shareProductText(item, description);
-  const sharePayload = { title, text: `${text}\n${url}`, url };
 
   try {
     if (navigator.share) {
-      await navigator.share(sharePayload);
+      // Keep URL only in `url` — WhatsApp duplicates it if also inside `text`.
+      await navigator.share({ title, text, url });
       return;
     }
   } catch (err) {
@@ -2186,10 +2186,10 @@ async function shareProductLink(product, description = '') {
   }
 
   try {
-    await navigator.clipboard.writeText(`${title}\n${text}\n${url}`);
+    await navigator.clipboard.writeText(url);
     showToast('Product link copied');
   } catch (copyErr) {
-    window.prompt('Copy product link', `${title}\n${text}\n${url}`);
+    window.prompt('Copy product link', url);
   }
 }
 
