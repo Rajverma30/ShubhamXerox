@@ -1677,7 +1677,7 @@ def _product_source_image_bytes(product: Dict[str, Any], base_url: str) -> Optio
     return None
 
 OG_PREVIEW_BUCKET = "products"
-OG_PREVIEW_PREFIX = "og-previews"
+OG_PREVIEW_PREFIX = "og-previews-v2"
 OG_IMAGE_BYTES_CACHE: Dict[str, Dict[str, Any]] = {}
 
 def _og_preview_object_path(product_id: str) -> str:
@@ -1847,27 +1847,34 @@ def _local_image_bytes(path: str) -> Optional[bytes]:
     with open(file_path, "rb") as f:
         return f.read()
 
+SOCIAL_IMAGE_WIDTH = 1200
+SOCIAL_IMAGE_HEIGHT = 1600
+
 def _build_social_jpeg_bytes(image_bytes: bytes) -> bytes:
     image = Image.open(io.BytesIO(image_bytes))
     image = ImageOps.exif_transpose(image)
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA")
 
-    canvas_w, canvas_h = 1200, 630
-    image.thumbnail((canvas_w, canvas_h), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGB", (canvas_w, canvas_h), "white")
+    canvas_w, canvas_h = SOCIAL_IMAGE_WIDTH, SOCIAL_IMAGE_HEIGHT
+    max_w = int(canvas_w * 0.96)
+    max_h = int(canvas_h * 0.96)
+    image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+
     if image.mode == "RGBA":
-        background = Image.new("RGBA", image.size, "white")
+        background = Image.new("RGBA", image.size, (252, 252, 250, 255))
         background.alpha_composite(image)
         image = background.convert("RGB")
     else:
         image = image.convert("RGB")
+
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (252, 252, 250))
     x = (canvas_w - image.width) // 2
     y = (canvas_h - image.height) // 2
     canvas.paste(image, (x, y))
 
     out = io.BytesIO()
-    canvas.save(out, format="JPEG", quality=86, optimize=True)
+    canvas.save(out, format="JPEG", quality=90, optimize=True)
     return out.getvalue()
 
 def _jpeg_social_image_response(image_bytes: bytes, *, head_only: bool = False) -> Response:

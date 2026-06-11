@@ -2172,22 +2172,37 @@ async function shareProductLink(product, description = '') {
     return;
   }
   const url = `${window.location.origin}${getProductUrl(item)}`;
-  const title = String(item.name || 'Shubham Xerox Product').slice(0, 120);
-  const text = shareProductText(item, description);
+
+  // Warm OG image cache before share so WhatsApp/Telegram pick it up faster.
+  try {
+    const warmImg = `${window.location.origin}/product-og-image/${encodeURIComponent(String(item.id))}.jpg`;
+    fetch(warmImg, { cache: 'no-store' }).catch(() => {});
+  } catch (e) { }
+
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
   try {
+    if (navigator.share && navigator.canShare && navigator.canShare({ url })) {
+      // WhatsApp only builds link preview reliably with a single URL payload.
+      await navigator.share({ url });
+      return;
+    }
     if (navigator.share) {
-      // Keep URL only in `url` — WhatsApp duplicates it if also inside `text`.
-      await navigator.share({ title, text, url });
+      await navigator.share({ url });
       return;
     }
   } catch (err) {
     if (err && err.name === 'AbortError') return;
   }
 
+  if (isMobile) {
+    window.location.href = `https://wa.me/?text=${encodeURIComponent(url)}`;
+    return;
+  }
+
   try {
     await navigator.clipboard.writeText(url);
-    showToast('Product link copied');
+    showToast('Link copied — paste in chat for book preview');
   } catch (copyErr) {
     window.prompt('Copy product link', url);
   }
