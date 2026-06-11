@@ -3,6 +3,8 @@ import re
 import hmac
 import base64
 import io
+import json
+import threading
 from urllib.parse import quote
 import hashlib
 import logging
@@ -71,6 +73,16 @@ async def get_config_js():
     js_content = f"window.ENV_SUPABASE_URL = '{url}';\nwindow.ENV_SUPABASE_KEY = '{anon_key}';"
     return Response(content=js_content, media_type="application/javascript")
 
+
+@app.post("/api/visit")
+async def record_site_visit():
+    return {"count": _increment_visitor_count()}
+
+
+@app.get("/api/visitors")
+async def get_visitor_count():
+    return {"count": _read_visitor_count()}
+
 # Configuration for CORS - Update origins in production!
 app.add_middleware(
     CORSMiddleware,
@@ -99,7 +111,61 @@ async def add_cache_headers(request: Request, call_next):
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+DATA_DIR = os.path.join(BASE_DIR, "data")
 templates = Jinja2Templates(directory=FRONTEND_DIR)
+
+VISITOR_SEED_PATH = os.path.join(DATA_DIR, "visitor_stats.json")
+VISITOR_RUNTIME_PATH = (
+    os.path.join("/tmp", "visitor_stats.json") if os.getenv("VERCEL") else VISITOR_SEED_PATH
+)
+_visitor_lock = threading.Lock()
+DEFAULT_VISITOR_COUNT = int(os.getenv("VISITOR_COUNT", "2107"))
+
+
+def _visitor_stats_seed() -> Dict[str, int]:
+    if os.path.isfile(VISITOR_SEED_PATH):
+        try:
+            with open(VISITOR_SEED_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {"count": int(data.get("count", DEFAULT_VISITOR_COUNT))}
+        except Exception:
+            pass
+    return {"count": DEFAULT_VISITOR_COUNT}
+
+
+def _ensure_visitor_stats_file() -> None:
+    if os.path.isfile(VISITOR_RUNTIME_PATH):
+        return
+    runtime_dir = os.path.dirname(VISITOR_RUNTIME_PATH)
+    if runtime_dir:
+        os.makedirs(runtime_dir, exist_ok=True)
+    with open(VISITOR_RUNTIME_PATH, "w", encoding="utf-8") as f:
+        json.dump(_visitor_stats_seed(), f)
+
+
+def _read_visitor_count() -> int:
+    with _visitor_lock:
+        _ensure_visitor_stats_file()
+        try:
+            with open(VISITOR_RUNTIME_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return int(data.get("count", DEFAULT_VISITOR_COUNT))
+        except Exception:
+            return DEFAULT_VISITOR_COUNT
+
+
+def _increment_visitor_count() -> int:
+    with _visitor_lock:
+        _ensure_visitor_stats_file()
+        try:
+            with open(VISITOR_RUNTIME_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = _visitor_stats_seed()
+        data["count"] = int(data.get("count", DEFAULT_VISITOR_COUNT)) + 1
+        with open(VISITOR_RUNTIME_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return int(data["count"])
 
 # Mount static files if they exist in the root directory
 if os.path.isdir(os.path.join(FRONTEND_DIR, "assets")):
@@ -1426,8 +1492,6 @@ async def razorpay_webhook(request: Request):
     
     return {"status": "ok"}
 
-
-import json
 
 # --- SSR Routes (Serving HTML with Jinja2) ---
 

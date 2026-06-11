@@ -4533,74 +4533,15 @@ async function renderAdminDashboard() {
 
   await renderTopSellingBooks();
 
-  const ctx = document.getElementById('visitsChart');
-  if (ctx && window.Chart) {
-    // Generate dates for the last 7 days
-    const last7Days = [];
-    const labels = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      last7Days.push(d.toISOString().split('T')[0]);
-      labels.push(d.toLocaleDateString('en-US', { weekday: 'short' }));
+  try {
+    const res = await fetch('/api/visitors');
+    if (res.ok) {
+      const data = await res.json();
+      const visitorsEl = document.getElementById('statVisitors');
+      if (visitorsEl) visitorsEl.innerText = Number(data.count) || 0;
     }
-
-    let chartData = new Array(7).fill(0);
-    let totalVisits = 0;
-
-    if (supabase) {
-      const { count } = await supabase
-        .from('site_visits')
-        .select('*', { count: 'exact', head: true });
-      totalVisits = Number(count) || 0;
-
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-      sevenDaysAgo.setHours(0, 0, 0, 0);
-      const { data: visits } = await supabase
-        .from('site_visits')
-        .select('created_at')
-        .gte('created_at', sevenDaysAgo.toISOString());
-      (visits || []).forEach(v => {
-        const vDate = v.created_at.split('T')[0];
-        const idx = last7Days.indexOf(vDate);
-        if (idx !== -1) {
-          chartData[idx]++;
-        }
-      });
-    }
-
-    if (document.getElementById('statVisitors')) {
-      document.getElementById('statVisitors').innerText = totalVisits;
-    }
-
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const textColor = isLight ? '#333' : '#e0e0e0';
-    const gridColor = isLight ? '#ddd' : '#333';
-
-    window.adminChartObj = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'People Count',
-          data: chartData,
-          backgroundColor: '#802a7e',
-          borderRadius: 4,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: textColor } }
-        },
-        scales: {
-          x: { ticks: { color: textColor }, grid: { color: gridColor, drawBorder: false } },
-          y: { ticks: { color: textColor }, grid: { color: gridColor, drawBorder: false }, beginAtZero: true }
-        }
-      }
-    });
+  } catch (e) {
+    console.warn('Error fetching visitor count:', e);
   }
 }
 
@@ -4909,17 +4850,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Automatic Background Fetch for Products Page replaces infinite scroll ---
   // Started via startBackgroundAutoFetch() after fetchProducts().
 
-  // --- Log Visit ---
+  // --- Log Visit (simple counter, no Supabase rows) ---
   const todayDate = new Date().toISOString().split('T')[0];
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('site_visits').insert({}).then(({ error }) => {
-        if (!error) {
-          localStorage.setItem('shubham_last_visit', todayDate);
-        }
-      });
-    }
+    fetch('/api/visit', { method: 'POST' })
+      .then((res) => {
+        if (res.ok) localStorage.setItem('shubham_last_visit', todayDate);
+      })
+      .catch(() => {});
   }
 
   // Inject Theme Toggle Switch into Navbar
@@ -4960,14 +4898,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Update Chart Colors if present
-      if (window.adminChartObj) {
-        window.adminChartObj.options.plugins.legend.labels.color = textColor;
-        window.adminChartObj.options.scales.x.ticks.color = textColor;
-        window.adminChartObj.options.scales.x.grid.color = gridColor;
-        window.adminChartObj.options.scales.y.ticks.color = textColor;
-        window.adminChartObj.options.scales.y.grid.color = gridColor;
-        window.adminChartObj.update();
-      }
     });
   }
 
