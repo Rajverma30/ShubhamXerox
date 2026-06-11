@@ -1689,16 +1689,17 @@ def _product_meta_context(request: Request, product_id: str) -> Dict[str, Any]:
     desc = _product_description(product)
     selected_image = _select_main_product_image(product.get("img"))
     image = (
-        f"{base_url}/product-og-image/{quote(str(product_id), safe='')}"
+        f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
         if selected_image
         else f"{base_url}/images/logo.png"
     )
+    social_desc = desc[:200].rsplit(" ", 1)[0] if len(desc) > 200 else desc
     return {
         "meta_title": f"{name} | Shubham Xerox",
         "meta_description": desc,
         "meta_url": product_url,
         "og_title": name,
-        "og_description": desc,
+        "og_description": social_desc,
         "og_image": image,
         "og_url": product_url,
         "og_type": "product",
@@ -1743,7 +1744,7 @@ def _local_image_bytes(path: str) -> Optional[bytes]:
     with open(file_path, "rb") as f:
         return f.read()
 
-def _jpeg_social_image_response(image_bytes: bytes) -> Response:
+def _build_social_jpeg_bytes(image_bytes: bytes) -> bytes:
     image = Image.open(io.BytesIO(image_bytes))
     image = ImageOps.exif_transpose(image)
     if image.mode not in ("RGB", "RGBA"):
@@ -1763,12 +1764,20 @@ def _jpeg_social_image_response(image_bytes: bytes) -> Response:
     canvas.paste(image, (x, y))
 
     out = io.BytesIO()
-    canvas.save(out, format="JPEG", quality=86, optimize=True, progressive=True)
-    return Response(
-        content=out.getvalue(),
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"},
-    )
+    canvas.save(out, format="JPEG", quality=86, optimize=True)
+    return out.getvalue()
+
+def _jpeg_social_image_response(image_bytes: bytes, *, head_only: bool = False) -> Response:
+    jpeg_bytes = _build_social_jpeg_bytes(image_bytes)
+    headers = {
+        "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800",
+        "Content-Type": "image/jpeg",
+        "Content-Length": str(len(jpeg_bytes)),
+        "Accept-Ranges": "bytes",
+    }
+    if head_only:
+        return Response(content=b"", media_type="image/jpeg", headers=headers)
+    return Response(content=jpeg_bytes, media_type="image/jpeg", headers=headers)
 
 def _normalize_product_og_image_path(product_path: str) -> str:
     segment = str(product_path or "").strip().strip("/")
@@ -1788,13 +1797,7 @@ async def get_product_og_image(request: Request, product_id: str):
     selected_image = _select_main_product_image(product.get("img"))
 
     def _respond(image_bytes: bytes) -> Response:
-        headers = {
-            "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800",
-            "Content-Type": "image/jpeg",
-        }
-        if request.method == "HEAD":
-            return Response(content=b"", headers=headers, media_type="image/jpeg")
-        return _jpeg_social_image_response(image_bytes)
+        return _jpeg_social_image_response(image_bytes, head_only=(request.method == "HEAD"))
 
     if not selected_image:
         logo_path = os.path.join(FRONTEND_DIR, "images", "logo.png")

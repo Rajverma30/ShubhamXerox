@@ -14,6 +14,7 @@
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="{{ og_title | default(meta_title | default('Product Details | Shubham Xerox')) | e }}">
+  <link rel="image_src" href="{{ og_image | default('https://www.shubhamxerox.in/images/logo.png') | e }}">
   <meta property="og:url" content="{{ og_url | default(meta_url | default('https://shubhamxerox.in/products')) | e }}">
   <meta property="og:type" content="{{ og_type | default('product') | e }}">
   <meta property="og:site_name" content="Shubham Xerox">

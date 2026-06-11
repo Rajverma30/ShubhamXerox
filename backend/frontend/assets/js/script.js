@@ -2160,25 +2160,36 @@ function getProductUrl(product) {
   return `/products/${encodeURIComponent(getProductSlug(product))}`;
 }
 
+function shareProductText(product, description = '') {
+  const raw = String(description || product?.desc || 'View this book on Shubham Xerox.').replace(/\s+/g, ' ').trim();
+  return raw.length > 220 ? `${raw.slice(0, 217).trim()}...` : raw;
+}
+
 async function shareProductLink(product, description = '') {
-  const url = `${window.location.origin}${getProductUrl(product || {})}`;
-  const title = product?.name || 'Shubham Xerox Product';
-  const text = description || product?.desc || 'View this product on Shubham Xerox.';
+  const item = product || window.currentProductDetail || null;
+  if (!item || item.id == null) {
+    showToast('Product not ready to share yet.');
+    return;
+  }
+  const url = `${window.location.origin}${getProductUrl(item)}`;
+  const title = String(item.name || 'Shubham Xerox Product').slice(0, 120);
+  const text = shareProductText(item, description);
+  const sharePayload = { title, text: `${text}\n${url}`, url };
+
   try {
     if (navigator.share) {
-      await navigator.share({ title, text, url });
+      await navigator.share(sharePayload);
       return;
     }
-    await navigator.clipboard.writeText(url);
-    showToast('Product link copied');
   } catch (err) {
     if (err && err.name === 'AbortError') return;
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('Product link copied');
-    } catch (copyErr) {
-      window.prompt('Copy product link', url);
-    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(`${title}\n${text}\n${url}`);
+    showToast('Product link copied');
+  } catch (copyErr) {
+    window.prompt('Copy product link', `${title}\n${text}\n${url}`);
   }
 }
 
@@ -5476,7 +5487,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               <button class="btn btn-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="buyNow(${jsArg(product.id)})">
                 Buy Now
               </button>
-              <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="shareProductLink(window.currentProductDetail || products.find(p => String(p.id) === ${jsArg(String(product.id))}), ${jsArg(pDesc)})">
+              <button class="btn btn-outline-purple" style="width: 100%; padding: 16px; font-size: 1.1rem;" onclick="shareProductLink(window.currentProductDetail)">
                 Share
               </button>
             </div>
