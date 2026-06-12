@@ -49,7 +49,11 @@ logger = logging.getLogger("shubhamxerox.api")
 
 OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 PRODUCTS_CACHE: Dict[str, Dict[str, Any]] = {}
-PRODUCTS_CACHE_TTL_SECONDS = 20
+PRODUCTS_CACHE_TTL_SECONDS = 3600
+CATALOG_PRODUCTS_CACHE: Dict[str, Any] = {}
+CATALOG_PRODUCTS_CACHE_TTL_SECONDS = 300
+DB_EXTRA_PRODUCTS_CACHE: Dict[str, Any] = {}
+DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS = 300
 SITEMAP_CACHE: Dict[str, Any] = {}
 SITEMAP_CACHE_TTL_SECONDS = 300
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
@@ -114,6 +118,7 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 templates = Jinja2Templates(directory=FRONTEND_DIR)
 
+# Visitor counter: local JSON file only (+1 per day via /api/visit). Never Supabase.
 VISITOR_SEED_PATH = os.path.join(DATA_DIR, "visitor_stats.json")
 VISITOR_RUNTIME_PATH = (
     os.path.join("/tmp", "visitor_stats.json") if os.getenv("VERCEL") else VISITOR_SEED_PATH
@@ -476,46 +481,91 @@ def _seed_admin_user() -> None:
 
 # --- Endpoints ---
 
+def _compress_pdf_bytes(file_bytes: bytes) -> bytes:
+    if not file_bytes or not file_bytes.startswith(b"%PDF"):
+        return file_bytes
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        out = io.BytesIO()
+        doc.save(out, garbage=4, deflate=True, clean=True)
+        doc.close()
+        compressed = out.getvalue()
+        if compressed and len(compressed) < len(file_bytes):
+            logger.info("PDF compressed %s -> %s bytes", len(file_bytes), len(compressed))
+            return compressed
+    except Exception:
+        logger.exception("PDF compression failed; using original bytes")
+    return file_bytes
+
+
+def _guess_upload_content_type(file_bytes: bytes, filename: str = "") -> str:
+    lower_name = str(filename or "").lower()
+    if file_bytes.startswith(b"%PDF") or lower_name.endswith(".pdf"):
+        return "application/pdf"
+    if file_bytes.startswith(b"\xff\xd8") or lower_name.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if file_bytes.startswith(b"\x89PNG") or lower_name.endswith(".png"):
+        return "image/png"
+    if file_bytes[:4] == b"RIFF" and file_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    if lower_name.endswith(".webp"):
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _compress_upload_image_bytes(file_bytes: bytes, *, max_side: int = 1200, quality: int = 82) -> tuple:
+    content_type = _guess_upload_content_type(file_bytes)
+    if not content_type.startswith("image/"):
+        return file_bytes, content_type
+    try:
+        image = Image.open(io.BytesIO(file_bytes))
+        image = ImageOps.exif_transpose(image)
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGBA")
+        if image.mode == "RGBA":
+            background = Image.new("RGBA", image.size, (255, 255, 255, 255))
+            background.alpha_composite(image)
+            image = background.convert("RGB")
+        else:
+            image = image.convert("RGB")
+        image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        image.save(out, format="WEBP", quality=quality, method=6)
+        compressed = out.getvalue()
+        if compressed and len(compressed) < len(file_bytes):
+            logger.info("Image compressed %s -> %s bytes", len(file_bytes), len(compressed))
+            return compressed, "image/webp"
+    except Exception:
+        logger.exception("Image compression failed; using original bytes")
+    return file_bytes, content_type
+
+
+def _prepare_upload_bytes(file_bytes: bytes, filename: str = "") -> tuple:
+    content_type = _guess_upload_content_type(file_bytes, filename)
+    if content_type == "application/pdf":
+        return _compress_pdf_bytes(file_bytes), "application/pdf"
+    if content_type.startswith("image/"):
+        return _compress_upload_image_bytes(file_bytes)
+    return file_bytes, content_type
+
+
 def compress_pdf_task(bucket: str, file_name: str):
     sb = _require_supabase()
     try:
-        try:
-            import fitz  # PyMuPDF
-        except Exception as e:
-            logger.error(f"PyMuPDF unavailable for PDF compression: {e}")
-            return
-
-        logger.info(f"Downloading {file_name} from {bucket} for compression...")
+        logger.info("Downloading %s from %s for compression...", file_name, bucket)
         file_bytes = sb.storage.from_(bucket).download(file_name)
-        
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        
-        out_path = f"temp_{file_name.replace('/', '_')}"
-        doc.save(out_path, garbage=4, deflate=True, clean=True)
-        doc.close()
-        
-        new_size = os.path.getsize(out_path)
-        logger.info(f"Compressed {file_name}: {len(file_bytes)} -> {new_size} bytes")
-        
-        if new_size < len(file_bytes):
-            with open(out_path, "rb") as f:
-                # Re-upload and overwrite
-                sb.storage.from_(bucket).upload(
-                    file_name,
-                    f,
-                    file_options={"upsert": "true", "contentType": "application/pdf"}
-                )
-            logger.info(f"Uploaded compressed {file_name} successfully.")
-        
-        if os.path.exists(out_path):
-            os.remove(out_path)
-    except Exception as e:
-        logger.error(f"Failed to compress PDF {file_name}: {e}")
-        if 'out_path' in locals() and os.path.exists(out_path):
-            try:
-                os.remove(out_path)
-            except:
-                pass
+        compressed = _compress_pdf_bytes(file_bytes)
+        if len(compressed) >= len(file_bytes):
+            return
+        sb.storage.from_(bucket).upload(
+            file_name,
+            compressed,
+            file_options={"upsert": "true", "contentType": "application/pdf"},
+        )
+        logger.info("Uploaded compressed %s successfully.", file_name)
+    except Exception:
+        logger.exception("Failed to compress PDF %s", file_name)
 
 @app.post("/compress-pdf")
 async def compress_pdf_endpoint(req: CompressPdfRequest, background_tasks: BackgroundTasks):
@@ -526,7 +576,6 @@ async def compress_pdf_endpoint(req: CompressPdfRequest, background_tasks: Backg
 @app.post("/admin/book-pdf")
 async def admin_upload_book_pdf(
     request: Request,
-    background_tasks: BackgroundTasks,
     filename: str,
     title: str,
     pdf_type: str = "free",
@@ -541,6 +590,10 @@ async def admin_upload_book_pdf(
         raise HTTPException(status_code=400, detail="PDF file is too large")
     if not file_bytes.startswith(b"%PDF"):
         logger.warning("Book PDF upload does not start with PDF magic bytes: %s", filename)
+
+    original_size = len(file_bytes)
+    file_bytes = _compress_pdf_bytes(file_bytes)
+    logger.info("Book PDF upload %s: %s -> %s bytes before storage", filename, original_size, len(file_bytes))
 
     safe_name = _safe_storage_filename(filename)
     file_name = f"book-attachments/{int(time.time())}_{random.randint(100000, 999999)}_{safe_name}"
@@ -582,7 +635,6 @@ async def admin_upload_book_pdf(
     if not note_data or not note_data.get("id"):
         raise HTTPException(status_code=500, detail="PDF uploaded, but database link failed")
 
-    background_tasks.add_task(compress_pdf_task, upload_bucket, file_name)
     return {
         "bucket": upload_bucket,
         "file_name": file_name,
@@ -594,7 +646,6 @@ async def admin_upload_book_pdf(
 @app.post("/photocopy-doc")
 async def upload_photocopy_doc(
     request: Request,
-    background_tasks: BackgroundTasks,
     order_id: str,
     index: int = 1,
     filename: str = "document.pdf",
@@ -605,12 +656,38 @@ async def upload_photocopy_doc(
     if len(file_bytes) > 100 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="PDF file is too large")
 
+    original_size = len(file_bytes)
+    file_bytes = _compress_pdf_bytes(file_bytes)
+    logger.info("Photocopy PDF upload %s: %s -> %s bytes before storage", filename, original_size, len(file_bytes))
+
     safe_order = re.sub(r"[^a-zA-Z0-9_-]+", "_", order_id or f"COPY{int(time.time())}")
     safe_name = _safe_storage_filename(filename)
     file_name = f"{safe_order}_{max(int(index or 1), 1)}_{safe_name}"
     public_url = _upload_storage_bytes("photocopy-docs", file_name, file_bytes, "application/pdf")
-    background_tasks.add_task(compress_pdf_task, "photocopy-docs", file_name)
     return {"bucket": "photocopy-docs", "file_name": file_name, "public_url": public_url}
+
+
+@app.post("/upload/chat-file")
+async def upload_chat_file(request: Request, filename: str = "file"):
+    file_bytes = await request.body()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="File is empty")
+    if len(file_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File is too large (max 25 MB)")
+
+    original_size = len(file_bytes)
+    file_bytes, content_type = _prepare_upload_bytes(file_bytes, filename)
+    logger.info("Chat file upload %s: %s -> %s bytes (%s)", filename, original_size, len(file_bytes), content_type)
+
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", filename or "file").strip("._") or "file"
+    if content_type == "application/pdf" and not safe_name.lower().endswith(".pdf"):
+        safe_name = f"{safe_name}.pdf"
+    if content_type == "image/webp" and not safe_name.lower().endswith(".webp"):
+        safe_name = f"{os.path.splitext(safe_name)[0] or 'image'}.webp"
+
+    file_name = f"{int(time.time())}_{random.randint(100000, 999999)}_{safe_name}"
+    public_url = _upload_storage_bytes("chat-files", file_name, file_bytes, content_type)
+    return {"bucket": "chat-files", "file_name": file_name, "public_url": public_url}
 
 
 @app.on_event("startup")
@@ -1013,6 +1090,113 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
     sb.table("users").delete().eq("phone", phone).execute()
     return {"status": "ok"}
 
+def _load_static_catalog_rows() -> List[Dict[str, Any]]:
+    now = time.time()
+    cached = CATALOG_PRODUCTS_CACHE.get("rows")
+    if cached and now < float(CATALOG_PRODUCTS_CACHE.get("expires_at", 0.0)):
+        return cached
+
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    rows: List[Dict[str, Any]] = []
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
+            rows = [row for row in rows if isinstance(row, dict)]
+        except Exception:
+            logger.exception("Failed to read static products catalog")
+
+    CATALOG_PRODUCTS_CACHE["rows"] = rows
+    CATALOG_PRODUCTS_CACHE["expires_at"] = now + CATALOG_PRODUCTS_CACHE_TTL_SECONDS
+    return rows
+
+
+def _load_db_extra_products() -> List[Dict[str, Any]]:
+    now = time.time()
+    cached = DB_EXTRA_PRODUCTS_CACHE.get("rows")
+    if cached is not None and now < float(DB_EXTRA_PRODUCTS_CACHE.get("expires_at", 0.0)):
+        return cached
+
+    rows: List[Dict[str, Any]] = []
+    base_url = str(SUPABASE_URL or "").rstrip("/")
+    api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+    if base_url and api_key:
+        try:
+            url = (
+                f"{base_url}/rest/v1/products"
+                "?select=id,name,category,price,original_price,img,exam,free_note_id"
+                "&id=gt.0&order=id.desc&limit=200"
+            )
+            headers = {
+                "apikey": api_key,
+                "Authorization": f"Bearer {api_key}",
+            }
+            resp = requests.get(url, headers=headers, timeout=(5, 15))
+            resp.raise_for_status()
+            data = resp.json() if resp.content else []
+            rows = data if isinstance(data, list) else []
+        except Exception:
+            logger.exception("Failed to load admin-added products from Supabase")
+
+    DB_EXTRA_PRODUCTS_CACHE["rows"] = rows
+    DB_EXTRA_PRODUCTS_CACHE["expires_at"] = now + DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS
+    return rows
+
+
+def _merge_catalog_products() -> List[Dict[str, Any]]:
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for row in _load_static_catalog_rows():
+        by_id[str(row.get("id"))] = row
+    for row in _load_db_extra_products():
+        by_id[str(row.get("id"))] = row
+    merged = list(by_id.values())
+    merged.sort(key=lambda item: int(item.get("id") or 0), reverse=True)
+    return merged
+
+
+def _strip_product_list_images(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    cleaned: List[Dict[str, Any]] = []
+    for product in products:
+        row = dict(product)
+        if row.get("img") and isinstance(row["img"], str):
+            row["img"] = _select_main_product_image(row["img"])
+        cleaned.append(row)
+    return cleaned
+
+
+def _list_catalog_products(
+    limit: int,
+    offset: int,
+    category: Optional[str] = None,
+    q: Optional[str] = None,
+) -> Dict[str, Any]:
+    cat_filter = (category or "").strip().lower()
+    search_q = (q or "").strip().lower()
+    rows = _merge_catalog_products()
+
+    if cat_filter:
+        rows = [row for row in rows if str(row.get("category") or "").strip().lower() == cat_filter]
+    if search_q:
+        tokens = [token for token in search_q.split() if token]
+        filtered: List[Dict[str, Any]] = []
+        for row in rows:
+            haystack = f"{row.get('name', '')} {row.get('category', '')}".lower()
+            if all(token in haystack for token in tokens):
+                filtered.append(row)
+        rows = filtered
+
+    page = rows[offset: offset + limit + 1]
+    has_more = len(page) > limit
+    products = _strip_product_list_images(page[:limit] if has_more else page)
+    return {
+        "products": products,
+        "has_more": has_more,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 async def list_public_products_helper(
     response: Response,
     limit: int = 40,
@@ -1020,7 +1204,7 @@ async def list_public_products_helper(
     category: Optional[str] = None,
     q: Optional[str] = None,
 ):
-    response.headers["Cache-Control"] = "public, max-age=20, s-maxage=60, stale-while-revalidate=120"
+    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=7200"
     logger.info("GET /products build=%s", APP_BUILD_MARKER)
     limit = int(limit or 40)
     offset = int(offset or 0)
@@ -1045,49 +1229,46 @@ async def list_public_products_helper(
         }
 
     try:
-        base_url = str(SUPABASE_URL or "").rstrip("/")
-        if not base_url or not SUPABASE_KEY:
-            raise HTTPException(status_code=500, detail="Supabase config missing")
+        catalog_rows = _load_static_catalog_rows()
+        if catalog_rows:
+            result = _list_catalog_products(limit, offset, cat_filter or None, search_q or None)
+        else:
+            base_url = str(SUPABASE_URL or "").rstrip("/")
+            if not base_url or not SUPABASE_KEY:
+                raise HTTPException(status_code=500, detail="Supabase config missing")
 
-        url = (
-            f"{base_url}/rest/v1/products"
-            "?select=id,name,category,price,original_price,img,exam,free_note_id"
-            f"&order=id.desc&offset={offset}&limit={limit + 1}"
-        )
-        if cat_filter:
-            url += f"&category=eq.{quote(cat_filter, safe='')}"
-        if search_q:
-            url += f"&or=(name.ilike.*{quote(search_q, safe='')}*,category.ilike.*{quote(search_q, safe='')}*)"
-        headers = {
-            "apikey": SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
-        }
-        # Use explicit connect/read timeout to avoid repeated 5s failures.
-        resp = requests.get(url, headers=headers, timeout=(5, 20))
-        resp.raise_for_status()
-        data = resp.json() if resp.content else []
-        rows = data if isinstance(data, list) else []
-        has_more = len(rows) > limit
-        products = rows[:limit] if has_more else rows
-        
-        # Strip all but the first usable image to drastically reduce payload size for list views
-        for p in products:
-            if p.get("img") and isinstance(p["img"], str):
-                p["img"] = _select_main_product_image(p["img"])
-                
-        # Cache results
+            url = (
+                f"{base_url}/rest/v1/products"
+                "?select=id,name,category,price,original_price,img,exam,free_note_id"
+                f"&order=id.desc&offset={offset}&limit={limit + 1}"
+            )
+            if cat_filter:
+                url += f"&category=eq.{quote(cat_filter, safe='')}"
+            if search_q:
+                url += f"&or=(name.ilike.*{quote(search_q, safe='')}*,category.ilike.*{quote(search_q, safe='')}*)"
+            headers = {
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+            }
+            resp = requests.get(url, headers=headers, timeout=(5, 20))
+            resp.raise_for_status()
+            data = resp.json() if resp.content else []
+            rows = data if isinstance(data, list) else []
+            has_more = len(rows) > limit
+            products = _strip_product_list_images(rows[:limit] if has_more else rows)
+            result = {
+                "products": products,
+                "has_more": has_more,
+                "limit": limit,
+                "offset": offset,
+            }
+
         PRODUCTS_CACHE[cache_key] = {
-            "data": products,
-            "has_more": has_more,
-            "expires_at": now + 60.0
+            "data": result["products"],
+            "has_more": result["has_more"],
+            "expires_at": now + PRODUCTS_CACHE_TTL_SECONDS,
         }
-        
-        return {
-            "products": products,
-            "has_more": has_more,
-            "limit": limit,
-            "offset": offset,
-        }
+        return result
     except Exception as e:
         logger.exception("Error in list_public_products_helper")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1313,6 +1494,7 @@ async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = De
     payload = req.model_dump(by_alias=True, exclude_none=True)
     res = sb.table("products").insert(payload).execute()
     PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 @app.put("/admin/products/{product_id}")
@@ -1321,6 +1503,7 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
     payload = req.model_dump(by_alias=True, exclude_none=True)
     res = sb.table("products").update(payload).eq("id", product_id).execute()
     PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 @app.delete("/admin/products/{product_id}")
@@ -1328,6 +1511,7 @@ async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends
     sb = _require_supabase()
     sb.table("products").delete().eq("id", product_id).execute()
     PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
     return {"status": "ok"}
 
 @app.post("/admin/products/bulk-delete")
@@ -1337,6 +1521,7 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
         return {"status": "ok"}
     sb.table("products").delete().in_("id", req.product_ids).execute()
     PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
     return {"status": "ok"}
 
 @app.post("/admin/products/bulk-update-category")
@@ -1346,6 +1531,7 @@ async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dic
         return {"status": "ok"}
     sb.table("products").update({"category": req.category}).in_("id", req.product_ids).execute()
     PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
     return {"status": "ok"}
 
 def _orders_table_for(order_type: str) -> str:
@@ -1361,6 +1547,59 @@ async def admin_list_orders(order_type: str = "books", _admin: Dict[str, Any] = 
     table = _orders_table_for(order_type)
     res = sb.table(table).select("*").execute()
     return {"orders": res.data or []}
+
+
+@app.get("/admin/dashboard-stats")
+async def admin_dashboard_stats(_admin: Dict[str, Any] = Depends(verify_admin)):
+    sb = _require_supabase()
+    books_res = sb.table("orders").select("total,status,items").execute()
+    photo_res = sb.table("photocopy_orders").select("total_cost,total,status").execute()
+
+    total_revenue = 0.0
+    pending_revenue = 0.0
+    delivered_books = 0
+    paid_pdfs_sold = 0
+    pdf_orders: List[Dict[str, Any]] = []
+
+    for order in books_res.data or []:
+        items = order.get("items") if isinstance(order.get("items"), list) else []
+        has_pdf = any(isinstance(item, dict) and item.get("type") == "note" for item in items)
+        has_book = any(not (isinstance(item, dict) and item.get("type") == "note") for item in items) if items else False
+        total = float(order.get("total") or 0)
+        status = str(order.get("status") or "").strip()
+
+        if has_pdf:
+            paid_pdfs_sold += 1
+            total_revenue += total
+            pdf_orders.append(order)
+        elif has_book:
+            if status == "Delivered":
+                total_revenue += total
+                delivered_books += 1
+            elif status != "Returned":
+                pending_revenue += total
+        else:
+            if status == "Delivered":
+                total_revenue += total
+                delivered_books += 1
+            elif status != "Returned":
+                pending_revenue += total
+
+    for order in photo_res.data or []:
+        total = float(order.get("total_cost") or order.get("total") or 0)
+        status = str(order.get("status") or "").strip()
+        if status in ("Completed", "Delivered"):
+            total_revenue += total
+        elif status != "Returned":
+            pending_revenue += total
+
+    return {
+        "total_revenue": total_revenue,
+        "pending_revenue": pending_revenue,
+        "delivered_books": delivered_books,
+        "paid_pdfs_sold": paid_pdfs_sold,
+        "pdf_orders": pdf_orders,
+    }
 
 @app.patch("/admin/orders/{order_id}")
 async def admin_update_order_status(order_id: str, req: AdminOrderStatusUpdate, order_type: str = "books", _admin: Dict[str, Any] = Depends(verify_admin)):
@@ -1749,44 +1988,7 @@ def _ensure_product_og_preview_url(product_id: str, product: Dict[str, Any], bas
     selected_image = _select_main_product_image(product.get("img"))
     if not selected_image:
         return f"{base_url}/images/logo.png"
-
-    fallback = f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
-    try:
-        object_path = _og_preview_object_path(product_id)
-        public_url = _public_storage_object_url(OG_PREVIEW_BUCKET, object_path)
-    except Exception:
-        return fallback
-    try:
-        head = requests.head(public_url, timeout=(4, 10))
-        if head.status_code == 200:
-            return public_url
-    except Exception:
-        pass
-
-    cache_key = str(product_id)
-    cached = OG_IMAGE_BYTES_CACHE.get(cache_key)
-    if cached and time.time() < float(cached.get("expires_at", 0.0)):
-        jpeg_bytes = cached.get("bytes")
-    else:
-        source_bytes = _product_source_image_bytes(product, base_url)
-        if not source_bytes:
-            return fallback
-        try:
-            jpeg_bytes = _build_social_jpeg_bytes(source_bytes)
-        except Exception:
-            logger.exception("Failed to build social JPEG for product %s", product_id)
-            return fallback
-        OG_IMAGE_BYTES_CACHE[cache_key] = {
-            "bytes": jpeg_bytes,
-            "expires_at": time.time() + 86400.0,
-        }
-
-    try:
-        _upload_storage_bytes(OG_PREVIEW_BUCKET, object_path, jpeg_bytes, "image/jpeg")
-        return public_url
-    except Exception:
-        logger.exception("Failed to upload OG preview for product %s", product_id)
-        return fallback
+    return f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
 
 def _load_static_product(product_id: str) -> Optional[Dict[str, Any]]:
     path = os.path.join(FRONTEND_DIR, "assets", "products.json")
@@ -1963,15 +2165,6 @@ async def get_product_og_image(request: Request, product_id: str):
         raise HTTPException(status_code=404, detail="Product image not found")
 
     product_id = str(product.get("id") or segment)
-    object_path = _og_preview_object_path(product_id)
-    public_url = _public_storage_object_url(OG_PREVIEW_BUCKET, object_path)
-    try:
-        head = requests.head(public_url, timeout=(4, 10))
-        if head.status_code == 200:
-            return RedirectResponse(url=public_url, status_code=302)
-    except Exception:
-        pass
-
     base_url = _request_base_url(request)
 
     def _respond(image_bytes: bytes) -> Response:
@@ -1995,10 +2188,6 @@ async def get_product_og_image(request: Request, product_id: str):
         raise HTTPException(status_code=404, detail="Product image not found")
 
     OG_IMAGE_BYTES_CACHE[cache_key] = {"bytes": jpeg_bytes, "expires_at": time.time() + 86400.0}
-    try:
-        _upload_storage_bytes(OG_PREVIEW_BUCKET, object_path, jpeg_bytes, "image/jpeg")
-    except Exception:
-        logger.exception("Failed to upload OG preview for product %s", product_id)
     return _respond(jpeg_bytes)
 
 def _slugify_product_name(name: Any) -> str:

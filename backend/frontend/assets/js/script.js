@@ -254,6 +254,116 @@ function getAllProductCategories() {
   return [...new Set([...safeSiteCategories, ...products.map(p => p.category).filter(Boolean)])].sort();
 }
 
+function injectPublicNavbarCategories() {
+  const nav = document.getElementById('mainNavLinks') || document.querySelector('.nav-links:not(#adminNavLinks)');
+  if (!nav || nav.querySelector('#navCategoriesDropdown')) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'nav-dropdown';
+  wrapper.id = 'navCategoriesDropdown';
+  wrapper.innerHTML = `
+    <button type="button" class="nav-dropdown-trigger">Categories</button>
+    <div class="nav-dropdown-menu nav-categories-menu" id="navCategoriesMenu"></div>
+  `;
+
+  const booksLink = nav.querySelector('a[href="/products"]');
+  if (booksLink) nav.insertBefore(wrapper, booksLink);
+  else nav.appendChild(wrapper);
+
+  populateNavbarCategoriesMenu();
+}
+
+function populateNavbarCategoriesMenu() {
+  const menu = document.getElementById('navCategoriesMenu');
+  if (!menu) return;
+  const cats = getAllProductCategories().filter((cat) => cat && String(cat).trim());
+  if (!cats.length) {
+    menu.innerHTML = '<span style="display:block;padding:12px 18px;color:var(--text-muted);font-size:0.88rem;">No categories yet</span>';
+    return;
+  }
+  menu.innerHTML = cats.map((cat) => {
+    const href = `/products?strict=1&category=${encodeURIComponent(cat)}`;
+    return `<a href="${href}">${escapeHtml(cat)}</a>`;
+  }).join('');
+}
+
+async function ensureAdminOrderProductCatalog() {
+  const map = window._adminOrderProductMap || {};
+  const mergeList = (list) => {
+    (list || []).forEach((product) => {
+      if (product && product.id != null) map[String(product.id)] = product;
+    });
+  };
+
+  mergeList(products);
+  if (Object.keys(map).length < 20) {
+    try {
+      const cached = JSON.parse(localStorage.getItem('shubham_products_cache') || '[]');
+      mergeList(cached);
+    } catch (e) {}
+  }
+  if (Object.keys(map).length < 20) {
+    try {
+      const res = await fetch(`${API_BASE}/assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
+      if (res.ok) mergeList(await res.json());
+    } catch (e) {}
+  }
+
+  window._adminOrderProductMap = map;
+  return map;
+}
+
+function resolveOrderItemImage(item) {
+  if (!item || item.type === 'note') return 'images/logo.png';
+  const direct = getMainProductImage(item.img, '');
+  if (direct && direct !== DEFAULT_BOOK_SVG) return direct;
+  const map = window._adminOrderProductMap || {};
+  const product = item.id != null ? map[String(item.id)] : null;
+  return getMainProductImage(product?.img, DEFAULT_BOOK_SVG);
+}
+
+function adminOrderMatchesSearch(order, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+
+  const qDigits = q.replace(/\D/g, '');
+  const phoneRaw = String(order.customerphone || order.customer_phone || '');
+  const phoneDigits = phoneRaw.replace(/\D/g, '');
+  const normalizedPhone = normalizePhoneNumber(phoneRaw);
+
+  const idMatch = String(order.id || '').toLowerCase().includes(q);
+  const nameMatch = String(order.customer || order.customer_name || '').toLowerCase().includes(q);
+  const addressMatch = String(order.address || '').toLowerCase().includes(q);
+  const phoneMatch = phoneRaw.toLowerCase().includes(q)
+    || (qDigits.length >= 4 && phoneDigits.includes(qDigits))
+    || (qDigits.length >= 10 && normalizedPhone.includes(qDigits.slice(-10)))
+    || (qDigits.length >= 10 && qDigits.slice(-10) === normalizedPhone);
+  const itemMatch = normalizeOrderItems(order.items).some((item) =>
+    String(item.name || '').toLowerCase().includes(q)
+    || String(item.id || '').toLowerCase().includes(q)
+  );
+
+  return idMatch || nameMatch || phoneMatch || addressMatch || itemMatch;
+}
+
+function renderAdminOrderItemRow(item) {
+  const qty = Number(item.quantity) || 1;
+  const price = Number(item.price) || 0;
+  const imgSrc = resolveOrderItemImage(item);
+  const safeImg = adminEscapeHtml(imgSrc);
+  const safeName = adminEscapeHtml(item.name || 'Book');
+  return `
+    <div style="display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border-color);">
+      <img src="${safeImg}" alt="${safeName}" loading="lazy" style="width:52px; height:68px; object-fit:cover; border-radius:8px; border:1px solid var(--border-color); background:#f3f4f6; flex-shrink:0;" onerror="this.onerror=null;this.src='images/logo.png';">
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:0.95rem; font-weight:600; line-height:1.35;">${safeName}</div>
+        <div style="font-size:0.82rem; color:var(--text-muted); margin-top:4px;">Qty: ${qty}</div>
+      </div>
+      <div style="font-size:0.95rem; font-weight:700; white-space:nowrap;">${formatPrice(price * qty)}</div>
+    </div>
+  `;
+}
+
 let globalDbSearchTimeout = null;
 
 async function performDatabaseSearch(query, categories, isFeatured, skipRender = false) {
@@ -1063,6 +1173,14 @@ async function fetchProducts() {
     ? `&category=${encodeURIComponent(productsServerCategoryFilter)}`
     : '';
 
+  if (hasLocalCache && products.length > 0 && !productsServerCategoryFilter && !hasUrlQuery) {
+    productsServerHasMore = false;
+    productsServerOffset = products.length;
+    isProductsLoading = false;
+    renderStoreProducts();
+    return;
+  }
+
   try {
     // Prefer backend endpoint with server cache to reduce Supabase egress.
     // Progressive 1-by-1 card reveal still works via renderProductsGrid logic.
@@ -1256,6 +1374,7 @@ async function backgroundRenderLoop() {
 }
 
 function startBackgroundAutoFetch() {
+  if (!productsServerHasMore) return;
   backgroundFetchLoop();
   backgroundRenderLoop();
 }
@@ -1648,102 +1767,37 @@ async function uploadPdfToAvailableBucket(supabase, file, pathPrefix) {
 }
 
 async function uploadBookPdfAttachment(file, { name, pdfType, pdfPrice }) {
-  const supabase = getSupabase();
-  if (!supabase) {
-    throw new Error('Supabase client not initialized.');
+  const params = new URLSearchParams({
+    filename: file.name || 'book.pdf',
+    title: name || file.name || 'Book PDF',
+    pdf_type: pdfType || 'free',
+    price: String(parseFloat(pdfPrice) || 0)
+  });
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE}/admin/book-pdf?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/pdf',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: file
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  if (!response.ok) {
+    const detail = (data && (data.detail || data.message)) || text || `PDF upload failed (${response.status})`;
+    throw new Error(detail);
   }
-
-  const cleanName = (file.name || 'book.pdf').replace(/[^a-zA-Z0-9._-]+/g, '_');
-  const timestamp = Math.floor(Date.now() / 1000);
-  const randomNum = Math.floor(100000 + Math.random() * 900000);
-  const file_name = `book-attachments/${timestamp}_${randomNum}_${cleanName}`;
-
-  let upload_bucket = 'free-notes';
-  let uploadResult = null;
-  
-  try {
-    uploadResult = await supabase.storage.from('free-notes').upload(file_name, file, {
-      contentType: 'application/pdf',
-      upsert: true
-    });
-    if (uploadResult.error) throw uploadResult.error;
-  } catch (err) {
-    console.warn("Upload to free-notes bucket failed, trying products bucket", err);
-    upload_bucket = 'products';
-    const retryResult = await supabase.storage.from('products').upload(file_name, file, {
-      contentType: 'application/pdf',
-      upsert: true
-    });
-    if (retryResult.error) {
-      throw new Error(`Storage upload failed: ${retryResult.error.message || retryResult.error}`);
-    }
-  }
-
-  const { data: urlData } = supabase.storage.from(upload_bucket).getPublicUrl(file_name);
-  const public_url = urlData.publicUrl;
-
-  const isPaid = (pdfType || 'free').toLowerCase() === 'paid';
-  const note_payload = {
-    title: name,
-    file_url: public_url,
-    is_paid: isPaid,
-    price: isPaid ? (parseFloat(pdfPrice) || 0) : 0
-  };
-
-  let note_data = null;
-  const { data: noteInsertData, error: dbErr } = await supabase
-    .from('free_notes')
-    .insert(note_payload)
-    .select('*');
-
-  if (dbErr) {
-    if (dbErr.message && (dbErr.message.includes('is_paid') || dbErr.message.includes('price'))) {
-      const fallback_payload = {
-        title: name,
-        file_url: public_url
-      };
-      const { data: fallbackInsertData, error: fallbackDbErr } = await supabase
-        .from('free_notes')
-        .insert(fallback_payload)
-        .select('*');
-      if (fallbackDbErr) {
-        throw new Error(`Database insert failed: ${fallbackDbErr.message}`);
-      }
-      note_data = fallbackInsertData ? fallbackInsertData[0] : null;
-    } else {
-      throw new Error(`Database insert failed: ${dbErr.message}`);
-    }
-  } else {
-    note_data = noteInsertData ? noteInsertData[0] : null;
-  }
-
-  if (!note_data || !note_data.id) {
+  if (!data?.free_note_id) {
     throw new Error('PDF uploaded, but note link was not returned.');
   }
-
-  // Trigger compression in background via backend API `/compress-pdf`
-  try {
-    fetch(`${API_BASE}/compress-pdf`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getAuthToken()}`
-      },
-      body: JSON.stringify({
-        bucket: upload_bucket,
-        file_name: file_name
-      })
-    }).catch(e => console.warn("Failed to trigger PDF compression endpoint:", e));
-  } catch (e) {
-    console.warn("Failed to trigger PDF compression", e);
-  }
-
   return {
-    bucket: upload_bucket,
-    file_name: file_name,
-    public_url: public_url,
-    note: note_data,
-    free_note_id: note_data.id
+    bucket: data.bucket,
+    file_name: data.file_name,
+    public_url: data.public_url,
+    note: data.note,
+    free_note_id: data.free_note_id
   };
 }
 
@@ -2875,6 +2929,8 @@ function compressImageFileToDataUrl(file) {
   });
 }
 
+window.compressImage = compressImageFileToDataUrl;
+
 function addComboManualItemRow(name = '', qty = 1) {
   const container = document.getElementById('comboManualItems');
   if (!container) return;
@@ -3048,49 +3104,9 @@ async function handleAddProduct(e) {
     const pdfImagesInput = document.getElementById('bookPdfPreview');
     const imagesPdfFile = pdfImagesInput && pdfImagesInput.files ? pdfImagesInput.files[0] : null;
 
-    window.compressImage = function (file) {
-      return new Promise((resolve) => {
-        if (!file) {
-          resolve(null);
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 800;
-            const MAX_HEIGHT = 800;
-            let width = img.width;
-            let height = img.height;
-            if (width > height) {
-              if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-              }
-            } else {
-              if (height > MAX_HEIGHT) {
-                width *= MAX_HEIGHT / height;
-                height = MAX_HEIGHT;
-              }
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/webp', 0.7));
-          };
-          img.onerror = () => resolve(null);
-          img.src = e.target.result;
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-      });
-    };
-
     const readImage = async (input) => {
       if (input && input.files && input.files[0]) {
-        return await window.compressImage(input.files[0]);
+        return await compressImageFileToDataUrl(input.files[0]);
       }
       return null;
     };
@@ -3710,6 +3726,8 @@ async function renderAdminOrders(useCache = false) {
   const container = document.getElementById('adminOrdersList');
   if (!container) return;
 
+  await ensureAdminOrderProductCatalog();
+
   const countLabel = document.getElementById('adminOrdersCountLabel');
   const titleEl = document.getElementById('adminOrdersTitle');
   const statusFromPath = (() => {
@@ -3792,12 +3810,7 @@ async function renderAdminOrders(useCache = false) {
   }
 
   const filteredOrders = q
-    ? physicalOrders.filter((o) => {
-        const idM = String(o.id || '').toLowerCase().includes(q);
-        const phoneM = String(o.customerphone || o.customer_phone || '').toLowerCase().includes(q);
-        const nameM = String(o.customer || o.customer_name || '').toLowerCase().includes(q);
-        return idM || phoneM || nameM;
-      })
+    ? physicalOrders.filter((o) => adminOrderMatchesSearch(o, q))
     : physicalOrders;
 
   const getAdminBookStatusKey = (o) => {
@@ -3852,9 +3865,9 @@ async function renderAdminOrders(useCache = false) {
           </div>
         </div>
 
-        <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px;">
+        <div style="background: var(--bg-color); border-radius: var(--radius-sm); padding: 12px 16px;">
           <strong style="display:block; margin-bottom: 8px;">Order Items</strong>
-          ${normalizeOrderItems(o.items).map(i => `<div style="font-size: 0.9rem; display:flex; justify-content:space-between;"><span>${i.name} (x${i.quantity})</span> <span>${formatPrice(i.price * i.quantity)}</span></div>`).join('')}
+          ${normalizeOrderItems(o.items).filter(i => i.type !== 'note').map(renderAdminOrderItemRow).join('') || '<div style="color:var(--text-muted); font-size:0.9rem;">No physical books in this order.</div>'}
         </div>
       </div>
       `;
@@ -4460,75 +4473,21 @@ window.renderPaidPDFLog = function (pdfOrders) {
 };
 
 async function renderAdminDashboard() {
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const { data: standardOrders } = await supabase.from('orders').select('*');
-      const { data: photocopyOrders } = await supabase.from('photocopy_orders').select('*');
+  try {
+    const stats = await apiFetch('/admin/dashboard-stats', { method: 'GET' });
+    const revEl = document.getElementById('statRevenue');
+    const penEl = document.getElementById('statPendingRevenue');
+    const pdfEl = document.getElementById('statPdfSold');
+    const bkEl = document.getElementById('statDeliveredBooks');
 
-      let totalRevenue = 0;
-      let pendingRevenue = 0;
-      let deliveredBooks = 0;
-      let paidPdfsSold = 0;
-      let pdfOrders = [];
+    if (revEl) revEl.innerText = '₹' + Math.floor(Number(stats.total_revenue) || 0).toLocaleString('en-IN');
+    if (penEl) penEl.innerText = '₹' + Math.floor(Number(stats.pending_revenue) || 0).toLocaleString('en-IN');
+    if (pdfEl) pdfEl.innerText = String(Number(stats.paid_pdfs_sold) || 0);
+    if (bkEl) bkEl.innerText = String(Number(stats.delivered_books) || 0);
 
-      if (standardOrders) {
-        standardOrders.forEach(o => {
-          let hasPdf = false;
-          let hasBook = false;
-          if (o.items && Array.isArray(o.items)) {
-            o.items.forEach(item => {
-              if (item.type === 'note') hasPdf = true;
-              else hasBook = true;
-            });
-          }
-          if (hasPdf) {
-            paidPdfsSold++;
-            totalRevenue += Number(o.total) || 0;
-            pdfOrders.push(o);
-          } else if (hasBook) {
-            if (o.status === 'Delivered') {
-              totalRevenue += Number(o.total) || 0;
-              deliveredBooks++;
-            } else if (o.status !== 'Returned') {
-              pendingRevenue += Number(o.total) || 0;
-            }
-          } else {
-            if (o.status === 'Delivered') {
-              totalRevenue += Number(o.total) || 0;
-              deliveredBooks++;
-            } else if (o.status !== 'Returned') {
-              pendingRevenue += Number(o.total) || 0;
-            }
-          }
-        });
-      }
-
-      if (photocopyOrders) {
-        photocopyOrders.forEach(po => {
-          if (po.status === 'Completed' || po.status === 'Delivered') {
-            totalRevenue += Number(po.total_cost || po.total) || 0;
-          } else if (po.status !== 'Returned') {
-            pendingRevenue += Number(po.total_cost || po.total) || 0;
-          }
-        });
-      }
-
-      const revEl = document.getElementById('statRevenue');
-      const penEl = document.getElementById('statPendingRevenue');
-      const pdfEl = document.getElementById('statPdfSold');
-      const bkEl = document.getElementById('statDeliveredBooks');
-
-      if (revEl) revEl.innerText = '₹' + Math.floor(totalRevenue).toLocaleString('en-IN');
-      if (penEl) penEl.innerText = '₹' + Math.floor(pendingRevenue).toLocaleString('en-IN');
-      if (pdfEl) pdfEl.innerText = String(paidPdfsSold);
-      if (bkEl) bkEl.innerText = String(deliveredBooks);
-
-      renderPaidPDFLog(pdfOrders);
-
-    } catch (e) {
-      console.warn('Error fetching dashboard stats:', e);
-    }
+    renderPaidPDFLog(Array.isArray(stats.pdf_orders) ? stats.pdf_orders : []);
+  } catch (e) {
+    console.warn('Error fetching dashboard stats:', e);
   }
 
   await renderTopSellingBooks();
@@ -4788,6 +4747,8 @@ async function renderReviews(productId) {
 
 // --- Main Bootstrap ---
 document.addEventListener('DOMContentLoaded', async () => {
+  injectPublicNavbarCategories();
+
   // Kick off products fetch as early as possible.
   let fetchPromise = Promise.resolve();
   const needsBooksForCategoryList =
@@ -4804,6 +4765,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ) {
     fetchPromise = fetchProducts().catch(e => console.error("fetchProducts error", e));
     fetchPromise.then(() => {
+      populateNavbarCategoriesMenu();
       if (document.getElementById('spiralCopiesGrid') && typeof renderSpiralCopies === 'function') {
         renderSpiralCopies();
       }
@@ -4850,7 +4812,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Automatic Background Fetch for Products Page replaces infinite scroll ---
   // Started via startBackgroundAutoFetch() after fetchProducts().
 
-  // --- Log Visit (simple counter, no Supabase rows) ---
+  // --- Log Visit: local backend counter only (/api/visit). Never Supabase site_visits. ---
   const todayDate = new Date().toISOString().split('T')[0];
   if (localStorage.getItem('shubham_last_visit') !== todayDate) {
     fetch('/api/visit', { method: 'POST' })
@@ -5959,28 +5921,24 @@ async function handleSendChatMessage(mode) {
 }
 
 async function uploadPdfToSupabase(file) {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-
-  const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-  const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, { cacheControl: '3600', upsert: false });
-
-  if (!error) {
-    fetch(window.API_BASE_URL + "/compress-pdf", {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bucket: "chat-files", file_name: fileName })
-    }).catch(e => console.error(e));
-  }
-
-  if (error) {
-    console.error("Storage upload error:", error);
-    showToast("Storage Error: " + error.message);
+  const params = new URLSearchParams({
+    filename: file.name || 'file'
+  });
+  const response = await fetch(`${API_BASE}/upload/chat-file?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  if (!response.ok) {
+    const detail = (data && (data.detail || data.message)) || text || `File upload failed (${response.status})`;
+    console.error('Chat file upload error:', detail);
+    showToast('Storage Error: ' + detail);
     return null;
   }
-
-  const { data: pubData } = supabase.storage.from('chat-files').getPublicUrl(fileName);
-  return pubData.publicUrl;
+  return data?.public_url || null;
 }
 
 // Delete Chat (Admin)
