@@ -4472,22 +4472,121 @@ window.renderPaidPDFLog = function (pdfOrders) {
   }).join('');
 };
 
-async function renderAdminDashboard() {
+function computeAdminDashboardStats(standardOrders, photocopyOrders) {
+  let totalRevenue = 0;
+  let pendingRevenue = 0;
+  let deliveredBooks = 0;
+  let paidPdfsSold = 0;
+  const pdfOrders = [];
+
+  (standardOrders || []).forEach((o) => {
+    const items = normalizeOrderItems(o.items);
+    let hasPdf = false;
+    let hasBook = false;
+    items.forEach((item) => {
+      if (item.type === 'note') hasPdf = true;
+      else hasBook = true;
+    });
+    const total = Number(o.total) || 0;
+    const status = String(o.status || 'Pending').trim() === 'Cancelled' ? 'Pending' : String(o.status || 'Pending').trim();
+
+    if (hasPdf) {
+      paidPdfsSold += 1;
+      totalRevenue += total;
+      pdfOrders.push(o);
+    } else if (hasBook) {
+      if (status === 'Delivered') {
+        totalRevenue += total;
+        deliveredBooks += 1;
+      } else if (status !== 'Returned') {
+        pendingRevenue += total;
+      }
+    } else {
+      if (status === 'Delivered') {
+        totalRevenue += total;
+        deliveredBooks += 1;
+      } else if (status !== 'Returned') {
+        pendingRevenue += total;
+      }
+    }
+  });
+
+  (photocopyOrders || []).forEach((po) => {
+    const total = Number(po.total_cost || po.total) || 0;
+    const status = String(po.status || '').trim();
+    if (status === 'Completed' || status === 'Delivered') {
+      totalRevenue += total;
+    } else if (status !== 'Returned') {
+      pendingRevenue += total;
+    }
+  });
+
+  return {
+    total_revenue: totalRevenue,
+    pending_revenue: pendingRevenue,
+    delivered_books: deliveredBooks,
+    paid_pdfs_sold: paidPdfsSold,
+    pdf_orders: pdfOrders
+  };
+}
+
+function applyAdminDashboardStats(stats) {
+  const revEl = document.getElementById('statRevenue');
+  const penEl = document.getElementById('statPendingRevenue');
+  const pdfEl = document.getElementById('statPdfSold');
+  const bkEl = document.getElementById('statDeliveredBooks');
+
+  if (revEl) revEl.innerText = '₹' + Math.floor(Number(stats.total_revenue) || 0).toLocaleString('en-IN');
+  if (penEl) penEl.innerText = '₹' + Math.floor(Number(stats.pending_revenue) || 0).toLocaleString('en-IN');
+  if (pdfEl) pdfEl.innerText = String(Number(stats.paid_pdfs_sold) || 0);
+  if (bkEl) bkEl.innerText = String(Number(stats.delivered_books) || 0);
+
+  renderPaidPDFLog(Array.isArray(stats.pdf_orders) ? stats.pdf_orders : []);
+}
+
+async function loadAdminDashboardStats() {
   try {
     const stats = await apiFetch('/admin/dashboard-stats', { method: 'GET' });
-    const revEl = document.getElementById('statRevenue');
-    const penEl = document.getElementById('statPendingRevenue');
-    const pdfEl = document.getElementById('statPdfSold');
-    const bkEl = document.getElementById('statDeliveredBooks');
+    return stats;
+  } catch (e) {
+    console.warn('Dashboard stats API failed, falling back to orders API:', e);
+  }
 
-    if (revEl) revEl.innerText = '₹' + Math.floor(Number(stats.total_revenue) || 0).toLocaleString('en-IN');
-    if (penEl) penEl.innerText = '₹' + Math.floor(Number(stats.pending_revenue) || 0).toLocaleString('en-IN');
-    if (pdfEl) pdfEl.innerText = String(Number(stats.paid_pdfs_sold) || 0);
-    if (bkEl) bkEl.innerText = String(Number(stats.delivered_books) || 0);
+  try {
+    const [booksRes, photoRes] = await Promise.all([
+      apiFetch('/admin/orders?order_type=books', { method: 'GET' }),
+      apiFetch('/admin/orders?order_type=photocopy', { method: 'GET' })
+    ]);
+    return computeAdminDashboardStats(
+      (booksRes && booksRes.orders) || [],
+      (photoRes && photoRes.orders) || []
+    );
+  } catch (e) {
+    console.warn('Orders API fallback failed, trying Supabase:', e);
+  }
 
-    renderPaidPDFLog(Array.isArray(stats.pdf_orders) ? stats.pdf_orders : []);
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Unable to load dashboard stats');
+  const { data: standardOrders } = await supabase.from('orders').select('*');
+  const { data: photocopyOrders } = await supabase.from('photocopy_orders').select('*');
+  return computeAdminDashboardStats(standardOrders || [], photocopyOrders || []);
+}
+
+async function renderAdminDashboard() {
+  if (!document.getElementById('statRevenue')) return;
+
+  try {
+    const stats = await loadAdminDashboardStats();
+    applyAdminDashboardStats(stats);
   } catch (e) {
     console.warn('Error fetching dashboard stats:', e);
+    applyAdminDashboardStats({
+      total_revenue: 0,
+      pending_revenue: 0,
+      delivered_books: 0,
+      paid_pdfs_sold: 0,
+      pdf_orders: []
+    });
   }
 
   await renderTopSellingBooks();
@@ -4989,8 +5088,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (path.includes('/admin') || path.endsWith('/admin')) {
     checkAdminAccess();
-    await renderAdminDashboard();
-    await renderAdminUsers();
+    if (document.getElementById('statRevenue')) {
+      await renderAdminDashboard();
+    }
+    if (document.getElementById('adminUsersList')) {
+      await renderAdminUsers();
+    }
   }
 
   // Add Books page only (not admin-add-stationery / admin-add-combo — those also match path "admin-add")
