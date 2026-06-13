@@ -56,7 +56,6 @@ DB_EXTRA_PRODUCTS_CACHE: Dict[str, Any] = {}
 DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS = 300
 DELETED_STATIC_PRODUCTS_CACHE: Dict[str, Any] = {}
 DELETED_STATIC_PRODUCTS_CACHE_TTL_SECONDS = 60
-DELETED_CATALOG_PATH = os.path.join(DATA_DIR, "deleted_static_products.json")
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
 GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0, "delivery_fee": 70.0}
 
@@ -118,6 +117,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 templates = Jinja2Templates(directory=FRONTEND_DIR)
+
+DELETED_CATALOG_PATH = os.path.join(DATA_DIR, "deleted_static_products.json")
 
 # Visitor counter: local JSON file only (+1 per day via /api/visit). Never Supabase.
 VISITOR_SEED_PATH = os.path.join(DATA_DIR, "visitor_stats.json")
