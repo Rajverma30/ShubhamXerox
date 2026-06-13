@@ -54,8 +54,9 @@ CATALOG_PRODUCTS_CACHE: Dict[str, Any] = {}
 CATALOG_PRODUCTS_CACHE_TTL_SECONDS = 300
 DB_EXTRA_PRODUCTS_CACHE: Dict[str, Any] = {}
 DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS = 300
-SITEMAP_CACHE: Dict[str, Any] = {}
-SITEMAP_CACHE_TTL_SECONDS = 300
+DELETED_STATIC_PRODUCTS_CACHE: Dict[str, Any] = {}
+DELETED_STATIC_PRODUCTS_CACHE_TTL_SECONDS = 60
+DELETED_CATALOG_PATH = os.path.join(DATA_DIR, "deleted_static_products.json")
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
 GLOBAL_RATES: Dict[str, float] = {"bw": 1.0, "color": 5.0, "delivery_fee": 70.0}
 
@@ -1090,12 +1091,7 @@ async def admin_delete_user(phone: str, _admin: Dict[str, Any] = Depends(verify_
     sb.table("users").delete().eq("phone", phone).execute()
     return {"status": "ok"}
 
-def _load_static_catalog_rows() -> List[Dict[str, Any]]:
-    now = time.time()
-    cached = CATALOG_PRODUCTS_CACHE.get("rows")
-    if cached and now < float(CATALOG_PRODUCTS_CACHE.get("expires_at", 0.0)):
-        return cached
-
+def _read_static_catalog_rows_raw() -> List[Dict[str, Any]]:
     path = os.path.join(FRONTEND_DIR, "assets", "products.json")
     rows: List[Dict[str, Any]] = []
     if os.path.isfile(path):
@@ -1106,6 +1102,93 @@ def _load_static_catalog_rows() -> List[Dict[str, Any]]:
             rows = [row for row in rows if isinstance(row, dict)]
         except Exception:
             logger.exception("Failed to read static products catalog")
+    return rows
+
+
+def _load_deleted_static_product_ids() -> set:
+    now = time.time()
+    cached = DELETED_STATIC_PRODUCTS_CACHE.get("ids")
+    if cached is not None and now < float(DELETED_STATIC_PRODUCTS_CACHE.get("expires_at", 0.0)):
+        return set(cached)
+
+    deleted: set = set()
+    if supabase:
+        try:
+            res = supabase.table("settings").select("value").eq("key", "deleted_static_product_ids").execute()
+            if res.data:
+                raw = res.data[0].get("value", [])
+                if isinstance(raw, list):
+                    deleted = {int(item) for item in raw}
+                elif isinstance(raw, dict):
+                    ids = raw.get("ids", [])
+                    if isinstance(ids, list):
+                        deleted = {int(item) for item in ids}
+        except Exception:
+            logger.exception("Failed to load deleted static product ids from settings")
+
+    if not deleted and os.path.isfile(DELETED_CATALOG_PATH):
+        try:
+            with open(DELETED_CATALOG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            ids = data if isinstance(data, list) else data.get("ids", []) if isinstance(data, dict) else []
+            deleted = {int(item) for item in ids}
+        except Exception:
+            logger.exception("Failed to read deleted static product ids file")
+
+    DELETED_STATIC_PRODUCTS_CACHE["ids"] = sorted(deleted)
+    DELETED_STATIC_PRODUCTS_CACHE["expires_at"] = now + DELETED_STATIC_PRODUCTS_CACHE_TTL_SECONDS
+    return deleted
+
+
+def _save_deleted_static_product_ids(deleted: set) -> None:
+    ids = sorted(int(item) for item in deleted)
+    DELETED_STATIC_PRODUCTS_CACHE["ids"] = ids
+    DELETED_STATIC_PRODUCTS_CACHE["expires_at"] = time.time() + DELETED_STATIC_PRODUCTS_CACHE_TTL_SECONDS
+    CATALOG_PRODUCTS_CACHE.clear()
+    SITEMAP_CACHE.clear()
+
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(DELETED_CATALOG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"ids": ids}, f)
+    except Exception:
+        logger.exception("Failed to write deleted static product ids file")
+
+    if supabase:
+        try:
+            supabase.table("settings").upsert({
+                "key": "deleted_static_product_ids",
+                "value": {"ids": ids},
+            }).execute()
+        except Exception:
+            logger.exception("Failed to save deleted static product ids to settings")
+
+
+def _get_static_catalog_id_set() -> set:
+    ids: set = set()
+    for row in _read_static_catalog_rows_raw():
+        try:
+            ids.add(int(row.get("id")))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def _is_static_catalog_product_id(product_id: int) -> bool:
+    return product_id in _get_static_catalog_id_set()
+
+
+def _load_static_catalog_rows() -> List[Dict[str, Any]]:
+    now = time.time()
+    cached = CATALOG_PRODUCTS_CACHE.get("rows")
+    if cached and now < float(CATALOG_PRODUCTS_CACHE.get("expires_at", 0.0)):
+        return cached
+
+    deleted = _load_deleted_static_product_ids()
+    rows = [
+        row for row in _read_static_catalog_rows_raw()
+        if int(row.get("id", 0)) not in deleted
+    ]
 
     CATALOG_PRODUCTS_CACHE["rows"] = rows
     CATALOG_PRODUCTS_CACHE["expires_at"] = now + CATALOG_PRODUCTS_CACHE_TTL_SECONDS
@@ -1509,20 +1592,44 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
 @app.delete("/admin/products/{product_id}")
 async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
-    sb.table("products").delete().eq("id", product_id).execute()
+    is_catalog = _is_static_catalog_product_id(product_id)
+    if is_catalog:
+        deleted = _load_deleted_static_product_ids()
+        deleted.add(int(product_id))
+        _save_deleted_static_product_ids(deleted)
+    else:
+        sb.table("products").delete().eq("id", product_id).execute()
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
-    return {"status": "ok"}
+    return {"status": "ok", "deleted_from": "catalog" if is_catalog else "database"}
+
 
 @app.post("/admin/products/bulk-delete")
 async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
     if not req.product_ids:
         return {"status": "ok"}
-    sb.table("products").delete().in_("id", req.product_ids).execute()
+
+    static_ids = _get_static_catalog_id_set()
+    catalog_ids = [int(pid) for pid in req.product_ids if int(pid) in static_ids]
+    db_ids = [int(pid) for pid in req.product_ids if int(pid) not in static_ids]
+
+    if catalog_ids:
+        deleted = _load_deleted_static_product_ids()
+        deleted.update(catalog_ids)
+        _save_deleted_static_product_ids(deleted)
+    if db_ids:
+        sb.table("products").delete().in_("id", db_ids).execute()
+
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
-    return {"status": "ok"}
+    return {"status": "ok", "catalog_deleted": catalog_ids, "database_deleted": db_ids}
+
+
+@app.get("/catalog/deleted-ids")
+async def get_deleted_catalog_ids():
+    deleted = sorted(_load_deleted_static_product_ids())
+    return {"ids": deleted}
 
 @app.post("/admin/products/bulk-update-category")
 async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
@@ -1575,8 +1682,6 @@ def _compute_dashboard_stats(standard_orders: List[Dict[str, Any]], photocopy_or
         has_book = any(item.get("type") != "note" for item in items) if items else False
         total = float(order.get("total") or 0)
         status = str(order.get("status") or "").strip()
-        if status == "Cancelled":
-            status = "Pending"
 
         if has_pdf:
             paid_pdfs_sold += 1
@@ -1586,13 +1691,13 @@ def _compute_dashboard_stats(standard_orders: List[Dict[str, Any]], photocopy_or
             if status == "Delivered":
                 total_revenue += total
                 delivered_books += 1
-            elif status != "Returned":
+            elif status not in ("Returned", "Cancelled", "Cancel Refund"):
                 pending_revenue += total
         else:
             if status == "Delivered":
                 total_revenue += total
                 delivered_books += 1
-            elif status != "Returned":
+            elif status not in ("Returned", "Cancelled", "Cancel Refund"):
                 pending_revenue += total
 
     for order in photocopy_orders or []:
@@ -1619,14 +1724,77 @@ async def admin_dashboard_stats(_admin: Dict[str, Any] = Depends(verify_admin)):
     photo_res = sb.table("photocopy_orders").select("*").execute()
     return _compute_dashboard_stats(books_res.data or [], photo_res.data or [])
 
+def _extract_razorpay_payment_id(order: Dict[str, Any]) -> Optional[str]:
+    for field in ("method", "payment_method", "transaction_id"):
+        source = str(order.get(field) or "")
+        match = re.search(r"pay_[a-zA-Z0-9]+", source)
+        if match:
+            return match.group(0)
+    return None
+
+
 @app.patch("/admin/orders/{order_id}")
 async def admin_update_order_status(order_id: str, req: AdminOrderStatusUpdate, order_type: str = "books", _admin: Dict[str, Any] = Depends(verify_admin)):
-    if req.status.strip().lower() == "cancelled":
-        raise HTTPException(status_code=400, detail="Order cancellation is disabled")
+    blocked_statuses = {"cancelled", "cancel refund"}
+    if req.status.strip().lower() in blocked_statuses:
+        raise HTTPException(status_code=400, detail="Use Cancel Refund action to cancel and refund orders")
     sb = _require_supabase()
     table = _orders_table_for(order_type)
     sb.table(table).update({"status": req.status}).eq("id", order_id).execute()
     return {"status": "ok"}
+
+
+@app.post("/admin/orders/{order_id}/cancel-refund")
+async def admin_cancel_refund_order(order_id: str, order_type: str = "books", _admin: Dict[str, Any] = Depends(verify_admin)):
+    if order_type != "books":
+        raise HTTPException(status_code=400, detail="Cancel refund is only supported for book orders")
+    if not rzp_client:
+        raise HTTPException(status_code=500, detail="Razorpay client not configured")
+
+    sb = _require_supabase()
+    table = _orders_table_for(order_type)
+    res = sb.table(table).select("*").eq("id", order_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order = res.data[0]
+    status = str(order.get("status") or "Pending").strip()
+    status_key = status.lower()
+
+    if status_key in ("delivered", "cancel refund", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Order cannot be refunded in status: {status}")
+    if status_key not in ("pending", "processing"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cancel refund is only allowed before delivery (Pending/Processing). Current: {status}",
+        )
+
+    payment_id = _extract_razorpay_payment_id(order)
+    if not payment_id:
+        raise HTTPException(status_code=400, detail="No Razorpay payment ID found for this order")
+
+    total = float(order.get("total") or 0)
+    amount_paise = int(round(total * 100))
+    if amount_paise <= 0:
+        raise HTTPException(status_code=400, detail="Invalid order amount for refund")
+
+    try:
+        refund = rzp_client.payment.refund(
+            payment_id,
+            {"amount": amount_paise, "notes": {"order_id": order_id}},
+        )
+    except Exception as e:
+        logger.exception("Razorpay refund failed for order %s", order_id)
+        raise HTTPException(status_code=500, detail=f"Razorpay refund failed: {str(e)}")
+
+    refund_id = refund.get("id") if isinstance(refund, dict) else None
+    method = str(order.get("method") or "")
+    if refund_id:
+        method = f"{method} | Refunded ({refund_id})" if method else f"Refunded ({refund_id})"
+
+    sb.table(table).update({"status": "Cancel Refund", "method": method}).eq("id", order_id).execute()
+    return {"status": "ok", "refund_id": refund_id, "payment_id": payment_id}
+
 
 @app.delete("/admin/orders/{order_id}")
 async def admin_delete_order(order_id: str, order_type: str = "books", _admin: Dict[str, Any] = Depends(verify_admin)):
@@ -1844,25 +2012,18 @@ def _fetch_sitemap_product_ids() -> List[int]:
     return product_ids
 
 def _fetch_static_product_ids() -> List[int]:
-    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
-    if not os.path.isfile(path):
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        logger.exception("Failed to read static products for sitemap")
-        return []
-
-    rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
+    deleted = _load_deleted_static_product_ids()
     product_ids: List[int] = []
-    for row in rows:
+    for row in _read_static_catalog_rows_raw():
         if not isinstance(row, dict):
             continue
         try:
-            product_ids.append(int(row.get("id")))
+            pid = int(row.get("id"))
         except (TypeError, ValueError):
             continue
+        if pid in deleted:
+            continue
+        product_ids.append(pid)
     return product_ids
 
 def _request_base_url(request: Request) -> str:
@@ -2009,17 +2170,13 @@ def _ensure_product_og_preview_url(product_id: str, product: Dict[str, Any], bas
     return f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
 
 def _load_static_product(product_id: str) -> Optional[Dict[str, Any]]:
-    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
-    if not os.path.isfile(path):
-        return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        logger.exception("Failed to read static products for product metadata")
+        pid = int(product_id)
+    except (TypeError, ValueError):
+        pid = None
+    if pid is not None and pid in _load_deleted_static_product_ids():
         return None
-    rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
-    for row in rows:
+    for row in _read_static_catalog_rows_raw():
         if isinstance(row, dict) and str(row.get("id")) == str(product_id):
             return row
     return None

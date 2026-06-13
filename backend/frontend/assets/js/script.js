@@ -47,6 +47,34 @@ const API_BASE = window.API_BASE_URL || (
     : "https://shubhamxerox-production.up.railway.app"
 );
 window.API_BASE_URL = API_BASE;
+let deletedCatalogIds = null;
+
+async function fetchDeletedCatalogIds(force = false) {
+  if (!force && deletedCatalogIds) return deletedCatalogIds;
+  try {
+    const res = await fetch(`${API_BASE}/catalog/deleted-ids`);
+    if (res.ok) {
+      const data = await res.json();
+      deletedCatalogIds = new Set((data.ids || []).map((id) => String(id)));
+      return deletedCatalogIds;
+    }
+  } catch (e) {
+    console.warn('Failed to load deleted catalog ids', e);
+  }
+  deletedCatalogIds = deletedCatalogIds || new Set();
+  return deletedCatalogIds;
+}
+
+function markCatalogProductDeleted(id) {
+  if (!deletedCatalogIds) deletedCatalogIds = new Set();
+  deletedCatalogIds.add(String(id));
+}
+
+function filterDeletedCatalogProducts(list) {
+  if (!Array.isArray(list) || !list.length) return list || [];
+  if (!deletedCatalogIds || !deletedCatalogIds.size) return list;
+  return list.filter((p) => !deletedCatalogIds.has(String(p.id)));
+}
 const AUTH_TOKEN_KEY = "shubham_auth_token";
 let products = [];
 try {
@@ -1100,6 +1128,7 @@ async function fetchProducts() {
 
   // Try to load from static JSON first for 0-delay rendering of static catalog
   try {
+    await fetchDeletedCatalogIds();
     let res;
     try {
       res = await fetch(`${API_BASE}/assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
@@ -1108,7 +1137,7 @@ async function fetchProducts() {
       res = await fetch(`assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
     }
     if (res && res.ok) {
-      const staticProducts = await res.json();
+      const staticProducts = filterDeletedCatalogProducts(await res.json());
       if (Array.isArray(staticProducts) && staticProducts.length > 0) {
         const byId = new Map();
         staticProducts.forEach(p => byId.set(String(p.id), p));
@@ -1139,10 +1168,11 @@ async function fetchProducts() {
 
     if (!hasLocalCache) {
       // Fallback to localStorage
+      await fetchDeletedCatalogIds();
       const cachedProductsStr = localStorage.getItem('shubham_products_cache');
       if (cachedProductsStr) {
         try {
-          const cachedProducts = JSON.parse(cachedProductsStr);
+          const cachedProducts = filterDeletedCatalogProducts(JSON.parse(cachedProductsStr));
           if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
             products = sortProductsByLatest(cachedProducts);
             rebuildProductSlugIndex(products);
@@ -1925,6 +1955,7 @@ function getBookOrderPlacedAtMs(o) {
 function computeBookTrackingCompletedSteps(o) {
   const st = String(o.status || 'Pending').trim();
   if (st === 'Delivered') return 4;
+  if (st === 'Cancel Refund' || st === 'Cancelled') return -1;
   const placed = getBookOrderPlacedAtMs(o);
   const elapsed = Math.max(0, Date.now() - placed);
   const phaseMs = ORDER_TRACKING_DURATION_MS / 3;
@@ -1938,6 +1969,7 @@ function computeBookTrackingCompletedSteps(o) {
 function getBookCustomerStatusLabel(o) {
   const st = String(o.status || 'Pending').trim();
   if (st === 'Delivered') return 'Delivered';
+  if (st === 'Cancel Refund' || st === 'Cancelled') return 'Cancelled & Refunded';
   if (st.indexOf('Return') !== -1) return st;
   const completed = computeBookTrackingCompletedSteps(o);
   if (completed >= 2) return 'Out for delivery';
@@ -1983,6 +2015,13 @@ function getTrackingLabelsArray(o) {
 }
 
 function buildOrderTrackingTimelineHTML(completedSteps, opts, orderObj) {
+  if (completedSteps < 0) {
+    return `
+    <div class="order-tracking order-tracking--cancelled">
+      <div class="order-tracking-title">Order cancelled</div>
+      <p class="order-tracking-cancel-msg">This order was cancelled and your payment refund has been initiated.</p>
+    </div>`;
+  }
   const hint = (opts && opts.hint) || 'Status moves forward automatically over about 48 hours. We also update when your order ships.';
   const labels = getTrackingLabelsArray(orderObj);
   const items = labels.map((label, i) => {
@@ -3207,6 +3246,7 @@ async function removeProduct(id, name) {
   showGlobalLoader(true, name ? `Say bye bye to ${name} 👋` : 'Deleting...');
   try {
     await apiFetch(`/admin/products/${id}`, { method: "DELETE" });
+    markCatalogProductDeleted(id);
     const idx = products.findIndex(p => String(p.id) === String(id));
     if (idx > -1) products.splice(idx, 1);
     saveProductsToCache(products);
@@ -3250,6 +3290,7 @@ async function bulkDeleteProducts() {
       method: 'POST',
       body: { product_ids: ids }
     });
+    ids.forEach((id) => markCatalogProductDeleted(id));
     products = products.filter(p => !ids.includes(p.id));
     saveProductsToCache(products);
 
@@ -3279,6 +3320,7 @@ let adminProductsDbLoaded = false;
 
 async function refreshAdminProductsFromServer() {
   if (!document.getElementById('adminProductsList')) return;
+  await fetchDeletedCatalogIds();
   let offset = 0;
   const limit = 100;
   const rows = [];
@@ -3293,11 +3335,13 @@ async function refreshAdminProductsFromServer() {
 
   if (rows.length) {
     const normalized = rows.map((p, index) => normalizeProductRecord(p, index));
-    const staticRows = (products || []).filter(p => !normalized.some(db => String(db.id) === String(p.id)));
+    const staticRows = filterDeletedCatalogProducts(
+      (products || []).filter(p => !normalized.some(db => String(db.id) === String(p.id)))
+    );
     products = [...normalized, ...staticRows].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
     saveProductsToCache(products);
   } else {
-    products = [];
+    products = filterDeletedCatalogProducts(products || []);
   }
   adminProductsDbLoaded = true;
 }
@@ -3732,10 +3776,11 @@ async function renderAdminOrders(useCache = false) {
   const titleEl = document.getElementById('adminOrdersTitle');
   const statusFromPath = (() => {
     const path = window.location.pathname;
+    if (path.includes('admin-cancel-refund-orders')) return 'cancel refund';
     if (path.includes('admin-processing-orders')) return 'processing';
     if (path.includes('admin-delivered-orders')) return 'delivered';
     const queryStatus = new URLSearchParams(window.location.search).get('status');
-    return ['pending', 'processing', 'delivered'].includes(queryStatus) ? queryStatus : 'pending';
+    return ['pending', 'processing', 'delivered', 'cancel refund'].includes(queryStatus) ? queryStatus : 'pending';
   })();
   const viewMeta = {
     pending: {
@@ -3761,6 +3806,14 @@ async function renderAdminOrders(useCache = false) {
       actionLabel: '',
       actionColor: '#10b981',
       href: '/admin-delivered-orders'
+    },
+    'cancel refund': {
+      title: 'Cancel Refund Orders',
+      empty: 'No cancelled & refunded orders.',
+      nextStatus: null,
+      actionLabel: '',
+      actionColor: '#ef4444',
+      href: '/admin-cancel-refund-orders'
     }
   };
   const currentView = viewMeta[statusFromPath] || viewMeta.pending;
@@ -3815,16 +3868,29 @@ async function renderAdminOrders(useCache = false) {
 
   const getAdminBookStatusKey = (o) => {
     const raw = String(o.status || 'Pending').trim();
-    return (raw === 'Cancelled' ? 'Pending' : raw).toLowerCase();
+    if (raw === 'Cancelled' || raw === 'Cancel Refund') return 'cancel refund';
+    return raw.toLowerCase();
+  };
+  const getAdminBookTabColor = (key) => {
+    if (key === 'pending') return '#f59e0b';
+    if (key === 'processing') return '#3b82f6';
+    if (key === 'delivered') return '#10b981';
+    if (key === 'cancel refund') return '#ef4444';
+    return '#6b7280';
+  };
+  const canAdminCancelRefund = (o) => {
+    const raw = String(o.status || 'Pending').trim();
+    return raw === 'Pending' || raw === 'Processing';
   };
   const counts = {
     pending: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'pending').length,
     processing: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'processing').length,
-    delivered: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'delivered').length
+    delivered: physicalOrders.filter(o => getAdminBookStatusKey(o) === 'delivered').length,
+    'cancel refund': physicalOrders.filter(o => getAdminBookStatusKey(o) === 'cancel refund').length
   };
   const ordersForView = filteredOrders.filter(o => getAdminBookStatusKey(o) === statusFromPath);
   if (countLabel) {
-    countLabel.textContent = `${currentView.title}: ${ordersForView.length} | Pending: ${counts.pending} | Processing: ${counts.processing} | Delivered: ${counts.delivered}`;
+    countLabel.textContent = `${currentView.title}: ${ordersForView.length} | Pending: ${counts.pending} | Processing: ${counts.processing} | Delivered: ${counts.delivered} | Cancel Refund: ${counts['cancel refund']}`;
   }
 
   const renderList = (list) => {
@@ -3834,9 +3900,9 @@ async function renderAdminOrders(useCache = false) {
     }
     return list.map(o => {
       const rawStatusRaw = String(o.status || 'Pending').trim();
-      const statusRaw = rawStatusRaw === 'Cancelled' ? 'Pending' : rawStatusRaw;
+      const statusRaw = (rawStatusRaw === 'Cancelled') ? 'Cancel Refund' : rawStatusRaw;
       const statusKey = statusRaw.toLowerCase();
-      const statusColor = statusKey === 'pending' ? '#f59e0b' : (statusKey === 'processing' ? '#3b82f6' : '#10b981');
+      const statusColor = getAdminBookTabColor(statusKey);
       const orderId = String(o.id).replace(/'/g, "\\'");
       return `
       <div style="background: var(--card-bg); border: 1px solid var(--border-color); margin-bottom: 20px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px;">
@@ -3848,6 +3914,7 @@ async function renderAdminOrders(useCache = false) {
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span style="background:${statusColor}15; color:${statusColor}; border:1px solid ${statusColor}40; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">${adminEscapeHtml(statusRaw)}</span>
             ${currentView.nextStatus ? `<button type="button" onclick="updateOrderStatus('${orderId}', '${currentView.nextStatus}')" style="background:${currentView.actionColor}15; color:${currentView.actionColor}; border:1px solid ${currentView.actionColor}40; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='${currentView.actionColor}25'" onmouseout="this.style.background='${currentView.actionColor}15'">${currentView.actionLabel}</button>` : ''}
+            ${canAdminCancelRefund(o) ? `<button type="button" onclick="cancelRefundOrder('${orderId}')" style="background:#ef444415; color:#ef4444; border:1px solid #ef444440; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ef444425'" onmouseout="this.style.background='#ef444415'">Cancel Refund</button>` : ''}
             <button type="button" onclick="deleteOrder('${orderId}')" style="background:#ff3b3015; color:#ff3b30; border:1px solid #ff3b3040; padding:5px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ff3b3025'" onmouseout="this.style.background='#ff3b3015'">Delete</button>
           </div>
         </div>
@@ -3878,11 +3945,11 @@ async function renderAdminOrders(useCache = false) {
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;">
       ${Object.entries(viewMeta).map(([key, meta]) => {
         const active = key === statusFromPath;
-        const color = key === 'pending' ? '#f59e0b' : (key === 'processing' ? '#3b82f6' : '#10b981');
+        const color = getAdminBookTabColor(key);
         return `<a href="${meta.href}" style="text-decoration:none; background:${active ? color : 'var(--card-bg)'}; color:${active ? '#fff' : 'var(--text-main)'}; border:1px solid ${active ? color : 'var(--border-color)'}; padding:9px 14px; border-radius:var(--radius-full); font-size:0.9rem; font-weight:800;">${meta.title} (${counts[key]})</a>`;
       }).join('')}
     </div>
-    <div style="background:${statusFromPath === 'pending' ? '#f59e0b' : currentView.actionColor}; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
+    <div style="background:${getAdminBookTabColor(statusFromPath)}; color:#fff; padding:12px 20px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-size:1.15rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:8px;">
       ${currentView.title}
     </div>
     <div style="background:rgba(0,0,0, 0.02); border:1px solid var(--border-color); border-top:none; border-radius:0 0 var(--radius-md) var(--radius-md); padding:20px; box-shadow:var(--shadow-sm);">
@@ -3979,6 +4046,21 @@ window.deleteOrder = async function (orderId) {
   showToast('Order deleted.');
   await renderAdminOrders();
   showGlobalLoader(false);
+};
+
+window.cancelRefundOrder = async function (orderId) {
+  if (!confirm('Cancel this order and refund payment via Razorpay?')) return;
+  showGlobalLoader(true, 'Processing Razorpay refund...');
+  try {
+    await apiFetch(`/admin/orders/${encodeURIComponent(orderId)}/cancel-refund?order_type=books`, { method: "POST" });
+    showToast('Order cancelled and refund initiated.');
+    window._adminOrdersRaw = null;
+    await renderAdminOrders();
+  } catch (err) {
+    showToast(err.message || 'Cancel refund failed');
+  } finally {
+    showGlobalLoader(false);
+  }
 };
 
 window.updateOrderStatus = async function (orderId, newStatus) {
@@ -4154,7 +4236,7 @@ async function renderMyOrders() {
   container.innerHTML = alertHtml + merged.map(({ kind, o }) => {
     if (kind === 'book') {
       const rawStatusStr = String(o.status || 'Pending').trim();
-      const statusStr = rawStatusStr === 'Cancelled' ? 'Pending' : rawStatusStr;
+      const statusStr = rawStatusStr === 'Cancelled' ? 'Cancel Refund' : rawStatusStr;
       const customerStatusLabel = getBookCustomerStatusLabel(o);
       const hasTracking = o.tracking_link || o.tracking_url;
       const trackingBtn = hasTracking
@@ -4187,6 +4269,7 @@ async function renderMyOrders() {
             ${statusStr === 'Return Requested' ? `<span style="color: #ff9800; font-weight: bold; font-size: 0.9rem;">Return Requested</span>`
             : statusStr === 'Return Accepted' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Return Accepted</span>`
               : statusStr === 'Return Rejected' ? `<span style="color: #ff3b30; font-weight: bold; font-size: 0.9rem;">Return Rejected</span>`
+                : statusStr === 'Cancel Refund' ? `<span style="color: #ef4444; font-weight: bold; font-size: 0.9rem;">Cancelled & Refunded</span>`
                 : statusStr === 'Delivered' ? `<span style="color: #10b981; font-weight: bold; font-size: 0.9rem;">Delivered</span>`
                   : `<span style="color: var(--primary); font-weight: 600; font-size: 0.9rem;">${adminEscapeHtml(customerStatusLabel)}</span>`}
           </div>
@@ -4215,7 +4298,7 @@ async function renderMyOrders() {
 
     const steps = computePhotocopyTrackingCompletedSteps(o);
     const rawSt = o.status || 'Pending';
-    const st = rawSt === 'Cancelled' ? 'Pending' : rawSt;
+    const st = rawSt === 'Cancelled' ? 'Cancel Refund' : rawSt;
     const timeline = buildOrderTrackingTimelineHTML(steps, {
       hint: 'Photocopy progress updates over about 48 hours. Shop status (Processing / Ready) can move you forward faster.'
     }, o);
@@ -4340,7 +4423,7 @@ window.exportOrdersToCSV = async function (filterType = 'all') {
 
     if (stdOrders) {
       stdOrders.forEach(o => {
-        let isPending = o.status !== 'Delivered' && o.status !== 'Returned';
+        let isPending = o.status !== 'Delivered' && o.status !== 'Returned' && o.status !== 'Cancel Refund' && o.status !== 'Cancelled';
         if (filterType === 'pending' && !isPending) return;
         if (filterType === 'completed' && o.status !== 'Delivered') return;
 
@@ -4488,24 +4571,25 @@ function computeAdminDashboardStats(standardOrders, photocopyOrders) {
       else hasBook = true;
     });
     const total = Number(o.total) || 0;
-    const status = String(o.status || 'Pending').trim() === 'Cancelled' ? 'Pending' : String(o.status || 'Pending').trim();
+    const status = String(o.status || 'Pending').trim();
+    const normalizedStatus = status === 'Cancelled' ? 'Cancel Refund' : status;
 
     if (hasPdf) {
       paidPdfsSold += 1;
       totalRevenue += total;
       pdfOrders.push(o);
     } else if (hasBook) {
-      if (status === 'Delivered') {
+      if (normalizedStatus === 'Delivered') {
         totalRevenue += total;
         deliveredBooks += 1;
-      } else if (status !== 'Returned') {
+      } else if (normalizedStatus !== 'Returned' && normalizedStatus !== 'Cancel Refund') {
         pendingRevenue += total;
       }
     } else {
-      if (status === 'Delivered') {
+      if (normalizedStatus === 'Delivered') {
         totalRevenue += total;
         deliveredBooks += 1;
-      } else if (status !== 'Returned') {
+      } else if (normalizedStatus !== 'Returned' && normalizedStatus !== 'Cancel Refund') {
         pendingRevenue += total;
       }
     }
@@ -5206,7 +5290,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 900);
   }
 
-  if (path.includes('admin-orders') || path.includes('admin-processing-orders') || path.includes('admin-delivered-orders')) {
+  if (path.includes('admin-orders') || path.includes('admin-processing-orders') || path.includes('admin-delivered-orders') || path.includes('admin-cancel-refund-orders')) {
     checkAdminAccess();
     await renderAdminOrders();
   }
