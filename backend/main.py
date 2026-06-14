@@ -54,6 +54,8 @@ CATALOG_PRODUCTS_CACHE: Dict[str, Any] = {}
 CATALOG_PRODUCTS_CACHE_TTL_SECONDS = 3600
 DB_EXTRA_PRODUCTS_CACHE: Dict[str, Any] = {}
 DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS = 3600
+DB_PRODUCT_IMAGES_CACHE: Dict[str, Any] = {}
+DB_PRODUCT_IMAGES_CACHE_TTL_SECONDS = 3600
 DELETED_STATIC_PRODUCTS_CACHE: Dict[str, Any] = {}
 DELETED_STATIC_PRODUCTS_CACHE_TTL_SECONDS = 60
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
@@ -1237,9 +1239,74 @@ def _load_db_extra_products() -> List[Dict[str, Any]]:
     return rows
 
 
-def _merge_catalog_product_row(static_row: Dict[str, Any], db_row: Dict[str, Any]) -> Dict[str, Any]:
+def _load_db_product_images_map() -> Dict[str, str]:
+    """Load id->img from Supabase once per cache window (separate from lightweight metadata fetch)."""
+    now = time.time()
+    cached = DB_PRODUCT_IMAGES_CACHE.get("rows")
+    if cached is not None and now < float(DB_PRODUCT_IMAGES_CACHE.get("expires_at", 0.0)):
+        return cached
+
+    image_map: Dict[str, str] = {}
+    base_url = str(SUPABASE_URL or "").rstrip("/")
+    api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+    if base_url and api_key:
+        try:
+            limit = 1000
+            offset = 0
+            headers = {
+                "apikey": api_key,
+                "Authorization": f"Bearer {api_key}",
+            }
+            while True:
+                url = (
+                    f"{base_url}/rest/v1/products"
+                    "?select=id,img"
+                    f"&order=id.desc&offset={offset}&limit={limit}"
+                )
+                resp = requests.get(url, headers=headers, timeout=(5, 30))
+                resp.raise_for_status()
+                batch = resp.json() if resp.content else []
+                if not isinstance(batch, list) or not batch:
+                    break
+                for row in batch:
+                    if not isinstance(row, dict):
+                        continue
+                    pid = str(row.get("id"))
+                    img = row.get("img")
+                    if pid and img and _select_main_product_image(img):
+                        image_map[pid] = str(img)
+                if len(batch) < limit:
+                    break
+                offset += limit
+        except Exception:
+            logger.exception("Failed to load product images from Supabase")
+
+    DB_PRODUCT_IMAGES_CACHE["rows"] = image_map
+    DB_PRODUCT_IMAGES_CACHE["expires_at"] = now + DB_PRODUCT_IMAGES_CACHE_TTL_SECONDS
+    return image_map
+
+
+def _attach_db_image(row: Dict[str, Any], image_map: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    if not isinstance(row, dict):
+        return row
+    out = dict(row)
+    if _select_main_product_image(out.get("img")):
+        return out
+    image_map = image_map if image_map is not None else _load_db_product_images_map()
+    extra_img = image_map.get(str(out.get("id")))
+    if extra_img:
+        out["img"] = extra_img
+    return out
+
+
+def _merge_catalog_product_row(
+    static_row: Dict[str, Any],
+    db_row: Dict[str, Any],
+    image_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Static catalog is the base; DB overrides editable fields but keeps images when DB img is empty."""
     merged = dict(static_row)
+    db_row = _attach_db_image(db_row, image_map)
     for key in ("name", "price", "original_price", "category", "desc", "exam", "free_note_id"):
         if db_row.get(key) is not None and db_row.get(key) != "":
             merged[key] = db_row[key]
@@ -1250,13 +1317,19 @@ def _merge_catalog_product_row(static_row: Dict[str, Any], db_row: Dict[str, Any
 
 
 def _merge_catalog_products() -> List[Dict[str, Any]]:
+    image_map = _load_db_product_images_map()
     by_id: Dict[str, Dict[str, Any]] = {}
     for row in _load_static_catalog_rows():
         by_id[str(row.get("id"))] = row
     for row in _load_db_extra_products():
         pid = str(row.get("id"))
         static_row = by_id.get(pid)
-        by_id[pid] = _merge_catalog_product_row(static_row, row) if static_row else row
+        enriched_row = _attach_db_image(row, image_map)
+        by_id[pid] = (
+            _merge_catalog_product_row(static_row, enriched_row, image_map)
+            if static_row
+            else enriched_row
+        )
     merged = list(by_id.values())
     merged.sort(key=lambda item: int(item.get("id") or 0), reverse=True)
     return merged
@@ -1267,7 +1340,12 @@ def _strip_product_list_images(products: List[Dict[str, Any]]) -> List[Dict[str,
     for product in products:
         row = dict(product)
         if row.get("img") and isinstance(row["img"], str):
-            row["img"] = _select_main_product_image(row["img"])
+            main = _select_main_product_image(row["img"])
+            # Keep URLs/paths in list responses; omit huge base64 (use /catalog/images).
+            if main.startswith("data:") and len(main) > 10000:
+                row["img"] = ""
+            else:
+                row["img"] = main
         cleaned.append(row)
     return cleaned
 
@@ -1602,6 +1680,7 @@ async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = De
     res = sb.table("products").insert(payload).execute()
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 def _update_static_catalog_row(product_id: int, updates: Dict[str, Any]) -> bool:
@@ -1652,6 +1731,7 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
             logger.exception("Failed to upsert admin product %s", product_id)
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
     CATALOG_PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
@@ -1667,6 +1747,7 @@ async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends
         sb.table("products").delete().eq("id", product_id).execute()
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
     return {"status": "ok", "deleted_from": "catalog" if is_catalog else "database"}
 
 
@@ -1689,6 +1770,7 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
 
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
     return {"status": "ok", "catalog_deleted": catalog_ids, "database_deleted": db_ids}
 
 
@@ -1700,7 +1782,7 @@ async def get_deleted_catalog_ids():
 
 @app.get("/catalog/overrides")
 async def get_catalog_overrides(response: Response):
-    """Lightweight DB price/name overrides for static catalog books (no images)."""
+    """DB price/name overrides for static catalog books (images via /catalog/images)."""
     response.headers["Cache-Control"] = "public, max-age=120, s-maxage=600, stale-while-revalidate=1800"
     rows = _load_db_extra_products()
     overrides = [
@@ -1718,6 +1800,15 @@ async def get_catalog_overrides(response: Response):
     ]
     return {"overrides": overrides}
 
+
+@app.get("/catalog/images")
+async def get_catalog_images(response: Response):
+    """Product images from DB — cached server-side to avoid per-client Supabase egress."""
+    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=7200"
+    image_map = _load_db_product_images_map()
+    images = [{"id": int(pid) if str(pid).lstrip("-").isdigit() else pid, "img": img} for pid, img in image_map.items()]
+    return {"images": images}
+
 @app.post("/admin/products/bulk-update-category")
 async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
@@ -1726,6 +1817,7 @@ async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dic
     sb.table("products").update({"category": req.category}).in_("id", req.product_ids).execute()
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
     return {"status": "ok"}
 
 def _orders_table_for(order_type: str) -> str:

@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15-img';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1131,6 +1131,37 @@ async function syncCatalogOverridesFromServer() {
   }
 }
 
+async function syncCatalogImagesFromServer() {
+  try {
+    const res = await apiFetch('/catalog/images', { auth: false });
+    const rows = Array.isArray(res?.images) ? res.images : [];
+    if (!rows.length) return false;
+
+    const byId = new Map((products || []).map((p) => [String(p.id), p]));
+    let changed = false;
+    rows.forEach((row) => {
+      if (row?.id == null || !row?.img) return;
+      const id = String(row.id);
+      const existing = byId.get(id);
+      const next = existing ? mergeCatalogWithDbRow(existing, row) : { ...row };
+      if (!getMainProductImage(next?.img, '')) return;
+      byId.set(id, next);
+      changed = true;
+    });
+
+    if (changed) {
+      products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      rebuildProductSlugIndex(products);
+      saveProductsToCache(products);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn('Failed to sync catalog images', e);
+    return false;
+  }
+}
+
 async function syncProductsWithServer(limit = 500) {
   try {
     const res = await apiFetch(`/products?limit=${limit}&offset=0`, { auth: false });
@@ -1218,10 +1249,14 @@ function renderStoreProducts() {
 function saveProductsToCache(productList) {
   if (!Array.isArray(productList)) return;
   try {
-    const forCache = productList.map((p) => ({
-      ...p,
-      img: getMainProductImage(p.img, ''),
-    }));
+    const forCache = productList.map((p) => {
+      const main = getMainProductImage(p.img, '');
+      return {
+        ...p,
+        // Avoid caching huge base64 blobs in localStorage; re-sync via /catalog/images on load.
+        img: main.startsWith('data:') ? '' : main,
+      };
+    });
     localStorage.setItem('shubham_products_cache', JSON.stringify(forCache));
   } catch (e) {
     console.warn('LocalStorage quota exceeded or cache save failed:', e);
@@ -1360,6 +1395,7 @@ async function fetchProducts() {
     productsServerOffset = products.length;
     isProductsLoading = false;
     await syncCatalogOverridesFromServer();
+    await syncCatalogImagesFromServer();
     renderStoreProducts();
     return;
   }
@@ -1426,6 +1462,7 @@ async function fetchProducts() {
   } finally {
     isProductsLoading = false;
     await syncCatalogOverridesFromServer();
+    await syncCatalogImagesFromServer();
     renderStoreProducts();
   }
 }
@@ -2328,6 +2365,20 @@ function getMainProductImage(imgValue, fallback = DEFAULT_BOOK_SVG) {
   return normalizeProductImagePaths(imgValue).split('|').filter(Boolean)[0] || fallback;
 }
 
+function isBrokenLocalCatalogImage(src) {
+  const path = String(src || '').trim().toLowerCase();
+  return path.includes('/all-products_files/') || path.startsWith('all-products_files/');
+}
+
+function getProductCardImageSrc(product, fallback = DEFAULT_BOOK_SVG) {
+  const main = getMainProductImage(product?.img, '');
+  if (main) return main;
+  if (product?.id != null) {
+    return `/product-og-image/${encodeURIComponent(String(product.id))}.jpg`;
+  }
+  return fallback;
+}
+
 function getProductImageList(imgValue, fallback = DEFAULT_BOOK_SVG) {
   const images = normalizeProductImagePaths(imgValue).split('|').filter(Boolean);
   return images.length ? images : [fallback];
@@ -2486,8 +2537,8 @@ function createProductCard(product) {
       imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
     }
   } else {
-    const imgSrc = images[0] || DEFAULT_BOOK_SVG;
-    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low">`;
+    const imgSrc = getProductCardImageSrc(product);
+    imagesHtml = `<img src="${imgSrc}" alt="${product.name}" width="320" height="420" loading="lazy" decoding="async" fetchpriority="low" onerror="this.onerror=null;this.src='${DEFAULT_BOOK_SVG}';">`;
   }
 
   return `
@@ -3555,7 +3606,7 @@ async function renderAdminList() {
       <div class="admin-list-item" id="admin-product-${p.id}">
         <div style="display:flex; gap:12px; align-items:center;">
           <input type="checkbox" class="product-select-checkbox" value="${p.id}" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--primary);" onchange="updateBulkDeleteBtn()">
-          <img src="${(p.img && p.img.split('|')[0]) || ''}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;">
+          <img src="${adminEscapeHtml(getMainProductImage(p.img, '/images/logo.png'))}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;" onerror="this.onerror=null;this.src='/images/logo.png';">
           <div>
             <strong>${p.name}</strong> <br>
             <span style="color: var(--text-muted); font-size: 0.85rem;">${p.category} | ${formatPrice(p.price)}</span>
@@ -5597,11 +5648,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const productId = /^-?\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
 
-    // Extra gallery images: only fetch img column from DB when local image is missing (saves egress).
+    // Extra gallery images: fetch from DB when local image is missing or only a broken catalog path.
     try {
       const supabase = getSupabase();
       const localImg = getMainProductImage(product?.img, '');
-      const needsDbImages = supabase && productIdRaw && product && !localImg;
+      const needsDbImages = supabase && productIdRaw && product && (
+        !localImg || (localImg && !localImg.startsWith('data:') && isBrokenLocalCatalogImage(localImg))
+      );
       if (needsDbImages) {
         if (!product) detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product details...</div>';
         const { data, error } = await supabase.from('products').select('img').eq('id', productId).single();
