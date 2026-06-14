@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15-img';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15-db';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1053,13 +1053,22 @@ function getProductsPageServerCategoryFilter() {
 }
 
 function mergeCatalogWithDbRow(staticRow, dbRow) {
-  const merged = { ...staticRow };
-  ['name', 'price', 'original_price', 'category', 'desc', 'exam', 'free_note_id'].forEach((key) => {
-    const val = dbRow?.[key];
-    if (val !== undefined && val !== null && val !== '') merged[key] = val;
-  });
+  if (!dbRow || dbRow.id == null) return staticRow ? { ...staticRow } : {};
+  const merged = { ...dbRow };
+  if (staticRow) {
+    Object.keys(staticRow).forEach((key) => {
+      if (key === 'id') return;
+      const dbVal = merged[key];
+      const missing = dbVal === undefined || dbVal === null || dbVal === '';
+      if (missing && staticRow[key] !== undefined && staticRow[key] !== null && staticRow[key] !== '') {
+        merged[key] = staticRow[key];
+      }
+    });
+    merged.id = staticRow.id ?? dbRow.id;
+  }
   const dbImg = getMainProductImage(dbRow?.img, '');
   if (dbImg) merged.img = dbRow.img;
+  else if (staticRow?.img) merged.img = staticRow.img;
   return merged;
 }
 
@@ -3817,6 +3826,7 @@ async function handleEditProduct(e) {
   const editBookAttachedPdfFile = editBookAttachedPdfInput && editBookAttachedPdfInput.files ? editBookAttachedPdfInput.files[0] : null;
   const editBookPdfType = document.getElementById('editBookPdfType') ? document.getElementById('editBookPdfType').value : 'free';
   const editBookPdfPrice = document.getElementById('editBookPdfPrice') ? parseFloat(document.getElementById('editBookPdfPrice').value) : 0;
+  const existingProduct = products.find(p => String(p.id) === String(id));
 
   const updateNode = async (imageSrc) => {
     let finalImg = null;
@@ -3846,7 +3856,7 @@ async function handleEditProduct(e) {
 
     // D. Fallback to existing imageSrc / URL / stored original
     if (!finalImg) {
-      finalImg = imageSrc || (product ? product.img : '');
+      finalImg = imageSrc || imgOriginal || (existingProduct ? existingProduct.img : '');
     }
 
     // E. Default fallback only when product never had an image
@@ -3854,8 +3864,7 @@ async function handleEditProduct(e) {
       finalImg = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
     }
 
-    const product = products.find(p => String(p.id) === String(id));
-    let free_note_id = product ? product.free_note_id : null;
+    let free_note_id = existingProduct ? existingProduct.free_note_id : null;
 
     const payload = { 
       name, 
@@ -3903,10 +3912,9 @@ async function handleEditProduct(e) {
         payload.free_note_id = free_note_id;
       }
 
-      await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
-      const idx = products.findIndex(p => String(p.id) === String(id));
-      if (idx > -1) products[idx] = { ...products[idx], ...payload };
-      else products.unshift({ id, ...payload });
+      const res = await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
+      const saved = res?.product || payload;
+      upsertProductInMemory({ id, ...saved });
       saveProductsToCache(products);
       if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
       

@@ -1188,9 +1188,11 @@ def _load_static_catalog_rows() -> List[Dict[str, Any]]:
         return cached
 
     deleted = _load_deleted_static_product_ids()
+    db_ids = {str(row.get("id")) for row in _load_db_extra_products() if row.get("id") is not None}
     rows = [
         row for row in _read_static_catalog_rows_raw()
         if int(row.get("id", 0)) not in deleted
+        and str(row.get("id")) not in db_ids
     ]
 
     CATALOG_PRODUCTS_CACHE["rows"] = rows
@@ -1304,16 +1306,20 @@ def _merge_catalog_product_row(
     db_row: Dict[str, Any],
     image_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """Static catalog is the base; DB overrides editable fields but keeps images when DB img is empty."""
-    merged = dict(static_row)
+    """When a product exists in DB, DB is the source of truth (admin edits live here)."""
     db_row = _attach_db_image(db_row, image_map)
-    for key in ("name", "price", "original_price", "category", "desc", "exam", "free_note_id"):
-        if db_row.get(key) is not None and db_row.get(key) != "":
-            merged[key] = db_row[key]
-    db_img = _select_main_product_image(db_row.get("img"))
-    if db_img:
-        merged["img"] = db_row.get("img")
-    return merged
+    if db_row and db_row.get("id") is not None:
+        merged = dict(db_row)
+        if static_row:
+            for key, val in static_row.items():
+                if key == "id":
+                    continue
+                current = merged.get(key)
+                if (current is None or current == "") and val not in (None, ""):
+                    merged[key] = val
+            merged["id"] = static_row.get("id", db_row.get("id"))
+        return merged
+    return dict(static_row) if static_row else {}
 
 
 def _merge_catalog_products() -> List[Dict[str, Any]]:
@@ -1683,6 +1689,38 @@ async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = De
     DB_PRODUCT_IMAGES_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
+def _remove_static_catalog_row(product_id: int) -> bool:
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    rows = _read_static_catalog_rows_raw()
+    kept = []
+    removed = False
+    for row in rows:
+        if not isinstance(row, dict):
+            kept.append(row)
+            continue
+        try:
+            row_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            kept.append(row)
+            continue
+        if row_id == int(product_id):
+            removed = True
+            continue
+        kept.append(row)
+    if not removed:
+        return False
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(kept, f, ensure_ascii=False, indent=2)
+        CATALOG_PRODUCTS_CACHE.clear()
+        PRODUCTS_CACHE.clear()
+        SITEMAP_CACHE.clear()
+        return True
+    except Exception:
+        logger.exception("Failed to remove static catalog product %s", product_id)
+        return False
+
+
 def _update_static_catalog_row(product_id: int, updates: Dict[str, Any]) -> bool:
     path = os.path.join(FRONTEND_DIR, "assets", "products.json")
     rows = _read_static_catalog_rows_raw()
@@ -1719,21 +1757,35 @@ def _update_static_catalog_row(product_id: int, updates: Dict[str, Any]) -> bool
 async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
     payload = req.model_dump(by_alias=True, exclude_none=True)
-    if _is_static_catalog_product_id(product_id):
-        _update_static_catalog_row(product_id, payload)
-    res = sb.table("products").update(payload).eq("id", product_id).execute()
-    updated_rows = res.data if isinstance(res.data, list) else []
-    if not updated_rows:
-        try:
-            upsert_payload = {**payload, "id": product_id}
-            res = sb.table("products").upsert(upsert_payload).execute()
-        except Exception:
-            logger.exception("Failed to upsert admin product %s", product_id)
+    static_row = _load_static_product(str(product_id))
+    if static_row:
+        for key, val in static_row.items():
+            if key == "id":
+                continue
+            if payload.get(key) in (None, "") and val not in (None, ""):
+                payload[key] = val
+        _remove_static_catalog_row(product_id)
+
+    upsert_payload = {**payload, "id": product_id}
+    try:
+        res = sb.table("products").upsert(upsert_payload).execute()
+    except Exception:
+        logger.exception("Failed to upsert admin product %s", product_id)
+        raise HTTPException(status_code=500, detail="Failed to save product to database")
+
+    saved = None
+    if isinstance(res.data, list) and res.data:
+        saved = res.data[0]
+    elif isinstance(res.data, dict):
+        saved = res.data
+    if not saved:
+        saved = upsert_payload
+
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
     DB_PRODUCT_IMAGES_CACHE.clear()
     CATALOG_PRODUCTS_CACHE.clear()
-    return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
+    return {"product": saved}
 
 @app.delete("/admin/products/{product_id}")
 async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends(verify_admin)):
@@ -1782,22 +1834,25 @@ async def get_deleted_catalog_ids():
 
 @app.get("/catalog/overrides")
 async def get_catalog_overrides(response: Response):
-    """DB price/name overrides for static catalog books (images via /catalog/images)."""
-    response.headers["Cache-Control"] = "public, max-age=120, s-maxage=600, stale-while-revalidate=1800"
+    """Full DB product rows for catalog books edited in admin (DB is source of truth)."""
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
     rows = _load_db_extra_products()
-    overrides = [
-        {
-            "id": row.get("id"),
-            "name": row.get("name"),
-            "price": row.get("price"),
-            "original_price": row.get("original_price"),
-            "category": row.get("category"),
-            "exam": row.get("exam"),
-            "free_note_id": row.get("free_note_id"),
-        }
-        for row in rows
-        if row.get("id") is not None
-    ]
+    image_map = _load_db_product_images_map()
+    overrides = []
+    for row in rows:
+        if row.get("id") is None:
+            continue
+        enriched = _attach_db_image(row, image_map)
+        overrides.append({
+            "id": enriched.get("id"),
+            "name": enriched.get("name"),
+            "price": enriched.get("price"),
+            "original_price": enriched.get("original_price"),
+            "category": enriched.get("category"),
+            "exam": enriched.get("exam"),
+            "free_note_id": enriched.get("free_note_id"),
+            "desc": enriched.get("desc"),
+        })
     return {"overrides": overrides}
 
 
