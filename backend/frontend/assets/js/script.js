@@ -103,7 +103,8 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16b';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16c';
+const SCRIPT_BUILD_VERSION = '2026-06-16c';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1117,6 +1118,14 @@ async function fetchDbManagedProductIds() {
 function excludeDbManagedCatalogProducts(list, dbManagedIds) {
   if (!Array.isArray(list) || !dbManagedIds || dbManagedIds.size === 0) return list || [];
   return list.filter((p) => p?.id != null && !dbManagedIds.has(String(p.id)));
+}
+
+function replaceProductInMemory(nextProduct) {
+  if (!nextProduct || nextProduct.id == null) return;
+  const idx = products.findIndex((p) => String(p.id) === String(nextProduct.id));
+  if (idx > -1) products[idx] = { ...nextProduct };
+  else products.unshift({ ...nextProduct });
+  rebuildProductSlugIndex(products);
 }
 
 function upsertProductInMemory(nextProduct) {
@@ -5640,41 +5649,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     let productIdRaw = String(productPathValue || '').trim();
     let product = null;
 
-    if (typeof fetchPromise !== 'undefined') {
-      detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
-      await fetchPromise;
-    }
+    detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product...</div>';
 
-    // Always load fresh product from server (DB is source of truth for edited books).
-    const lookupCandidates = [productPathValue, productIdRaw].filter(Boolean);
+    // 1) Load fresh product from server FIRST (DB price/name — not products.json).
+    const lookupCandidates = [];
+    if (productPathValue) lookupCandidates.push(productPathValue);
+    if (productIdRaw && productIdRaw !== productPathValue) lookupCandidates.push(productIdRaw);
     rebuildProductSlugIndex();
-    if (productIdBySlug[productPathValue]) lookupCandidates.push(productIdBySlug[productPathValue]);
+    if (productIdBySlug[productPathValue]) lookupCandidates.push(String(productIdBySlug[productPathValue]));
     const slugMatch = Object.keys(productIdBySlug).find((slug) => slug.toLowerCase() === productPathValue.toLowerCase());
-    if (slugMatch && productIdBySlug[slugMatch]) lookupCandidates.push(productIdBySlug[slugMatch]);
+    if (slugMatch && productIdBySlug[slugMatch]) lookupCandidates.push(String(productIdBySlug[slugMatch]));
 
+    const tried = new Set();
     for (const key of lookupCandidates) {
-      const serverProduct = await fetchMergedProductByIdOrSlug(key);
+      const lookupKey = String(key || '').trim();
+      if (!lookupKey || tried.has(lookupKey)) continue;
+      tried.add(lookupKey);
+      const serverProduct = await fetchMergedProductByIdOrSlug(lookupKey);
       if (serverProduct) {
-        product = serverProduct;
+        product = { ...serverProduct };
         productIdRaw = String(serverProduct.id ?? productIdRaw);
-        upsertProductInMemory(product);
+        replaceProductInMemory(product);
         break;
       }
     }
 
+    // 2) Warm full catalog in background (cart/list) — never used for detail price.
+    if (typeof fetchPromise !== 'undefined') {
+      await fetchPromise;
+    }
+
+    // 3) Retry lookup once after catalog warm if first attempt failed.
     if (!product) {
-      if (isNumericProductPath) {
-        product = products.find((p) => String(p.id) === productIdRaw) || null;
-      } else if (productIdBySlug[productPathValue]) {
-        productIdRaw = productIdBySlug[productPathValue];
-        product = products.find((p) => String(p.id) === productIdRaw) || null;
-      } else if (slugMatch) {
-        productIdRaw = productIdBySlug[slugMatch];
-        product = products.find((p) => String(p.id) === productIdRaw) || null;
+      for (const key of lookupCandidates) {
+        const lookupKey = String(key || '').trim();
+        if (!lookupKey) continue;
+        const serverProduct = await fetchMergedProductByIdOrSlug(lookupKey);
+        if (serverProduct) {
+          product = { ...serverProduct };
+          productIdRaw = String(serverProduct.id ?? productIdRaw);
+          replaceProductInMemory(product);
+          break;
+        }
       }
     }
 
-    if (product && !isNumericProductPath) {
+    if (!product) {
+      detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Product not found. Please refresh or go back to <a href="/products">All Products</a>.</div>';
+      return;
+    }
+
+    if (!isNumericProductPath) {
       const canonicalPath = getProductUrl(product);
       if (window.location.pathname !== canonicalPath) {
         history.replaceState({}, '', canonicalPath);
@@ -5694,8 +5719,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!product) detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product details...</div>';
         const { data, error } = await supabase.from('products').select('img').eq('id', productId).single();
         if (data && !error && data.img) {
-          product = mergeCatalogWithDbRow(product, data);
-          upsertProductInMemory(product);
+          product = { ...product, img: data.img };
+          replaceProductInMemory(product);
         }
       }
     } catch (e) {

@@ -2646,17 +2646,9 @@ def _assign_product_slugs(rows: List[Dict[str, Any]]) -> Dict[str, str]:
 PRODUCT_SLUG_CACHE: Dict[str, Any] = {"expires_at": 0.0, "id_to_slug": {}, "slug_to_id": {}}
 
 def _load_static_products() -> List[Dict[str, Any]]:
-    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
-    if not os.path.isfile(path):
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        logger.exception("Failed to read static products")
-        return []
-    rows = data if isinstance(data, list) else data.get("products", []) if isinstance(data, dict) else []
-    return [row for row in rows if isinstance(row, dict)]
+    """Static catalog rows only — excludes books already stored in DB."""
+    return _load_static_catalog_rows()
+
 
 def _load_all_db_products() -> List[Dict[str, Any]]:
     base_url = str(SUPABASE_URL or "").rstrip("/")
@@ -2688,20 +2680,14 @@ def _load_all_db_products() -> List[Dict[str, Any]]:
         offset += limit
     return rows
 
+
 def _refresh_product_slug_cache(force: bool = False) -> None:
     now = time.time()
     if not force and now < float(PRODUCT_SLUG_CACHE.get("expires_at", 0.0)):
         return
 
-    merged: Dict[str, Dict[str, Any]] = {}
-    for row in _load_static_products():
-        merged[str(row.get("id"))] = row
-    for row in _load_all_db_products():
-        pid = str(row.get("id"))
-        static_row = merged.get(pid)
-        merged[pid] = _merge_catalog_product_row(static_row, row) if static_row else row
-
-    id_to_slug = _assign_product_slugs(list(merged.values()))
+    merged_rows = _merge_catalog_products()
+    id_to_slug = _assign_product_slugs(merged_rows)
     slug_to_id = {slug: pid for pid, slug in id_to_slug.items()}
     PRODUCT_SLUG_CACHE["id_to_slug"] = id_to_slug
     PRODUCT_SLUG_CACHE["slug_to_id"] = slug_to_id
