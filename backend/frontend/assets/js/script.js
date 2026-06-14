@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-11';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-14';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1060,7 +1060,78 @@ function getProductsPageServerCategoryFilter() {
   return '';
 }
 
+function mergeCatalogWithDbRow(staticRow, dbRow) {
+  const merged = { ...staticRow };
+  ['name', 'price', 'original_price', 'category', 'desc', 'exam', 'free_note_id'].forEach((key) => {
+    const val = dbRow?.[key];
+    if (val !== undefined && val !== null && val !== '') merged[key] = val;
+  });
+  const dbImg = getMainProductImage(dbRow?.img, '');
+  if (dbImg) merged.img = dbRow.img;
+  return merged;
+}
+
+function mergeProductLists(staticList, dbList) {
+  const staticById = new Map((staticList || []).map((p) => [String(p.id), p]));
+  const dbById = new Map((dbList || []).map((p) => [String(p.id), p]));
+  const allIds = new Set([...staticById.keys(), ...dbById.keys()]);
+  const merged = [];
+  allIds.forEach((id) => {
+    const staticRow = staticById.get(id);
+    const dbRow = dbById.get(id);
+    if (staticRow && dbRow) merged.push(mergeCatalogWithDbRow(staticRow, dbRow));
+    else merged.push(dbRow || staticRow);
+  });
+  return merged.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+}
+
+async function mergeExtraCategoryProductsFromServer() {
+  const extraCategories = ['Spiral Copies', 'Stationery', 'Combos'];
+  const byId = new Map((products || []).map((p) => [String(p.id), p]));
+  let changed = false;
+
+  for (const cat of extraCategories) {
+    try {
+      const res = await apiFetch(
+        `/products?limit=200&offset=0&category=${encodeURIComponent(cat)}`,
+        { auth: false }
+      );
+      const rows = Array.isArray(res?.products) ? res.products : [];
+      for (const row of rows) {
+        const id = String(row.id);
+        const existing = byId.get(id);
+        const next = existing && String(existing.category || '') === cat
+          ? mergeCatalogWithDbRow(existing, row)
+          : { ...row, img: row.img || existing?.img || '' };
+        byId.set(id, next);
+        changed = true;
+      }
+    } catch (e) {
+      console.warn(`Failed to load ${cat} products`, e);
+    }
+  }
+
+  if (changed) {
+    products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+    rebuildProductSlugIndex(products);
+    saveProductsToCache(products);
+  }
+
+  if (document.getElementById('spiralCopiesGrid') && typeof renderSpiralCopies === 'function') {
+    renderSpiralCopies();
+  }
+  if (document.getElementById('stationeryGrid') && typeof renderStationery === 'function') {
+    renderStationery();
+  }
+  if (document.getElementById('comboDealsGrid') && typeof renderComboDeals === 'function') {
+    renderComboDeals();
+  }
+}
+
 function renderStoreProducts() {
+  if (document.getElementById('spiralCopiesGrid') && typeof renderSpiralCopies === 'function') {
+    renderSpiralCopies();
+  }
   if (document.getElementById('featuredProducts')) {
     renderFeaturedMultiSelect();
     renderFeaturedProducts();
@@ -1207,6 +1278,7 @@ async function fetchProducts() {
     productsServerHasMore = false;
     productsServerOffset = products.length;
     isProductsLoading = false;
+    await mergeExtraCategoryProductsFromServer();
     renderStoreProducts();
     return;
   }
@@ -1257,7 +1329,15 @@ async function fetchProducts() {
         // MERGE DB products with static products based on ID
         const byId = new Map();
         products.forEach(p => byId.set(String(p.id), p));
-        strippedProducts.forEach(p => byId.set(String(p.id), p));
+        strippedProducts.forEach(p => {
+          const id = String(p.id);
+          const existing = byId.get(id);
+          const dbImg = getMainProductImage(p.img, '');
+          const merged = existing
+            ? mergeCatalogWithDbRow(existing, { ...p, img: dbImg ? p.img : existing.img })
+            : p;
+          byId.set(id, merged);
+        });
         
         const mergedProducts = Array.from(byId.values());
         const newProducts = sortProductsByLatest(mergedProducts);
@@ -1280,6 +1360,7 @@ async function fetchProducts() {
     }
   } finally {
     isProductsLoading = false;
+    await mergeExtraCategoryProductsFromServer();
     renderStoreProducts();
   }
 }
@@ -3030,10 +3111,17 @@ async function handleAddStationeryItem(e) {
     if (category === "Spiral Copies") {
       body.desc = `Pages: ${spiralPages}`;
     }
-    await apiFetch("/admin/products", {
+    const addRes = await apiFetch("/admin/products", {
       method: "POST",
       body
     });
+    if (addRes?.product) {
+      products = [
+        normalizeProductRecord(addRes.product, 0),
+        ...products.filter(p => String(p.id) !== String(addRes.product.id))
+      ];
+      saveProductsToCache(products);
+    }
     showToast(category === "Spiral Copies" ? 'Spiral copy added.' : 'Stationery item added.');
     form.reset();
   } catch (err) {
@@ -3335,10 +3423,8 @@ async function refreshAdminProductsFromServer() {
 
   if (rows.length) {
     const normalized = rows.map((p, index) => normalizeProductRecord(p, index));
-    const staticRows = filterDeletedCatalogProducts(
-      (products || []).filter(p => !normalized.some(db => String(db.id) === String(p.id)))
-    );
-    products = [...normalized, ...staticRows].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+    const staticRows = filterDeletedCatalogProducts(products || []);
+    products = mergeProductLists(staticRows, normalized);
     saveProductsToCache(products);
   } else {
     products = filterDeletedCatalogProducts(products || []);
@@ -3560,7 +3646,13 @@ window.openEditModal = function (id) {
     if (priceInput) priceInput.value = '';
   }
 
-  document.getElementById('editImg').value = product.img;
+  const editImgOriginal = document.getElementById('editImgOriginal');
+  if (editImgOriginal) editImgOriginal.value = product.img || '';
+  const editImgEl = document.getElementById('editImg');
+  if (editImgEl) {
+    const rawImg = String(product.img || '').trim();
+    editImgEl.value = /^https?:\/\//i.test(rawImg) ? rawImg : '';
+  }
 
   const modal = document.getElementById('editProductModal');
   if (modal) modal.style.display = 'flex';
@@ -3597,7 +3689,9 @@ async function handleEditProduct(e) {
   const descriptionType = document.getElementById('editDescriptionType') ? document.getElementById('editDescriptionType').value : 'default';
   const descriptionValue = (descriptionType === 'manual' && document.getElementById('editDesc')) ? document.getElementById('editDesc').value.trim() : null;
 
-  let imgUrl = document.getElementById('editImg').value;
+  let imgUrl = document.getElementById('editImg')?.value?.trim() || '';
+  const imgOriginal = document.getElementById('editImgOriginal')?.value?.trim() || '';
+  if (!imgUrl) imgUrl = imgOriginal;
   const fileInput = document.getElementById('editImgUpload');
   const editPdfPreviewInput = document.getElementById('editBookPdfPreview');
   const editPreviewPdfFile = editPdfPreviewInput && editPdfPreviewInput.files ? editPdfPreviewInput.files[0] : null;
@@ -3634,13 +3728,15 @@ async function handleEditProduct(e) {
       }
     }
 
-    // D. Fallback to existing imageSrc / URL
+    // D. Fallback to existing imageSrc / URL / stored original
     if (!finalImg) {
-      finalImg = imageSrc;
+      finalImg = imageSrc || (product ? product.img : '');
     }
 
-    // E. Default fallback
-    finalImg = finalImg || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+    // E. Default fallback only when product never had an image
+    if (!finalImg) {
+      finalImg = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80";
+    }
 
     const product = products.find(p => String(p.id) === String(id));
     let free_note_id = product ? product.free_note_id : null;
@@ -3694,6 +3790,8 @@ async function handleEditProduct(e) {
       await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
       const idx = products.findIndex(p => String(p.id) === String(id));
       if (idx > -1) products[idx] = { ...products[idx], ...payload };
+      else products.unshift({ id, ...payload });
+      saveProductsToCache(products);
       if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
       
       showToast(pdfWarning ? `Product updated. ${pdfWarning}` : "Product updated successfully!");
@@ -7641,12 +7739,19 @@ const defaultSpiralCopies = [
 ];
 
 function getSpiralCopies() {
-  const added = (products || []).filter(p => p.category === 'Spiral Copies');
-  return added.map((p, index) => ({
-    ...p,
-    id: p.id || `spiral-added-${index}`,
-    img: p.img || 'images/about-books.webp'
-  }));
+  const byId = new Map();
+  defaultSpiralCopies.forEach((item) => byId.set(String(item.id), { ...item }));
+  (products || []).filter(p => p.category === 'Spiral Copies').forEach((p, index) => {
+    const id = String(p.id || `spiral-added-${index}`);
+    const existing = byId.get(id);
+    byId.set(id, {
+      ...(existing || {}),
+      ...p,
+      id: p.id || existing?.id || `spiral-added-${index}`,
+      img: p.img || existing?.img || 'images/about-books.webp'
+    });
+  });
+  return Array.from(byId.values());
 }
 
 function getSpiralCopyPages(item) {

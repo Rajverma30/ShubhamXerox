@@ -1228,12 +1228,26 @@ def _load_db_extra_products() -> List[Dict[str, Any]]:
     return rows
 
 
+def _merge_catalog_product_row(static_row: Dict[str, Any], db_row: Dict[str, Any]) -> Dict[str, Any]:
+    """Static catalog is the base; DB overrides editable fields but keeps images when DB img is empty."""
+    merged = dict(static_row)
+    for key in ("name", "price", "original_price", "category", "desc", "exam", "free_note_id"):
+        if db_row.get(key) is not None and db_row.get(key) != "":
+            merged[key] = db_row[key]
+    db_img = _select_main_product_image(db_row.get("img"))
+    if db_img:
+        merged["img"] = db_row.get("img")
+    return merged
+
+
 def _merge_catalog_products() -> List[Dict[str, Any]]:
     by_id: Dict[str, Dict[str, Any]] = {}
     for row in _load_static_catalog_rows():
         by_id[str(row.get("id"))] = row
     for row in _load_db_extra_products():
-        by_id[str(row.get("id"))] = row
+        pid = str(row.get("id"))
+        static_row = by_id.get(pid)
+        by_id[pid] = _merge_catalog_product_row(static_row, row) if static_row else row
     merged = list(by_id.values())
     merged.sort(key=lambda item: int(item.get("id") or 0), reverse=True)
     return merged
@@ -1581,13 +1595,55 @@ async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = De
     DB_EXTRA_PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
+def _update_static_catalog_row(product_id: int, updates: Dict[str, Any]) -> bool:
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    rows = _read_static_catalog_rows_raw()
+    updated = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            row_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if row_id != int(product_id):
+            continue
+        for key, val in updates.items():
+            if val is not None:
+                row[key] = val
+        updated = True
+        break
+    if not updated:
+        return False
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False, indent=2)
+        CATALOG_PRODUCTS_CACHE.clear()
+        PRODUCTS_CACHE.clear()
+        SITEMAP_CACHE.clear()
+        return True
+    except Exception:
+        logger.exception("Failed to update static catalog product %s", product_id)
+        return False
+
+
 @app.put("/admin/products/{product_id}")
 async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
     payload = req.model_dump(by_alias=True, exclude_none=True)
+    if _is_static_catalog_product_id(product_id):
+        _update_static_catalog_row(product_id, payload)
     res = sb.table("products").update(payload).eq("id", product_id).execute()
+    updated_rows = res.data if isinstance(res.data, list) else []
+    if not updated_rows:
+        try:
+            upsert_payload = {**payload, "id": product_id}
+            res = sb.table("products").upsert(upsert_payload).execute()
+        except Exception:
+            logger.exception("Failed to upsert admin product %s", product_id)
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
+    CATALOG_PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 @app.delete("/admin/products/{product_id}")
@@ -2438,7 +2494,9 @@ def _refresh_product_slug_cache(force: bool = False) -> None:
     for row in _load_static_products():
         merged[str(row.get("id"))] = row
     for row in _load_all_db_products():
-        merged[str(row.get("id"))] = row
+        pid = str(row.get("id"))
+        static_row = merged.get(pid)
+        merged[pid] = _merge_catalog_product_row(static_row, row) if static_row else row
 
     id_to_slug = _assign_product_slugs(list(merged.values()))
     slug_to_id = {slug: pid for pid, slug in id_to_slug.items()}
@@ -2455,14 +2513,15 @@ def _is_numeric_product_id(value: str) -> bool:
     return text.isdigit() or (text.startswith("-") and text[1:].isdigit())
 
 def _load_product_record(product_id: str) -> Optional[Dict[str, Any]]:
-    product = None
+    static_product = _load_static_product(product_id)
+    db_product = None
     try:
-        product = _load_db_product(product_id)
+        db_product = _load_db_product(product_id)
     except Exception:
         logger.exception("Failed to load DB product %s", product_id)
-    if not product:
-        product = _load_static_product(product_id)
-    return product
+    if static_product and db_product:
+        return _merge_catalog_product_row(static_product, db_product)
+    return db_product or static_product
 
 def _resolve_product_from_path(product_path: str) -> Optional[Dict[str, Any]]:
     segment = str(product_path or "").strip().strip("/")
