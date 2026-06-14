@@ -104,7 +104,7 @@ let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
 const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15f';
-const SCRIPT_BUILD_VERSION = '2026-06-15f';
+const SCRIPT_BUILD_VERSION = '2026-06-15h';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -5749,35 +5749,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       let attachedPdfHtml = '';
       if (product.free_note_id) {
-        try {
-          const supabase = getSupabase();
-          if (supabase) {
-            const { data: noteData } = await supabase.from('free_notes').select('*').eq('id', product.free_note_id).single();
-            if (noteData) {
-              const pdfTitle = noteData.title || product.name;
-              const isPaid = noteData.is_paid || (noteData.price && noteData.price > 0);
-              const pdfPriceStr = isPaid ? `(₹${noteData.price})` : 'Free';
-
-              attachedPdfHtml = `
-                  <div style="margin-bottom: 40px; background: rgba(128, 42, 126, 0.05); border: 1px solid rgba(128, 42, 126, 0.2); padding: 20px; border-radius: 12px;">
+        attachedPdfHtml = `
+                  <div id="attachedPdfSection" data-note-id="${escapeHtml(String(product.free_note_id))}" style="margin-bottom: 40px; background: rgba(128, 42, 126, 0.05); border: 1px solid rgba(128, 42, 126, 0.2); padding: 20px; border-radius: 12px;">
                     <h3 style="font-size: 1.3rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                       Attached PDF Note
                     </h3>
-                    <p style="margin-bottom: 16px; font-weight: 500; color: var(--text-main);">${pdfTitle} <span style="display:inline-block; margin-left:8px; font-size:0.8rem; padding:2px 8px; border-radius:12px; background:${isPaid ? 'var(--primary)' : '#10b981'}; color:${isPaid ? '#000' : '#fff'};">${pdfPriceStr}</span></p>
+                    <p id="attachedPdfMeta" style="margin-bottom: 16px; font-weight: 500; color: var(--text-main);">PDF attached with this book</p>
                     <div style="display: flex; gap: 12px;">
-                      <button onclick="openPdfViewer('${noteData.file_url}', ${isPaid ? noteData.price : 0}, '${noteData.id}', '${pdfTitle.replace(/'/g, "\\'")}')" class="btn btn-outline-purple" style="text-decoration: none; display: flex; align-items: center;">
-                        ${isPaid ? 'Preview & Buy Secure PDF' : 'Open Secure Viewer'}
+                      <button type="button" id="attachedPdfOpenBtn" onclick="openEbookNote('${escapeHtml(String(product.free_note_id))}')" class="btn btn-outline-purple" style="text-decoration: none; display: flex; align-items: center;">
+                        Open PDF
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 9h6v6H9z"></path></svg>
                       </button>
                     </div>
                   </div>
                 `;
-            }
-          }
-        } catch (e) {
-          console.error("Failed to fetch attached PDF:", e);
-        }
       }
 
       const productImages = getProductImageList(
@@ -5897,6 +5883,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
 
       renderSimilarProducts(product);
+
+      if (product.free_note_id) {
+        loadAttachedPdfMeta(product.free_note_id);
+      }
 
       // Inject Product details JSON-LD schema for SEO
       try {
@@ -6447,7 +6437,10 @@ async function loadFreeNotes() {
     return;
   }
 
-  const { data: notes, error } = await supabase.from('free_notes').select('*').order('created_at', { ascending: false });
+  const { data: notes, error } = await supabase
+    .from('free_notes')
+    .select('id, title, is_paid, price, created_at')
+    .order('created_at', { ascending: false });
   
   if (error) {
     console.error("Supabase free_notes error:", error);
@@ -6523,10 +6516,6 @@ function renderFreeNotesGrid(notesToDisplay) {
 
   container.innerHTML = notesToDisplay.map((note, index) => {
     const bg = colors[index % colors.length];
-    const priceParam = (note.is_paid && !hasUnlockedNote(note.id)) ? note.price : 0;
-    const onClickAction = note.is_paid 
-      ? `openPdfViewer('${note.file_url}', ${priceParam}, '${note.id}', '${note.title.replace(/'/g, "\\'")}')` 
-      : `window.open('${note.file_url}', '_blank')`;
     return `
     <div class="note-card" style="border: none; background: transparent; box-shadow: none; padding: 10px; display: flex; flex-direction: column; align-items: center; position: relative;">
       
@@ -6535,12 +6524,11 @@ function renderFreeNotesGrid(notesToDisplay) {
         ${note.is_paid ? `PAID (₹${note.price})` : 'FREE'}
       </div>
 
-      <div class="note-icon" id="pdf-icon-${note.id}" onclick="${onClickAction}" style="cursor: pointer; width: 160px; height: 160px; margin: 0 auto 20px; background: ${bg}; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; border: 4px solid var(--card-bg); box-shadow: var(--shadow-md); position: relative; overflow: hidden;">
-        <div class="fallback-ui" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; transition: opacity 0.3s; z-index: 1;">
+      <div class="note-icon" id="pdf-icon-${note.id}" onclick="openEbookNote('${note.id}')" style="cursor: pointer; width: 160px; height: 160px; margin: 0 auto 20px; background: ${bg}; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; border: 4px solid var(--card-bg); box-shadow: var(--shadow-md); position: relative; overflow: hidden;">
+        <div class="fallback-ui" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; z-index: 1;">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
           <span style="font-size: 0.85rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">${note.is_paid ? 'PRO PDF' : 'FREE PDF'}</span>
         </div>
-        <canvas id="pdf-canvas-${note.id}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.5s; z-index: 2; pointer-events: none;"></canvas>
       </div>
       <div class="note-details" style="text-align: center; width: 100%;">
         <h3 class="note-title" style="font-size: 1.1rem; line-height: 1.4; margin-bottom: 4px;">${note.title}</h3>
@@ -6549,8 +6537,86 @@ function renderFreeNotesGrid(notesToDisplay) {
     </div>
   `}).join('');
 
-  setTimeout(() => schedulePdfThumbnailLoad(notesToDisplay), 100);
   setTimeout(updateFreeNotesNav, 120);
+}
+
+window.openEbookNote = async function (noteId) {
+  const supabase = getSupabase();
+  if (!supabase) {
+    showToast('Database connection failed.');
+    return;
+  }
+
+  const cached = freeNotesData.find((n) => String(n.id) === String(noteId));
+  const fallbackTitle = cached?.title || 'PDF';
+
+  try {
+    showGlobalLoader(true, 'Opening PDF...');
+    const { data, error } = await supabase
+      .from('free_notes')
+      .select('id, title, file_url, is_paid, price')
+      .eq('id', noteId)
+      .single();
+
+    if (error || !data?.file_url) {
+      showToast('Could not load this PDF.');
+      return;
+    }
+
+    const priceParam = (data.is_paid && !hasUnlockedNote(data.id)) ? Number(data.price) || 0 : 0;
+    if (data.is_paid || priceParam > 0) {
+      await window.openPdfViewer(
+        data.file_url,
+        priceParam,
+        data.id,
+        data.title || fallbackTitle
+      );
+    } else {
+      window.open(data.file_url, '_blank');
+    }
+  } catch (e) {
+    console.error('Failed to open e-book:', e);
+    showToast('Failed to open PDF.');
+  } finally {
+    showGlobalLoader(false);
+  }
+};
+
+async function loadAttachedPdfMeta(noteId) {
+  const metaEl = document.getElementById('attachedPdfMeta');
+  const btnEl = document.getElementById('attachedPdfOpenBtn');
+  if (!metaEl) return;
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    metaEl.textContent = 'Could not load PDF info.';
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('free_notes')
+      .select('id, title, is_paid, price')
+      .eq('id', noteId)
+      .single();
+
+    if (error || !data) {
+      metaEl.textContent = 'Attached PDF unavailable.';
+      if (btnEl) btnEl.disabled = true;
+      return;
+    }
+
+    const isPaid = !!(data.is_paid || (Number(data.price) > 0));
+    const pdfPriceStr = isPaid ? `(₹${data.price})` : 'Free';
+    metaEl.innerHTML = `${escapeHtml(data.title || 'Attached PDF')} <span style="display:inline-block; margin-left:8px; font-size:0.8rem; padding:2px 8px; border-radius:12px; background:${isPaid ? 'var(--primary)' : '#10b981'}; color:${isPaid ? '#000' : '#fff'};">${escapeHtml(pdfPriceStr)}</span>`;
+
+    if (btnEl) {
+      btnEl.innerHTML = `${isPaid ? 'Preview & Buy Secure PDF' : 'Open Secure Viewer'}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 9h6v6H9z"></path></svg>`;
+    }
+  } catch (e) {
+    console.warn('Failed to load attached PDF metadata:', e);
+    metaEl.textContent = 'Attached PDF info unavailable.';
+  }
 }
 
 window.scrollFreeNotes = function (direction) {
