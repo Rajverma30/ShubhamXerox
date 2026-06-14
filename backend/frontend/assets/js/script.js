@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-14b';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-14c';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1083,6 +1083,28 @@ function mergeProductLists(staticList, dbList) {
     else merged.push(dbRow || staticRow);
   });
   return merged.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+}
+
+async function fetchMergedProductByIdOrSlug(idOrSlug) {
+  const key = String(idOrSlug || '').trim();
+  if (!key) return null;
+  try {
+    const res = await fetch(`${API_BASE}/products/lookup/${encodeURIComponent(key)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.product || null;
+  } catch (e) {
+    console.warn('Product lookup failed:', e);
+    return null;
+  }
+}
+
+function upsertProductInMemory(nextProduct) {
+  if (!nextProduct || nextProduct.id == null) return;
+  const idx = products.findIndex((p) => String(p.id) === String(nextProduct.id));
+  if (idx > -1) products[idx] = mergeCatalogWithDbRow(products[idx], nextProduct);
+  else products.unshift(nextProduct);
+  rebuildProductSlugIndex(products);
 }
 
 async function syncProductsWithServer(limit = 500) {
@@ -5545,26 +5567,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
+    // Always refresh catalog books from server so admin price edits show on product page.
+    if (product) {
+      const lookupKey = isNumericProductPath ? productIdRaw : (getProductSlug(product) || productPathValue);
+      const serverProduct = await fetchMergedProductByIdOrSlug(lookupKey);
+      if (serverProduct) {
+        product = mergeCatalogWithDbRow(product, serverProduct);
+        upsertProductInMemory(product);
+      }
+    }
+
     const productId = /^-?\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
 
-    // Always fetch the FULL product details directly from Supabase so we get ALL images 
-    // instead of just the main thumbnail from the list API
+    // Fetch full gallery images from Supabase when available.
     try {
       const supabase = getSupabase();
       if (supabase && productIdRaw) {
         if (!product) detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product details...</div>';
         const { data, error } = await supabase.from('products').select('*').eq('id', productId).single();
         if (data && !error) {
-          if (!product) {
-            product = data;
-          } else {
-            product.img = data.img; // Get all images
-            product.desc = data.desc; // Get full description
-            product.free_note_id = data.free_note_id;
-            product.original_price = data.original_price;
-            product.exam = data.exam;
-          }
-          rebuildProductSlugIndex([...products, product]);
+          product = product ? mergeCatalogWithDbRow(product, data) : data;
+          upsertProductInMemory(product);
         }
       }
     } catch (e) {
