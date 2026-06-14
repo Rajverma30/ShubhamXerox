@@ -1,0 +1,16 @@
+-- Paste in Supabase → SQL Editor → Run (takes 2 seconds)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+
+ALTER TABLE IF EXISTS public.users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.photocopy_orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.reviews DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.messages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.free_notes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.site_visits DISABLE ROW LEVEL SECURITY;

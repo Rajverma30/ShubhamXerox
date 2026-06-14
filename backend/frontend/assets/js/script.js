@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-14c';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -396,46 +396,38 @@ let globalDbSearchTimeout = null;
 
 async function performDatabaseSearch(query, categories, isFeatured, skipRender = false) {
   try {
-    const supabase = getSupabase();
-    if (!supabase) return [];
-
-    let dbQuery = supabase.from('products').select('id,name,category,price,original_price,img,exam,free_note_id');
-
-    const q = (query || '').trim().toLowerCase();
+    const q = (query || '').trim();
     const hasQuery = q.length >= 2;
     const hasCats = Array.isArray(categories) && categories.length > 0;
-
     if (!hasQuery && !hasCats) return [];
 
-    if (hasQuery) {
-      const tokens = q.split(/\s+/).filter(Boolean);
-      tokens.forEach(token => {
-        dbQuery = dbQuery.ilike('name', `%${token}%`);
-      });
-    }
-    if (hasCats) {
-      dbQuery = dbQuery.in('category', categories);
+    let url = `/products?limit=100&offset=0`;
+    if (hasQuery) url += `&q=${encodeURIComponent(q)}`;
+    if (hasCats && categories.length === 1) {
+      url += `&category=${encodeURIComponent(categories[0])}`;
     }
 
-    const { data, error } = await dbQuery.limit(100);
-    if (error) {
-      console.error("Database search error:", error);
-      return [];
+    const res = await apiFetch(url, { auth: false });
+    let data = Array.isArray(res?.products) ? res.products : [];
+    if (hasCats && categories.length > 1) {
+      const catSet = new Set(categories);
+      data = data.filter((p) => catSet.has(p.category));
     }
 
-    if (data && data.length > 0) {
-      const existingIds = new Set((products || []).map(p => String(p?.id)));
+    if (data.length > 0) {
+      const byId = new Map((products || []).map((p) => [String(p.id), p]));
       let added = false;
-
-      data.forEach(item => {
-        if (!existingIds.has(String(item.id))) {
-          products.push(item);
-          added = true;
-        }
+      data.forEach((item) => {
+        const id = String(item.id);
+        const existing = byId.get(id);
+        const next = existing ? mergeCatalogWithDbRow(existing, item) : item;
+        if (!existing) added = true;
+        byId.set(id, next);
       });
+      products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      rebuildProductSlugIndex(products);
 
-      if (added && !skipRender) {
-        products.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      if (!skipRender) {
         if (isFeatured) {
           if (typeof renderFeaturedProducts === 'function') renderFeaturedProducts();
         } else {
@@ -445,7 +437,7 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
         }
       }
     }
-    return Array.isArray(data) ? data : [];
+    return data;
   } catch (err) {
     console.error("Database search error:", err);
     return [];
@@ -1107,6 +1099,38 @@ function upsertProductInMemory(nextProduct) {
   rebuildProductSlugIndex(products);
 }
 
+async function syncCatalogOverridesFromServer() {
+  try {
+    const res = await apiFetch('/catalog/overrides', { auth: false });
+    const rows = Array.isArray(res?.overrides) ? res.overrides : [];
+    if (!rows.length) return false;
+
+    const byId = new Map((products || []).map((p) => [String(p.id), p]));
+    let changed = false;
+    rows.forEach((row) => {
+      const id = String(row.id);
+      const existing = byId.get(id);
+      if (existing) {
+        byId.set(id, mergeCatalogWithDbRow(existing, row));
+        changed = true;
+      } else {
+        byId.set(id, row);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      rebuildProductSlugIndex(products);
+      saveProductsToCache(products);
+    }
+    return changed;
+  } catch (e) {
+    console.warn('Failed to sync catalog overrides', e);
+    return false;
+  }
+}
+
 async function syncProductsWithServer(limit = 500) {
   try {
     const res = await apiFetch(`/products?limit=${limit}&offset=0`, { auth: false });
@@ -1237,6 +1261,14 @@ async function fetchProducts() {
     return [...arr].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
   };
 
+  const cacheVersionKey = 'shubham_products_cache_version';
+  const prevCacheVersion = localStorage.getItem(cacheVersionKey);
+  if (prevCacheVersion !== PRODUCTS_JSON_BUILD_VERSION) {
+    localStorage.removeItem('shubham_products_cache');
+    localStorage.setItem(cacheVersionKey, PRODUCTS_JSON_BUILD_VERSION);
+  }
+
+  const isAllProductsPage = !!document.getElementById('allProductsContainer');
   let hasLocalCache = false;
 
   let ssrProducts = [];
@@ -1265,7 +1297,9 @@ async function fetchProducts() {
         hasLocalCache = true;
         isProductsLoading = false; // We have data, so stop skeleton
         preloadFirstFoldProductImages(products, 4);
-        renderStoreProducts(); // Render instantly
+        if (!isAllProductsPage) {
+          renderStoreProducts(); // Render instantly (non catalog pages)
+        }
         saveProductsToCache(products);
       }
     }
@@ -1325,7 +1359,7 @@ async function fetchProducts() {
     productsServerHasMore = false;
     productsServerOffset = products.length;
     isProductsLoading = false;
-    await syncProductsWithServer();
+    await syncCatalogOverridesFromServer();
     renderStoreProducts();
     return;
   }
@@ -1344,27 +1378,11 @@ async function fetchProducts() {
       productsServerOffset = Array.isArray(loaded) ? loaded.length : 0;
       productsServerHasMore = !!res?.has_more;
     } catch (e) {
-      loaded = null; // Timeout or error, fallback to Supabase
+      loaded = null; // Timeout or error — keep static catalog, no direct Supabase fallback (saves egress)
     }
 
     if (!Array.isArray(loaded)) {
-      const supabase = getSupabase();
-      if (!supabase) return;
-      let q = supabase
-        .from('products')
-        .select('id,name,category,price,original_price,img,exam,free_note_id')
-        .order('id', { ascending: false })
-        .range(0, firstPageLimit - 1);
-      if (productsServerCategoryFilter) {
-        q = q.eq('category', productsServerCategoryFilter);
-      }
-      if (qFromUrl) {
-        q = q.ilike('name', `%${qFromUrl.trim()}%`);
-      }
-      const { data, error } = await q;
-      loaded = Array.isArray(data) ? data : [];
-      productsServerHasMore = loaded.length >= firstPageLimit;
-      productsServerOffset = loaded.length;
+      loaded = [];
     }
 
     if (Array.isArray(loaded) && loaded.length > 0) {
@@ -1407,7 +1425,7 @@ async function fetchProducts() {
     }
   } finally {
     isProductsLoading = false;
-    await syncProductsWithServer();
+    await syncCatalogOverridesFromServer();
     renderStoreProducts();
   }
 }
@@ -5579,19 +5597,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const productId = /^-?\d+$/.test(productIdRaw) ? Number(productIdRaw) : productIdRaw;
 
-    // Fetch full gallery images from Supabase when available.
+    // Extra gallery images: only fetch img column from DB when local image is missing (saves egress).
     try {
       const supabase = getSupabase();
-      if (supabase && productIdRaw) {
+      const localImg = getMainProductImage(product?.img, '');
+      const needsDbImages = supabase && productIdRaw && product && !localImg;
+      if (needsDbImages) {
         if (!product) detailContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading product details...</div>';
-        const { data, error } = await supabase.from('products').select('*').eq('id', productId).single();
-        if (data && !error) {
-          product = product ? mergeCatalogWithDbRow(product, data) : data;
+        const { data, error } = await supabase.from('products').select('img').eq('id', productId).single();
+        if (data && !error && data.img) {
+          product = mergeCatalogWithDbRow(product, data);
           upsertProductInMemory(product);
         }
       }
     } catch (e) {
-      console.error("Failed to load full product images", e);
+      console.error("Failed to load product images", e);
     }
 
     if (product && isNumericProductPath) {

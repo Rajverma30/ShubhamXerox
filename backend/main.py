@@ -51,9 +51,9 @@ OTP_CACHE = {}  # In-memory cache for Email OTPs: email -> (otp, expiry_time)
 PRODUCTS_CACHE: Dict[str, Dict[str, Any]] = {}
 PRODUCTS_CACHE_TTL_SECONDS = 3600
 CATALOG_PRODUCTS_CACHE: Dict[str, Any] = {}
-CATALOG_PRODUCTS_CACHE_TTL_SECONDS = 300
+CATALOG_PRODUCTS_CACHE_TTL_SECONDS = 3600
 DB_EXTRA_PRODUCTS_CACHE: Dict[str, Any] = {}
-DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS = 300
+DB_EXTRA_PRODUCTS_CACHE_TTL_SECONDS = 3600
 DELETED_STATIC_PRODUCTS_CACHE: Dict[str, Any] = {}
 DELETED_STATIC_PRODUCTS_CACHE_TTL_SECONDS = 60
 APP_BUILD_MARKER = "products-route-v2-requests-cache"
@@ -1214,9 +1214,10 @@ def _load_db_extra_products() -> List[Dict[str, Any]]:
                 "Authorization": f"Bearer {api_key}",
             }
             while True:
+                # Exclude img/desc from list fetches — base64 images caused massive Supabase egress.
                 url = (
                     f"{base_url}/rest/v1/products"
-                    "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+                    "?select=id,name,category,price,original_price,exam,free_note_id"
                     f"&order=id.desc&offset={offset}&limit={limit}"
                 )
                 resp = requests.get(url, headers=headers, timeout=(5, 15))
@@ -1695,6 +1696,27 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
 async def get_deleted_catalog_ids():
     deleted = sorted(_load_deleted_static_product_ids())
     return {"ids": deleted}
+
+
+@app.get("/catalog/overrides")
+async def get_catalog_overrides(response: Response):
+    """Lightweight DB price/name overrides for static catalog books (no images)."""
+    response.headers["Cache-Control"] = "public, max-age=120, s-maxage=600, stale-while-revalidate=1800"
+    rows = _load_db_extra_products()
+    overrides = [
+        {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "price": row.get("price"),
+            "original_price": row.get("original_price"),
+            "category": row.get("category"),
+            "exam": row.get("exam"),
+            "free_note_id": row.get("free_note_id"),
+        }
+        for row in rows
+        if row.get("id") is not None
+    ]
+    return {"overrides": overrides}
 
 @app.post("/admin/products/bulk-update-category")
 async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
