@@ -259,6 +259,18 @@ class AdminProductUpsert(BaseModel):
     exam: Optional[str] = None
     free_note_id: Optional[Any] = None
 
+PRODUCT_DB_FIELDS = frozenset({
+    "id", "name", "category", "price", "original_price", "img", "desc", "exam", "free_note_id",
+})
+
+
+def _product_db_payload(data: Dict[str, Any], *, product_id: Optional[int] = None) -> Dict[str, Any]:
+    """Keep only columns that exist on the products table (static JSON has extra fields)."""
+    cleaned = {key: data[key] for key in PRODUCT_DB_FIELDS if key in data and data[key] is not None}
+    if product_id is not None:
+        cleaned["id"] = product_id
+    return cleaned
+
 class BulkDeleteRequest(BaseModel):
     product_ids: List[int]
 
@@ -1682,7 +1694,7 @@ async def admin_list_products(
 @app.post("/admin/products")
 async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
-    payload = req.model_dump(by_alias=True, exclude_none=True)
+    payload = _product_db_payload(req.model_dump(by_alias=True, exclude_none=True))
     res = sb.table("products").insert(payload).execute()
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
@@ -1759,18 +1771,18 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
     payload = req.model_dump(by_alias=True, exclude_none=True)
     static_row = _load_static_product(str(product_id))
     if static_row:
-        for key, val in static_row.items():
+        for key in PRODUCT_DB_FIELDS:
             if key == "id":
                 continue
-            if payload.get(key) in (None, "") and val not in (None, ""):
-                payload[key] = val
+            if payload.get(key) in (None, "") and static_row.get(key) not in (None, ""):
+                payload[key] = static_row[key]
         _remove_static_catalog_row(product_id)
 
-    upsert_payload = {**payload, "id": product_id}
+    upsert_payload = _product_db_payload(payload, product_id=product_id)
     try:
         res = sb.table("products").upsert(upsert_payload).execute()
-    except Exception:
-        logger.exception("Failed to upsert admin product %s", product_id)
+    except Exception as exc:
+        logger.exception("Failed to upsert admin product %s: %s", product_id, exc)
         raise HTTPException(status_code=500, detail="Failed to save product to database")
 
     saved = None
