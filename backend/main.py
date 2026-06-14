@@ -1207,19 +1207,27 @@ def _load_db_extra_products() -> List[Dict[str, Any]]:
     api_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
     if base_url and api_key:
         try:
-            url = (
-                f"{base_url}/rest/v1/products"
-                "?select=id,name,category,price,original_price,img,exam,free_note_id"
-                "&id=gt.0&order=id.desc&limit=200"
-            )
+            limit = 1000
+            offset = 0
             headers = {
                 "apikey": api_key,
                 "Authorization": f"Bearer {api_key}",
             }
-            resp = requests.get(url, headers=headers, timeout=(5, 15))
-            resp.raise_for_status()
-            data = resp.json() if resp.content else []
-            rows = data if isinstance(data, list) else []
+            while True:
+                url = (
+                    f"{base_url}/rest/v1/products"
+                    "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
+                    f"&order=id.desc&offset={offset}&limit={limit}"
+                )
+                resp = requests.get(url, headers=headers, timeout=(5, 15))
+                resp.raise_for_status()
+                batch = resp.json() if resp.content else []
+                if not isinstance(batch, list) or not batch:
+                    break
+                rows.extend(batch)
+                if len(batch) < limit:
+                    break
+                offset += limit
         except Exception:
             logger.exception("Failed to load admin-added products from Supabase")
 

@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-14';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-14b';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1085,6 +1085,31 @@ function mergeProductLists(staticList, dbList) {
   return merged.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
 }
 
+async function syncProductsWithServer(limit = 500) {
+  try {
+    const res = await apiFetch(`/products?limit=${limit}&offset=0`, { auth: false });
+    const rows = Array.isArray(res?.products) ? res.products : [];
+    if (!rows.length) return false;
+
+    const byId = new Map((products || []).map((p) => [String(p.id), p]));
+    rows.forEach((row) => {
+      const id = String(row.id);
+      const existing = byId.get(id);
+      byId.set(id, existing ? mergeCatalogWithDbRow(existing, row) : row);
+    });
+
+    products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+    rebuildProductSlugIndex(products);
+    saveProductsToCache(products);
+    productsServerHasMore = !!res?.has_more;
+    productsServerOffset = rows.length;
+    return true;
+  } catch (e) {
+    console.warn('Failed to sync products with server', e);
+    return false;
+  }
+}
+
 async function mergeExtraCategoryProductsFromServer() {
   const extraCategories = ['Spiral Copies', 'Stationery', 'Combos'];
   const byId = new Map((products || []).map((p) => [String(p.id), p]));
@@ -1278,7 +1303,7 @@ async function fetchProducts() {
     productsServerHasMore = false;
     productsServerOffset = products.length;
     isProductsLoading = false;
-    await mergeExtraCategoryProductsFromServer();
+    await syncProductsWithServer();
     renderStoreProducts();
     return;
   }
@@ -1360,7 +1385,7 @@ async function fetchProducts() {
     }
   } finally {
     isProductsLoading = false;
-    await mergeExtraCategoryProductsFromServer();
+    await syncProductsWithServer();
     renderStoreProducts();
   }
 }
@@ -7725,33 +7750,15 @@ document.addEventListener('DOMContentLoaded', updateHeroRates);
 
 
 // --- Spiral Copies Page ---
-const defaultSpiralCopies = [
-  { id: 'spiral-10-50', name: 'Spiral Copy 10-50 Pages', price: 50, category: 'Spiral Copies', pagesMin: 10, pagesMax: 50, img: 'images/about-books.webp' },
-  { id: 'spiral-51-100', name: 'Spiral Copy 50-100 Pages', price: 80, category: 'Spiral Copies', pagesMin: 51, pagesMax: 100, img: 'images/about-books.webp' },
-  { id: 'spiral-101-150', name: 'Spiral Copy 100-150 Pages', price: 110, category: 'Spiral Copies', pagesMin: 101, pagesMax: 150, img: 'images/about-books.webp' },
-  { id: 'spiral-151-200', name: 'Spiral Copy 150-200 Pages', price: 140, category: 'Spiral Copies', pagesMin: 151, pagesMax: 200, img: 'images/about-books.webp' },
-  { id: 'spiral-201-250', name: 'Spiral Copy 200-250 Pages', price: 170, category: 'Spiral Copies', pagesMin: 201, pagesMax: 250, img: 'images/about-books.webp' },
-  { id: 'spiral-251-300', name: 'Spiral Copy 250-300 Pages', price: 200, category: 'Spiral Copies', pagesMin: 251, pagesMax: 300, img: 'images/about-books.webp' },
-  { id: 'spiral-301-350', name: 'Spiral Copy 300-350 Pages', price: 230, category: 'Spiral Copies', pagesMin: 301, pagesMax: 350, img: 'images/about-books.webp' },
-  { id: 'spiral-351-400', name: 'Spiral Copy 350-400 Pages', price: 260, category: 'Spiral Copies', pagesMin: 351, pagesMax: 400, img: 'images/about-books.webp' },
-  { id: 'spiral-401-450', name: 'Spiral Copy 400-450 Pages', price: 290, category: 'Spiral Copies', pagesMin: 401, pagesMax: 450, img: 'images/about-books.webp' },
-  { id: 'spiral-451-500', name: 'Spiral Copy 450-500 Pages', price: 320, category: 'Spiral Copies', pagesMin: 451, pagesMax: 500, img: 'images/about-books.webp' }
-];
 
 function getSpiralCopies() {
-  const byId = new Map();
-  defaultSpiralCopies.forEach((item) => byId.set(String(item.id), { ...item }));
-  (products || []).filter(p => p.category === 'Spiral Copies').forEach((p, index) => {
-    const id = String(p.id || `spiral-added-${index}`);
-    const existing = byId.get(id);
-    byId.set(id, {
-      ...(existing || {}),
+  return (products || [])
+    .filter(p => p.category === 'Spiral Copies')
+    .map((p, index) => ({
       ...p,
-      id: p.id || existing?.id || `spiral-added-${index}`,
-      img: p.img || existing?.img || 'images/about-books.webp'
-    });
-  });
-  return Array.from(byId.values());
+      id: p.id || `spiral-added-${index}`,
+      img: p.img || 'images/about-books.webp'
+    }));
 }
 
 function getSpiralCopyPages(item) {
