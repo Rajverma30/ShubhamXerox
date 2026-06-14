@@ -1847,7 +1847,7 @@ async def get_deleted_catalog_ids():
 @app.get("/catalog/overrides")
 async def get_catalog_overrides(response: Response):
     """Full DB product rows for catalog books edited in admin (DB is source of truth)."""
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     rows = _load_db_extra_products()
     image_map = _load_db_product_images_map()
     overrides = []

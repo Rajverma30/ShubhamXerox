@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15-db';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1108,9 +1108,22 @@ function upsertProductInMemory(nextProduct) {
   rebuildProductSlugIndex(products);
 }
 
+function resetProductsGridRenderState() {
+  window.productsGridLastKey = '';
+  window.productsGridLastRenderedCount = 0;
+}
+
+async function applyServerCatalogSync() {
+  await syncCatalogOverridesFromServer();
+  await syncCatalogImagesFromServer();
+  await syncProductsWithServer(Math.max(500, (products || []).length));
+  resetProductsGridRenderState();
+  saveProductsToCache(products);
+}
+
 async function syncCatalogOverridesFromServer() {
   try {
-    const res = await apiFetch('/catalog/overrides', { auth: false });
+    const res = await apiFetch(`/catalog/overrides?v=${Date.now()}`, { auth: false });
     const rows = Array.isArray(res?.overrides) ? res.overrides : [];
     if (!rows.length) return false;
 
@@ -1343,8 +1356,8 @@ async function fetchProducts() {
         preloadFirstFoldProductImages(products, 4);
         if (!isAllProductsPage) {
           renderStoreProducts(); // Render instantly (non catalog pages)
+          saveProductsToCache(products);
         }
-        saveProductsToCache(products);
       }
     }
   } catch (e) {
@@ -1403,8 +1416,7 @@ async function fetchProducts() {
     productsServerHasMore = false;
     productsServerOffset = products.length;
     isProductsLoading = false;
-    await syncCatalogOverridesFromServer();
-    await syncCatalogImagesFromServer();
+    await applyServerCatalogSync();
     renderStoreProducts();
     return;
   }
@@ -1470,8 +1482,7 @@ async function fetchProducts() {
     }
   } finally {
     isProductsLoading = false;
-    await syncCatalogOverridesFromServer();
-    await syncCatalogImagesFromServer();
+    await applyServerCatalogSync();
     renderStoreProducts();
   }
 }
@@ -3915,6 +3926,7 @@ async function handleEditProduct(e) {
       const res = await apiFetch(`/admin/products/${id}`, { method: "PUT", body: payload });
       const saved = res?.product || payload;
       upsertProductInMemory({ id, ...saved });
+      resetProductsGridRenderState();
       saveProductsToCache(products);
       if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
       
