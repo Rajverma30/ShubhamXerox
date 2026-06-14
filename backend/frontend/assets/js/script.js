@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16b';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -1090,7 +1090,10 @@ async function fetchMergedProductByIdOrSlug(idOrSlug) {
   const key = String(idOrSlug || '').trim();
   if (!key) return null;
   try {
-    const res = await fetch(`${API_BASE}/products/lookup/${encodeURIComponent(key)}`);
+    const res = await fetch(
+      `${API_BASE}/products/lookup/${encodeURIComponent(key)}?v=${Date.now()}`,
+      { cache: 'no-store' }
+    );
     if (!res.ok) return null;
     const data = await res.json();
     return data?.product || null;
@@ -1098,6 +1101,22 @@ async function fetchMergedProductByIdOrSlug(idOrSlug) {
     console.warn('Product lookup failed:', e);
     return null;
   }
+}
+
+async function fetchDbManagedProductIds() {
+  try {
+    const res = await apiFetch(`/catalog/db-managed-ids?v=${Date.now()}`, { auth: false });
+    const ids = Array.isArray(res?.ids) ? res.ids : [];
+    return new Set(ids.map((id) => String(id)));
+  } catch (e) {
+    console.warn('Failed to load DB-managed product ids', e);
+    return new Set();
+  }
+}
+
+function excludeDbManagedCatalogProducts(list, dbManagedIds) {
+  if (!Array.isArray(list) || !dbManagedIds || dbManagedIds.size === 0) return list || [];
+  return list.filter((p) => p?.id != null && !dbManagedIds.has(String(p.id)));
 }
 
 function upsertProductInMemory(nextProduct) {
@@ -1336,6 +1355,7 @@ async function fetchProducts() {
   // Try to load from static JSON first for 0-delay rendering of static catalog
   try {
     await fetchDeletedCatalogIds();
+    const dbManagedIds = await fetchDbManagedProductIds();
     let res;
     try {
       res = await fetch(`${API_BASE}/assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
@@ -1344,7 +1364,10 @@ async function fetchProducts() {
       res = await fetch(`assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
     }
     if (res && res.ok) {
-      const staticProducts = filterDeletedCatalogProducts(await res.json());
+      const staticProducts = excludeDbManagedCatalogProducts(
+        filterDeletedCatalogProducts(await res.json()),
+        dbManagedIds
+      );
       if (Array.isArray(staticProducts) && staticProducts.length > 0) {
         const byId = new Map();
         staticProducts.forEach(p => byId.set(String(p.id), p));
@@ -5622,47 +5645,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       await fetchPromise;
     }
 
+    // Always load fresh product from server (DB is source of truth for edited books).
+    const lookupCandidates = [productPathValue, productIdRaw].filter(Boolean);
     rebuildProductSlugIndex();
-    if (isNumericProductPath) {
-      product = products.find((p) => String(p.id) === productIdRaw) || null;
-    } else if (productIdBySlug[productPathValue]) {
-      productIdRaw = productIdBySlug[productPathValue];
-      product = products.find((p) => String(p.id) === productIdRaw) || null;
-    } else {
-      const slugMatch = Object.keys(productIdBySlug).find((slug) => slug.toLowerCase() === productPathValue.toLowerCase());
-      if (slugMatch) {
+    if (productIdBySlug[productPathValue]) lookupCandidates.push(productIdBySlug[productPathValue]);
+    const slugMatch = Object.keys(productIdBySlug).find((slug) => slug.toLowerCase() === productPathValue.toLowerCase());
+    if (slugMatch && productIdBySlug[slugMatch]) lookupCandidates.push(productIdBySlug[slugMatch]);
+
+    for (const key of lookupCandidates) {
+      const serverProduct = await fetchMergedProductByIdOrSlug(key);
+      if (serverProduct) {
+        product = serverProduct;
+        productIdRaw = String(serverProduct.id ?? productIdRaw);
+        upsertProductInMemory(product);
+        break;
+      }
+    }
+
+    if (!product) {
+      if (isNumericProductPath) {
+        product = products.find((p) => String(p.id) === productIdRaw) || null;
+      } else if (productIdBySlug[productPathValue]) {
+        productIdRaw = productIdBySlug[productPathValue];
+        product = products.find((p) => String(p.id) === productIdRaw) || null;
+      } else if (slugMatch) {
         productIdRaw = productIdBySlug[slugMatch];
         product = products.find((p) => String(p.id) === productIdRaw) || null;
       }
     }
 
-    if (!product && productPathValue) {
-      try {
-        const lookupRes = await fetch(`${API_BASE}/products/lookup/${encodeURIComponent(productPathValue)}`);
-        if (lookupRes.ok) {
-          const lookupData = await lookupRes.json();
-          if (lookupData && lookupData.product) {
-            product = lookupData.product;
-            productIdRaw = String(lookupData.id || product.id);
-            rebuildProductSlugIndex([...products, product]);
-            const canonicalPath = lookupData.canonical_path || getProductUrl(product);
-            if (!isNumericProductPath && window.location.pathname !== canonicalPath) {
-              history.replaceState({}, '', canonicalPath);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Product slug lookup failed:', e);
-      }
-    }
-
-    // Always refresh catalog books from server so admin price edits show on product page.
-    if (product) {
-      const lookupKey = isNumericProductPath ? productIdRaw : (getProductSlug(product) || productPathValue);
-      const serverProduct = await fetchMergedProductByIdOrSlug(lookupKey);
-      if (serverProduct) {
-        product = mergeCatalogWithDbRow(product, serverProduct);
-        upsertProductInMemory(product);
+    if (product && !isNumericProductPath) {
+      const canonicalPath = getProductUrl(product);
+      if (window.location.pathname !== canonicalPath) {
+        history.replaceState({}, '', canonicalPath);
       }
     }
 

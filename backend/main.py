@@ -1844,6 +1844,14 @@ async def get_deleted_catalog_ids():
     return {"ids": deleted}
 
 
+@app.get("/catalog/db-managed-ids")
+async def get_db_managed_product_ids(response: Response):
+    """Product ids stored in DB — client should not use products.json for these."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    ids = [row.get("id") for row in _load_db_extra_products() if row.get("id") is not None]
+    return {"ids": ids}
+
+
 @app.get("/catalog/overrides")
 async def get_catalog_overrides(response: Response):
     """Full DB product rows for catalog books edited in admin (DB is source of truth)."""
@@ -2415,12 +2423,18 @@ def _ensure_product_og_preview_url(product_id: str, product: Dict[str, Any], bas
         return f"{base_url}/images/logo.png"
     return f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
 
+def _db_managed_product_ids() -> set:
+  return {str(row.get("id")) for row in _load_db_extra_products() if row.get("id") is not None}
+
+
 def _load_static_product(product_id: str) -> Optional[Dict[str, Any]]:
     try:
         pid = int(product_id)
     except (TypeError, ValueError):
         pid = None
     if pid is not None and pid in _load_deleted_static_product_ids():
+        return None
+    if str(product_id) in _db_managed_product_ids():
         return None
     for row in _read_static_catalog_rows_raw():
         if isinstance(row, dict) and str(row.get("id")) == str(product_id):
@@ -2794,7 +2808,8 @@ async def get_sitemap_xml(request: Request):
     )
 
 @app.get('/products/lookup/{product_slug}')
-async def lookup_product_by_slug(product_slug: str):
+async def lookup_product_by_slug(product_slug: str, response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     product = _resolve_product_from_path(product_slug)
     if not product or product.get("id") is None:
         raise HTTPException(status_code=404, detail="Product not found")
