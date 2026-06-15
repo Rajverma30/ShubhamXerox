@@ -530,7 +530,7 @@ def _guess_upload_content_type(file_bytes: bytes, filename: str = "") -> str:
     return "application/octet-stream"
 
 
-def _compress_upload_image_bytes(file_bytes: bytes, *, max_side: int = 1200, quality: int = 82) -> tuple:
+def _compress_upload_image_bytes(file_bytes: bytes, *, max_side: int = 600, quality: int = 62) -> tuple:
     content_type = _guess_upload_content_type(file_bytes)
     if not content_type.startswith("image/"):
         return file_bytes, content_type
@@ -588,6 +588,108 @@ async def compress_pdf_endpoint(req: CompressPdfRequest, background_tasks: Backg
     # Non-blocking endpoint to trigger compression
     background_tasks.add_task(compress_pdf_task, req.bucket, req.file_name)
     return {"status": "ok", "message": "Compression task started"}
+
+
+def _compress_data_url_image(data_url: str, *, max_side: int = 600, quality: int = 62) -> tuple:
+    """Compress a data-URL image. Returns (new_data_url, bytes_saved)."""
+    match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", str(data_url or ""), flags=re.DOTALL)
+    if not match:
+        return data_url, 0
+    try:
+        original = base64.b64decode(match.group(2))
+        compressed, _ = _compress_upload_image_bytes(original, max_side=max_side, quality=quality)
+        if not compressed or len(compressed) >= len(original):
+            return data_url, 0
+        encoded = base64.b64encode(compressed).decode("ascii")
+        return f"data:image/webp;base64,{encoded}", len(original) - len(compressed)
+    except Exception:
+        logger.exception("Failed to compress data-url image")
+        return data_url, 0
+
+
+def _compress_product_img_field(img_value: Any, *, max_side: int = 600, quality: int = 62) -> tuple:
+    """Compress pipe-separated product images. Returns (new_value, total_bytes_saved)."""
+    parts = _parse_product_images(img_value)
+    if not parts:
+        return str(img_value or ""), 0
+    saved = 0
+    out: List[str] = []
+    for part in parts:
+        if part.startswith("data:image/"):
+            compressed, delta = _compress_data_url_image(part, max_side=max_side, quality=quality)
+            out.append(compressed)
+            saved += delta
+        else:
+            out.append(part)
+    return "|".join(out), saved
+
+
+@app.post("/admin/compress-product-images")
+async def admin_compress_product_images(
+    max_side: int = 600,
+    quality: int = 62,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
+    """Re-compress base64 product images stored in Supabase (admin-only)."""
+    sb = _require_supabase()
+    max_side = max(200, min(int(max_side or 600), 1200))
+    quality = max(40, min(int(quality or 62), 90))
+
+    rows = []
+    offset = 0
+    while True:
+        res = (
+            sb.table("products")
+            .select("id,name,img")
+            .order("id", desc=True)
+            .range(offset, offset + 499)
+            .execute()
+        )
+        batch = res.data or []
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < 500:
+            break
+        offset += 500
+
+    updated = 0
+    skipped = 0
+    total_saved = 0
+    samples: List[Dict[str, Any]] = []
+
+    for row in rows:
+        img = row.get("img")
+        if not img or not str(img).startswith("data:image/"):
+            skipped += 1
+            continue
+        new_img, saved = _compress_product_img_field(img, max_side=max_side, quality=quality)
+        if saved <= 0 or new_img == img:
+            skipped += 1
+            continue
+        sb.table("products").update({"img": new_img}).eq("id", row["id"]).execute()
+        updated += 1
+        total_saved += saved
+        if len(samples) < 8:
+            samples.append({
+                "id": row.get("id"),
+                "name": str(row.get("name") or "")[:60],
+                "saved_kb": round(saved / 1024, 1),
+            })
+
+    PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
+    return {
+        "status": "ok",
+        "scanned": len(rows),
+        "updated": updated,
+        "skipped": skipped,
+        "saved_mb": round(total_saved / (1024 * 1024), 2),
+        "max_side": max_side,
+        "quality": quality,
+        "samples": samples,
+    }
 
 @app.post("/admin/book-pdf")
 async def admin_upload_book_pdf(
@@ -1230,10 +1332,11 @@ def _load_db_extra_products() -> List[Dict[str, Any]]:
                 "Authorization": f"Bearer {api_key}",
             }
             while True:
-                # Exclude img/desc from list fetches — base64 images caused massive Supabase egress.
+                # Exclude img from list fetches — base64 images caused massive Supabase egress.
+                # desc is tiny (e.g. spiral copy page counts) and needed for storefront filters.
                 url = (
                     f"{base_url}/rest/v1/products"
-                    "?select=id,name,category,price,original_price,exam,free_note_id"
+                    "?select=id,name,category,price,original_price,exam,free_note_id,desc"
                     f"&order=id.desc&offset={offset}&limit={limit}"
                 )
                 resp = requests.get(url, headers=headers, timeout=(5, 15))
@@ -1442,7 +1545,7 @@ async def list_public_products_helper(
 
             url = (
                 f"{base_url}/rest/v1/products"
-                "?select=id,name,category,price,original_price,img,exam,free_note_id"
+                "?select=id,name,category,price,original_price,img,exam,free_note_id,desc"
                 f"&order=id.desc&offset={offset}&limit={limit + 1}"
             )
             if cat_filter:

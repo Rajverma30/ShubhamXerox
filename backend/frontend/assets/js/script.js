@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-15f';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16a';
 const SCRIPT_BUILD_VERSION = '2026-06-15h';
 let productSlugById = {};
 let productIdBySlug = {};
@@ -3157,9 +3157,9 @@ async function generatePreviewImagesFromPdf(file, pageLimit = 3) {
     canvas.height = viewport.height;
     await page.render({ canvasContext: ctx, viewport }).promise;
 
-    // Compress and resize the extracted image to max 1200x1200
-    const MAX_WIDTH = 1200;
-    const MAX_HEIGHT = 1200;
+    // Compress and resize the extracted image to max 600x600
+    const MAX_WIDTH = 600;
+    const MAX_HEIGHT = 600;
     let width = canvas.width;
     let height = canvas.height;
 
@@ -3176,9 +3176,9 @@ async function generatePreviewImagesFromPdf(file, pageLimit = 3) {
       compressedCanvas.height = height;
       const compressedCtx = compressedCanvas.getContext('2d');
       compressedCtx.drawImage(canvas, 0, 0, width, height);
-      images.push(compressedCanvas.toDataURL('image/jpeg', 0.8));
+      images.push(compressedCanvas.toDataURL('image/webp', 0.62));
     } else {
-      images.push(canvas.toDataURL('image/jpeg', 0.8));
+      images.push(canvas.toDataURL('image/webp', 0.62));
     }
   }
   return images;
@@ -3192,8 +3192,8 @@ function compressImageFileToDataUrl(file) {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 900;
-        const MAX_HEIGHT = 900;
+        const MAX_WIDTH = 600;
+        const MAX_HEIGHT = 600;
         let width = img.width;
         let height = img.height;
         if (width > height && width > MAX_WIDTH) {
@@ -3207,7 +3207,7 @@ function compressImageFileToDataUrl(file) {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/webp', 0.75));
+        resolve(canvas.toDataURL('image/webp', 0.62));
       };
       img.onerror = () => resolve(null);
       img.src = e.target.result;
@@ -3696,28 +3696,43 @@ async function renderAdminList() {
 
 async function renderAdminUsers() {
   const userContainer = document.getElementById('adminUsersList');
-  if (userContainer) {
-    let dbUsers = [];
-    try {
-      const res = await apiFetch("/admin/users", { method: "GET" });
-      dbUsers = (res && res.users) || [];
-    } catch (err) {
-      dbUsers = [];
-      showToast(err.message || "Failed to load users");
-    }
-    if (dbUsers.length === 0) {
-      userContainer.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">No users found. Wait for users to register.</div>';
-    } else {
-      userContainer.innerHTML = dbUsers.map(u => `
-        <div class="admin-list-item">
-          <div><strong>${u.name}</strong> <span style="font-size:0.8rem; background:var(--bg-color); padding:2px 6px; border-radius:4px;">${u.role}</span></div>
-          <div style="color:var(--text-muted);">${u.phone}</div>
-          <button class="remove-btn" onclick="deleteUser('${u.phone}')" ${u.phone === ADMIN_PHONE || u.role === 'admin' ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Delete</button>
-        </div>
-      `).join('');
-    }
+  if (!userContainer) return;
+  userContainer.style.display = 'block';
+  userContainer.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">Loading users...</div>';
+  let dbUsers = [];
+  try {
+    const res = await apiFetch("/admin/users", { method: "GET" });
+    dbUsers = (res && res.users) || [];
+  } catch (err) {
+    dbUsers = [];
+    showToast(err.message || "Failed to load users");
+  }
+  if (dbUsers.length === 0) {
+    userContainer.innerHTML = '<div style="padding: 24px; color: var(--text-muted);">No users found. Wait for users to register.</div>';
+  } else {
+    userContainer.innerHTML = dbUsers.map(u => `
+      <div class="admin-list-item">
+        <div><strong>${u.name}</strong> <span style="font-size:0.8rem; background:var(--bg-color); padding:2px 6px; border-radius:4px;">${u.role}</span></div>
+        <div style="color:var(--text-muted);">${u.phone}</div>
+        <button class="remove-btn" onclick="deleteUser('${u.phone}')" ${u.phone === ADMIN_PHONE || u.role === 'admin' ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Delete</button>
+      </div>
+    `).join('');
   }
 }
+
+window.showRegisteredUsers = async function () {
+  const btn = document.getElementById('showRegisteredUsersBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+  }
+  try {
+    await renderAdminUsers();
+    if (btn) btn.textContent = 'Refresh Users';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
 
 window.deleteUser = async function (phone) {
   if (phone === ADMIN_PHONE) {
@@ -5441,8 +5456,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (document.getElementById('statRevenue')) {
       await renderAdminDashboard();
     }
-    if (document.getElementById('adminUsersList')) {
-      await renderAdminUsers();
+    const showUsersBtn = document.getElementById('showRegisteredUsersBtn');
+    if (showUsersBtn) {
+      showUsersBtn.addEventListener('click', () => showRegisteredUsers());
     }
   }
 
@@ -7984,21 +8000,50 @@ function getSpiralCopies() {
 }
 
 function getSpiralCopyPages(item) {
-  const text = `${item.name || ''} ${item.desc || ''}`;
-  const explicit = String(item.desc || '').match(/pages?\s*:\s*(\d+)/i);
-  if (explicit) {
-    const pages = parseInt(explicit[1], 10);
-    return { min: pages, max: pages, label: `${pages} Pages` };
+  const name = String(item.name || '');
+  const desc = String(item.desc || '');
+
+  const explicitDesc = desc.match(/pages?\s*:\s*(\d+)/i);
+  if (explicitDesc) {
+    const pages = parseInt(explicitDesc[1], 10);
+    if (pages > 0) return { min: pages, max: pages, label: `${pages} Pages` };
   }
-  const range = text.match(/(\d+)\s*[-–]\s*(\d+)/);
+
+  const pagesMin = Number(item.pagesMin);
+  const pagesMax = Number(item.pagesMax);
+  if (Number.isFinite(pagesMin) && pagesMin > 0) {
+    const max = Number.isFinite(pagesMax) && pagesMax > 0 ? pagesMax : pagesMin;
+    return {
+      min: pagesMin,
+      max,
+      label: pagesMin !== max ? `${pagesMin}-${max} Pages` : `${pagesMin} Pages`
+    };
+  }
+
+  const text = `${name} ${desc}`;
+  const oneX = text.match(/\b1\s*[x×]\s*(\d+)\s*pages?\b/i);
+  if (oneX) {
+    const pages = parseInt(oneX[1], 10);
+    if (pages > 0) return { min: pages, max: pages, label: `${pages} Pages` };
+  }
+  const pagesInText = text.match(/(?:^|[^\d])(\d{2,4})\s*pages?\b/i);
+  if (pagesInText) {
+    const pages = parseInt(pagesInText[1], 10);
+    if (pages >= 10) return { min: pages, max: pages, label: `${pages} Pages` };
+  }
+  const range = text.match(/(\d{2,4})\s*[-–]\s*(\d{2,4})\s*pages?\b/i);
   if (range) {
     const min = parseInt(range[1], 10);
     const max = parseInt(range[2], 10);
     return { min, max, label: `${min}-${max} Pages` };
   }
-  const fallback = Number(item.pagesMin) || parseInt(String(item.name || '').match(/\d+/)?.[0] || '0', 10);
-  const max = Number(item.pagesMax) || fallback;
-  return { min: fallback, max, label: fallback && max && fallback !== max ? `${fallback}-${max} Pages` : (fallback ? `${fallback} Pages` : '') };
+  const explicitName = name.match(/pages?\s*:\s*(\d+)/i);
+  if (explicitName) {
+    const pages = parseInt(explicitName[1], 10);
+    if (pages > 0) return { min: pages, max: pages, label: `${pages} Pages` };
+  }
+
+  return { min: 0, max: 0, label: '' };
 }
 
 window.addSpiralCopyToCart = function (productId) {
@@ -8023,19 +8068,17 @@ window.renderSpiralCopies = function (range = 'all') {
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted); font-size: 1.1rem; font-weight: 500;">No Spiral Copies available yet.</div>';
     return;
   }
-  grid.innerHTML = visible.map(item => `
-    <article class="product-card">
-      <div class="product-image-container">
-        <img src="${item.img}" alt="${item.name}" class="product-image" loading="lazy">
-      </div>
-      <div class="product-info">
-        <h3 class="product-title">${item.name}</h3>
-        ${getSpiralCopyPages(item).label ? `<p style="color:var(--text-muted); font-size:0.9rem; margin-top:6px;">${getSpiralCopyPages(item).label}</p>` : ''}
-        <div class="product-price">${formatPrice(Number(item.price) || 0)}</div>
-        <button class="btn btn-primary" style="width:100%; margin-top:14px;" onclick="addSpiralCopyToCart('${item.id}')">Add to Cart</button>
-      </div>
-    </article>
-  `).join('');
+  grid.innerHTML = visible.map(item => {
+    const pages = getSpiralCopyPages(item);
+    let card = createProductCard(item);
+    if (pages.label) {
+      card = card.replace(
+        '<div class="catalog-card-title">',
+        `<p style="color:var(--text-muted); font-size:0.85rem; margin:0 0 4px; font-weight:600;">${pages.label}</p><div class="catalog-card-title">`
+      );
+    }
+    return card;
+  }).join('');
 };
 
 document.addEventListener('DOMContentLoaded', () => {

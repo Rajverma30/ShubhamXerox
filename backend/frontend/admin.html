@@ -104,10 +104,13 @@
         </div>
       </div>
 
-      <!-- Registered Users -->
-      <h2 style="margin-bottom: 24px; font-size: 1.5rem;">Registered Users</h2>
-      <div class="admin-list" id="adminUsersList" style="margin-bottom: 60px;">
-        <div style="padding: 24px; color: var(--text-muted);">Loading users...</div>
+      <!-- Registered Users (loaded on demand) -->
+      <div style="margin-bottom: 60px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+          <h2 style="font-size: 1.5rem; margin: 0;">Registered Users</h2>
+          <button type="button" id="showRegisteredUsersBtn" class="btn btn-outline-purple" style="padding: 10px 20px;">See Registered Users</button>
+        </div>
+        <div class="admin-list" id="adminUsersList" style="display: none;"></div>
       </div>
 
       <div class="admin-card" style="margin-bottom: 60px;">
@@ -164,7 +167,7 @@
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="/config.js"></script>
-  <script defer src="assets/js/script.js?v=4.8"></script>
+  <script defer src="assets/js/script.js?v=4.9"></script>
 </body>
 </html>
 
