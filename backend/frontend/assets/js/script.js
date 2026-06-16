@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16a';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16b';
 const SCRIPT_BUILD_VERSION = '2026-06-15h';
 let productSlugById = {};
 let productIdBySlug = {};
@@ -1364,7 +1364,6 @@ async function fetchProducts() {
   // Try to load from static JSON first for 0-delay rendering of static catalog
   try {
     await fetchDeletedCatalogIds();
-    const dbManagedIds = await fetchDbManagedProductIds();
     let res;
     try {
       res = await fetch(`${API_BASE}/assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
@@ -1373,10 +1372,8 @@ async function fetchProducts() {
       res = await fetch(`assets/products.json?v=${PRODUCTS_JSON_BUILD_VERSION}`);
     }
     if (res && res.ok) {
-      const staticProducts = excludeDbManagedCatalogProducts(
-        filterDeletedCatalogProducts(await res.json()),
-        dbManagedIds
-      );
+      // Keep static rows as fallback; DB overrides merge on top in applyServerCatalogSync().
+      const staticProducts = filterDeletedCatalogProducts(await res.json());
       if (Array.isArray(staticProducts) && staticProducts.length > 0) {
         const byId = new Map();
         staticProducts.forEach(p => byId.set(String(p.id), p));
@@ -1445,8 +1442,6 @@ async function fetchProducts() {
     : '';
 
   if (hasLocalCache && products.length > 0 && !productsServerCategoryFilter && !hasUrlQuery) {
-    productsServerHasMore = false;
-    productsServerOffset = products.length;
     isProductsLoading = false;
     await applyServerCatalogSync();
     renderStoreProducts();
