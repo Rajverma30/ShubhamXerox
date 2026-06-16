@@ -1291,6 +1291,19 @@ def _get_static_catalog_id_set() -> set:
     return ids
 
 
+def _next_product_id() -> int:
+    """Next catalog id so new products sort to the top (highest id first)."""
+    ids = set(_get_static_catalog_id_set())
+    if supabase:
+        try:
+            res = supabase.table("products").select("id").order("id", desc=True).limit(1).execute()
+            if res.data:
+                ids.add(int(res.data[0]["id"]))
+        except Exception:
+            logger.exception("Failed to fetch max product id from DB")
+    return (max(ids) if ids else 0) + 1
+
+
 def _is_static_catalog_product_id(product_id: int) -> bool:
     return product_id in _get_static_catalog_id_set()
 
@@ -1799,10 +1812,12 @@ async def admin_list_products(
 async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
     sb = _require_supabase()
     payload = _product_db_payload(req.model_dump(by_alias=True, exclude_none=True))
+    payload["id"] = _next_product_id()
     res = sb.table("products").insert(payload).execute()
     PRODUCTS_CACHE.clear()
     DB_EXTRA_PRODUCTS_CACHE.clear()
     DB_PRODUCT_IMAGES_CACHE.clear()
+    CATALOG_PRODUCTS_CACHE.clear()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 def _remove_static_catalog_row(product_id: int) -> bool:
