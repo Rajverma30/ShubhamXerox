@@ -287,7 +287,9 @@ button {
   padding: 8px 0;
   margin: 0;
   list-style: none;
-  background: var(--card-bg);
+  background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
@@ -988,7 +990,9 @@ button {
     max-width: 100%;
     border-radius: 10px;
     margin-top: 8px;
-    background: var(--card-bg);
+    background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
   }
   .nav-icons {
     margin-left: auto;
@@ -1327,6 +1331,41 @@ select.form-control option {
   border: 1px solid var(--border-color);
   font-size: 1rem;
   box-shadow: var(--shadow-sm);
+}
+
+/* Homepage quick search suggestions dropdown */
+.hero-quick-search-section {
+  position: relative;
+  z-index: 50;
+}
+
+.hero-quick-suggestions {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 120;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  background: color-mix(in srgb, var(--card-bg) 78%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.hero-quick-suggestions.is-open {
+  display: block;
+}
+
+.hero-quick-suggestions .hero-quick-suggest-item {
+  background: transparent;
+}
+
+.hero-quick-suggestions .hero-quick-suggest-item:hover {
+  background: color-mix(in srgb, var(--active-cat-bg) 65%, transparent);
 }
 
 /* --- Auth UI --- */

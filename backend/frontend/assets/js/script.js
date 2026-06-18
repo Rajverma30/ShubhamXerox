@@ -103,7 +103,7 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-06-16e';
+const PRODUCTS_JSON_BUILD_VERSION = '2026-06-19a';
 const SCRIPT_BUILD_VERSION = '2026-06-15h';
 let productSlugById = {};
 let productIdBySlug = {};
@@ -574,12 +574,12 @@ function initHeroQuickSearch() {
   if (!input || !panel) return;
 
   const closePanel = () => {
-    panel.style.display = 'none';
+    panel.classList.remove('is-open');
     panel.innerHTML = '';
   };
 
   const openPanel = () => {
-    panel.style.display = 'block';
+    panel.classList.add('is-open');
   };
 
   const applySearch = async (q) => {
