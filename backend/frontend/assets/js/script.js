@@ -41,6 +41,7 @@ const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
 let DELIVERY_FEE = 70;
 const CE_BINDING_FEES = { none: 0, spiral: 20, pin: 10 };
+const CE_PAPER_SIZE_MULTIPLIERS = { a4: 1, a3: 2.5, legal: 1, letter: 1 };
 const API_BASE = window.API_BASE_URL || (
   window.location.protocol === "http:" || window.location.protocol === "https:"
     ? window.location.origin
@@ -7303,8 +7304,9 @@ window.recalcEstimate = function () {
   const bindingLabel = ceState.binding === 'spiral' ? 'Spiral binding' : ceState.binding === 'pin' ? 'Pin binding' : 'No binding';
 
   const rate = getCeRates()[ceState.printType];
+  const sizeMultiplier = CE_PAPER_SIZE_MULTIPLIERS[ceState.paperSize] || 1;
   const billablePages = ceState.pages;
-  let protoCost = billablePages * rate;
+  let protoCost = billablePages * rate * sizeMultiplier;
   if (ceState.sides === 'double') {
     protoCost = protoCost * 0.5;
   }
@@ -7313,9 +7315,12 @@ window.recalcEstimate = function () {
     ceState.totalCost += DELIVERY_FEE;
   }
 
+  const sizeLabel = { a4: 'A4', a3: 'A3', legal: 'Legal', letter: 'Letter' };
+  const sizeName = sizeLabel[ceState.paperSize] || ceState.paperSize;
   document.getElementById('ceResPages').textContent = ceState.pages + (ceState.sides === 'double' ? ' pages (Double-Sided discounted)' : ' pages');
   document.getElementById('ceResCopies').textContent = ceState.copies;
-  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'}) | ${bindingLabel}${bindingFee ? ` + \u20B9${bindingFee}` : ''}`;
+  const sizeRateNote = sizeMultiplier !== 1 ? ` | ${sizeName} \u00D7${sizeMultiplier}` : '';
+  document.getElementById('ceResRate').textContent = `\u20B9${rate}/page (${ceState.printType === 'bw' ? 'B&W' : 'Colour'})${sizeRateNote} | ${bindingLabel}${bindingFee ? ` + \u20B9${bindingFee}` : ''}`;
 
   let totalDesc = `\u20B9${ceState.totalCost.toFixed(2)}`;
   const included = [];
@@ -7666,7 +7671,9 @@ window.updatePhotocopyStatus = async function (orderId, newStatus) {
     showToast(err.message || "Update failed");
     return;
   }
-  showToast('Status updated!');
+  const clearedPdf = newStatus === 'Completed' || newStatus === 'Delivered';
+  showToast(clearedPdf ? 'Status updated. PDF removed from storage.' : 'Status updated!');
+  await renderAdminPhotocopyOrders();
 };
 
 // ==========================================

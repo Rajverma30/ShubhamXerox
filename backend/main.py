@@ -424,6 +424,48 @@ def _upload_storage_bytes(bucket: str, file_name: str, file_bytes: bytes, conten
         raise HTTPException(status_code=500, detail=f"Storage upload failed: {upload_res.text}")
     return f"{base_url}/storage/v1/object/public/{quote(bucket, safe='')}/{object_path}"
 
+def _delete_storage_files(bucket: str, paths: List[str]) -> None:
+    clean_paths = [p.strip() for p in paths if p and str(p).strip()]
+    if not clean_paths:
+        return
+    base_url = _supabase_storage_base_url()
+    bucket_id = quote(bucket, safe="")
+    try:
+        delete_res = requests.delete(
+            f"{base_url}/storage/v1/object/{bucket_id}",
+            headers=_supabase_storage_headers({"Content-Type": "application/json"}),
+            json={"prefixes": clean_paths},
+            timeout=60,
+        )
+        if delete_res.status_code in (200, 204):
+            return
+        logger.warning("Storage batch delete returned %s: %s", delete_res.status_code, delete_res.text)
+    except Exception:
+        logger.exception("Storage batch delete failed for bucket %s", bucket)
+    for path in clean_paths:
+        try:
+            object_path = quote(path, safe="/")
+            single_res = requests.delete(
+                f"{base_url}/storage/v1/object/{bucket_id}/{object_path}",
+                headers=_supabase_storage_headers(),
+                timeout=60,
+            )
+            if single_res.status_code not in (200, 204):
+                logger.warning("Storage delete failed for %s/%s: %s", bucket, path, single_res.text)
+        except Exception:
+            logger.exception("Storage delete failed for %s/%s", bucket, path)
+
+def _photocopy_doc_paths(order: Dict[str, Any]) -> List[str]:
+    raw = order.get("doc_path") or ""
+    return [p.strip() for p in str(raw).split("|") if p.strip()]
+
+def _purge_photocopy_order_pdfs(order: Dict[str, Any]) -> Dict[str, Any]:
+    paths = _photocopy_doc_paths(order)
+    if paths:
+        _delete_storage_files("photocopy-docs", paths)
+        logger.info("Purged %s photocopy PDF(s) for order %s", len(paths), order.get("id"))
+    return {"doc_url": None, "doc_path": None}
+
 def _safe_storage_filename(filename: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", filename or "book.pdf").strip("._")
     if not safe.lower().endswith(".pdf"):
@@ -545,11 +587,21 @@ def _compress_pdf_bytes(file_bytes: bytes) -> bytes:
         import fitz  # PyMuPDF
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         out = io.BytesIO()
-        doc.save(out, garbage=4, deflate=True, clean=True)
+        doc.save(
+            out,
+            garbage=4,
+            deflate=True,
+            clean=True,
+            deflate_images=True,
+            deflate_fonts=True,
+        )
         doc.close()
         compressed = out.getvalue()
         if compressed and len(compressed) < len(file_bytes):
             logger.info("PDF compressed %s -> %s bytes", len(file_bytes), len(compressed))
+            return compressed
+        if compressed:
+            logger.info("PDF re-saved at %s bytes (no size reduction)", len(compressed))
             return compressed
     except Exception:
         logger.exception("PDF compression failed; using original bytes")
@@ -1207,9 +1259,14 @@ async def shiprocket_webhook(request: Request):
             if books_res.data:
                 supabase.table("orders").update({"status": "Delivered"}).eq("id", books_res.data[0]["id"]).execute()
             else:
-                photo_res = supabase.table("photocopy_orders").select("id").like("tracking_url", f"%{awb}%").execute()
+                photo_res = supabase.table("photocopy_orders").select("*").like("tracking_url", f"%{awb}%").execute()
                 if photo_res.data:
-                    supabase.table("photocopy_orders").update({"status": "Delivered"}).eq("id", photo_res.data[0]["id"]).execute()
+                    order = photo_res.data[0]
+                    purge_fields = _purge_photocopy_order_pdfs(order)
+                    supabase.table("photocopy_orders").update({
+                        "status": "Delivered",
+                        **purge_fields,
+                    }).eq("id", order["id"]).execute()
                     
         return {"status": "ok"}
     except Exception as e:
@@ -2137,7 +2194,13 @@ async def admin_update_order_status(order_id: str, req: AdminOrderStatusUpdate, 
         raise HTTPException(status_code=400, detail="Use Cancel Refund action to cancel and refund orders")
     sb = _require_supabase()
     table = _orders_table_for(order_type)
-    sb.table(table).update({"status": req.status}).eq("id", order_id).execute()
+    update_payload: Dict[str, Any] = {"status": req.status}
+    status_norm = req.status.strip().lower()
+    if table == "photocopy_orders" and status_norm in ("completed", "delivered"):
+        res = sb.table(table).select("*").eq("id", order_id).execute()
+        if res.data:
+            update_payload.update(_purge_photocopy_order_pdfs(res.data[0]))
+    sb.table(table).update(update_payload).eq("id", order_id).execute()
     return {"status": "ok"}
 
 
