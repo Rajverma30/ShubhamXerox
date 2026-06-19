@@ -40,7 +40,7 @@ window.toggleDescriptionField = function (val, targetId) {
 const ADMIN_PHONE = "6265660387";
 const WHATSAPP_NUMBER = "919826462963";
 let DELIVERY_FEE = 70;
-const CE_BINDING_FEES = { none: 0, spiral: 30, pin: 20 };
+const CE_BINDING_FEES = { none: 0, spiral: 20, pin: 10 };
 const API_BASE = window.API_BASE_URL || (
   window.location.protocol === "http:" || window.location.protocol === "https:"
     ? window.location.origin
@@ -7971,13 +7971,16 @@ function purchaseNote(id, price, title) {
 }
 
 function updateHeroRates() {
-  const bwEl = document.getElementById('heroRateBw');
+  const bwSingleEl = document.getElementById('heroRateBwSingle');
+  const bwDoubleEl = document.getElementById('heroRateBwDouble');
   const colorEl = document.getElementById('heroRateColor');
-  if (bwEl && colorEl) {
-    const rates = getCeRates();
-    bwEl.textContent = `₹${rates.bw}`;
-    colorEl.textContent = `₹${rates.color}`;
-  }
+  if (!bwSingleEl && !bwDoubleEl && !colorEl) return;
+  const rates = getCeRates();
+  const singleRate = Number(rates.bw);
+  const bothRate = Number((singleRate / 2).toFixed(2));
+  if (bwSingleEl) bwSingleEl.textContent = `₹${singleRate}`;
+  if (bwDoubleEl) bwDoubleEl.textContent = `₹${bothRate}`;
+  if (colorEl) colorEl.textContent = `₹${rates.color}`;
 }
 document.addEventListener('DOMContentLoaded', updateHeroRates);
 

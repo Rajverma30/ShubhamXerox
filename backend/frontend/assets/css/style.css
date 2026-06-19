@@ -13,6 +13,7 @@
   --nav-bg: rgba(255, 255, 255, 0.85);
   --dropdown-bg: #ffffff;
   --dropdown-hover: rgba(0, 0, 0, 0.05);
+  --nav-menu-glass-bg: color-mix(in srgb, var(--dropdown-bg) 94%, transparent);
   --hero-text-grad: linear-gradient(135deg, #fceabb 0%, #f8b500 100%);
   --hero-text-shadow: 0 4px 20px rgba(248, 181, 0, 0.4);
   --slide-overlay: linear-gradient(to top, rgba(245, 247, 250, 1) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.7) 100%);
@@ -46,6 +47,7 @@
   --nav-bg: rgba(10, 10, 15, 0.7);
   --dropdown-bg: #11141e;
   --dropdown-hover: rgba(255, 255, 255, 0.05);
+  --nav-menu-glass-bg: color-mix(in srgb, var(--dropdown-bg) 96%, transparent);
   --hero-text-grad: linear-gradient(135deg, #fceabb 0%, #f8b500 100%);
   --hero-text-shadow: 0 4px 20px rgba(248, 181, 0, 0.4);
   --slide-overlay: linear-gradient(to top, rgba(30, 39, 46, 1) 0%, rgba(19, 15, 64, 0.4) 50%, rgba(0,0,0,0.6) 100%);
@@ -287,13 +289,15 @@ button {
   padding: 8px 0;
   margin: 0;
   list-style: none;
-  background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border-color);
+  background: var(--nav-menu-glass-bg);
+  backdrop-filter: blur(28px) saturate(1.35);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
   z-index: 300;
+  isolation: isolate;
+  overflow: hidden;
 }
 
 .nav-links .nav-dropdown.is-open .nav-dropdown-menu,
@@ -311,7 +315,7 @@ button {
 }
 
 .nav-links .nav-dropdown-menu a:hover {
-  background: var(--active-cat-bg);
+  background: color-mix(in srgb, var(--dropdown-hover) 85%, var(--dropdown-bg));
   color: var(--primary);
 }
 
@@ -326,7 +330,11 @@ button {
   max-width: min(92vw, 420px);
   max-height: min(70vh, 520px);
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px 0;
+  background: var(--nav-menu-glass-bg);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
 }
 
 .nav-links .nav-dropdown-menu.nav-categories-menu a {
@@ -990,9 +998,9 @@ button {
     max-width: 100%;
     border-radius: 10px;
     margin-top: 8px;
-    background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background: var(--nav-menu-glass-bg);
+    backdrop-filter: blur(28px) saturate(1.35);
+    -webkit-backdrop-filter: blur(28px) saturate(1.35);
   }
   .nav-icons {
     margin-left: auto;
@@ -1348,12 +1356,13 @@ select.form-control option {
   max-height: 320px;
   overflow-y: auto;
   z-index: 120;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  background: color-mix(in srgb, var(--card-bg) 78%, transparent);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
+  background: var(--nav-menu-glass-bg);
+  backdrop-filter: blur(28px) saturate(1.35);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  isolation: isolate;
 }
 
 .hero-quick-suggestions.is-open {

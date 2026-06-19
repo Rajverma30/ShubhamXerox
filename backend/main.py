@@ -464,6 +464,47 @@ def _normalize_order_phones(payload: Dict[str, Any], table: str) -> None:
                 payload.pop("customerPhone", None)
                 break
 
+_MISSING_COLUMN_RE = re.compile(r"Could not find the '([^']+)' column")
+
+def _preserve_stripped_photocopy_field(payload: Dict[str, Any], column: str, payment_id: Optional[str] = None) -> None:
+    """Embed optional photocopy fields into existing columns when the DB schema is older."""
+    if column == "delivery_mode":
+        mode = payload.pop("delivery_mode", None)
+        if mode:
+            tag = "Collect at store" if mode == "collect" else "Home delivery"
+            addr = payload.get("address") or ""
+            if tag not in addr:
+                payload["address"] = f"{addr} [{tag}]".strip()
+        return
+    if column == "transaction_id":
+        payload.pop("transaction_id", None)
+        if payment_id:
+            payload["payment_method"] = f"Online (Txn: {payment_id})"
+        return
+    payload.pop(column, None)
+
+def _insert_order_payload(table: str, payload: Dict[str, Any], payment_id: Optional[str] = None):
+    max_retries = 10
+    last_error: Optional[Exception] = None
+    for _ in range(max_retries):
+        try:
+            response = supabase.table(table).insert(payload).execute()
+            if not response.data:
+                raise Exception("No data returned from insert")
+            return response
+        except Exception as e:
+            last_error = e
+            if table != "photocopy_orders":
+                raise
+            match = _MISSING_COLUMN_RE.search(str(e))
+            if not match:
+                raise
+            column = match.group(1)
+            if column not in payload:
+                raise
+            _preserve_stripped_photocopy_field(payload, column, payment_id)
+    raise last_error or Exception("Database insertion failed after column fallbacks")
+
 def _seed_admin_user() -> None:
     """
     Backward compatibility:
@@ -1013,27 +1054,12 @@ async def verify_payment(req: VerifyPaymentRequest, user: Optional[Dict[str, Any
 
     # Strip created_at to let database handle timestamps if desired, or let frontend supply it
     
-    # 4. Save to Supabase
+    # 4. Save to Supabase (retries without optional columns missing from older schemas)
     try:
-        response = supabase.table(table).insert(payload).execute()
-        
-        # If the user schema lacks transaction_id, it might throw a postgrest error.
-        # Fallback mechanism if insertion fails due to a missing column:
-        if not response.data:
-            raise Exception("No data returned from insert")
-            
+        payment_id = req.razorpay_payment_id if table == "photocopy_orders" else None
+        _insert_order_payload(table, payload, payment_id=payment_id)
     except Exception as e:
-        # Fallback: some schemas may not have 'transaction_id' mapped in photocopy_orders.
-        # Let's remove it and embed it into payment_method just like books
-        if "transaction_id" in payload:
-            del payload["transaction_id"]
-            payload["payment_method"] = f"Online (Txn: {req.razorpay_payment_id})"
-            try:
-                response = supabase.table(table).insert(payload).execute()
-            except Exception as inner_e:
-                raise HTTPException(status_code=500, detail=f"Database insertion failed completely: {str(inner_e)}")
-        else:
-            raise HTTPException(status_code=500, detail=f"Database insertion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database insertion failed: {str(e)}")
 
     # 5. Shiprocket Integration
     if table == "orders":
@@ -1059,9 +1085,7 @@ async def create_cod_order(req: CreateCodOrderRequest, user: Optional[Dict[str, 
     _normalize_order_phones(payload, table)
     
     try:
-        response = supabase.table(table).insert(payload).execute()
-        if not response.data:
-            raise Exception("No data returned from insert")
+        _insert_order_payload(table, payload)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database insertion failed: {str(e)}")
 
