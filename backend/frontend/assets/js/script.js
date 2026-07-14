@@ -104,8 +104,11 @@ let productsServerOffset = 0;
 let productsServerHasMore = true;
 let productsServerLoading = false;
 const PRODUCTS_SERVER_PAGE_SIZE = 10;
-const PRODUCTS_JSON_BUILD_VERSION = '2026-07-06a';
-const SCRIPT_BUILD_VERSION = '2026-06-15h';
+/** All Products page: first paint + each scroll chunk. */
+const ALL_PRODUCTS_PAGE_SIZE = 30;
+let allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
+const PRODUCTS_JSON_BUILD_VERSION = '2026-07-15a';
+const SCRIPT_BUILD_VERSION = '2026-07-15a';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
@@ -181,7 +184,47 @@ function smoothRevealNodes(nodes, staggerMs = 16) {
 function resetProductsInfiniteScroll() {
   window.productsGridBootstrapped = false;
   window.productsGridTotalFilteredCount = 0;
+  window.productsGridLastKey = '';
+  window.productsGridLastRenderedCount = 0;
   isLoadingMoreProducts = false;
+  allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
+}
+
+function getAllProductsRenderLimit() {
+  return allProductsVisibleCount;
+}
+
+function loadMoreAllProductsOnScroll() {
+  if (isLoadingMoreProducts) return;
+  const container = document.getElementById('allProductsContainer');
+  if (!container) return;
+
+  const totalFiltered = Number(window.productsGridTotalFilteredCount || 0);
+  const hasMoreLocal = allProductsVisibleCount < totalFiltered;
+  if (!hasMoreLocal) return;
+
+  isLoadingMoreProducts = true;
+  allProductsVisibleCount += ALL_PRODUCTS_PAGE_SIZE;
+  try {
+    renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
+  } finally {
+    isLoadingMoreProducts = false;
+  }
+}
+
+function setupAllProductsInfiniteScroll() {
+  if (window._allProductsScrollBound) return;
+  if (!document.getElementById('allProductsContainer')) return;
+  window._allProductsScrollBound = true;
+
+  const onScroll = () => {
+    const nearBottom =
+      window.innerHeight + window.scrollY >= (document.documentElement.scrollHeight - 900);
+    if (!nearBottom) return;
+    loadMoreAllProductsOnScroll();
+  };
+
+  window.addEventListener('scroll', onScroll, { passive: true });
 }
 
 function resetProductsServerPagination() {
@@ -434,7 +477,7 @@ async function performDatabaseSearch(query, categories, isFeatured, skipRender =
           if (typeof renderFeaturedProducts === 'function') renderFeaturedProducts();
         } else {
           if (typeof resetProductsInfiniteScroll === 'function') resetProductsInfiniteScroll();
-          if (typeof renderProductsGrid === 'function') renderProductsGrid('allProductsContainer', null, selectedCategories);
+          if (typeof renderProductsGrid === 'function') renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
           if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
         }
       }
@@ -1291,7 +1334,7 @@ function renderStoreProducts() {
   }
   if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
     renderMultiSelect();
-    renderProductsGrid('allProductsContainer', null, selectedCategories);
+    renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
   }
   populateProductNameSuggestions();
 }
@@ -1615,12 +1658,12 @@ async function backgroundRenderLoop() {
         const isSearching = !!(searchInput && String(searchInput.value || '').trim());
         // While searching, avoid live re-renders from background stream to prevent hover jitter.
         if (!isSearching) {
-          renderProductsGrid('allProductsContainer', null, selectedCategories);
+          renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
         } else {
           const now = Date.now();
           if (!window.lastSearchGridRefreshAt || now - window.lastSearchGridRefreshAt > 600) {
             window.lastSearchGridRefreshAt = now;
-            renderProductsGrid('allProductsContainer', null, selectedCategories);
+            renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
           }
         }
       }
@@ -2649,7 +2692,7 @@ window.handleCategoryToggle = function (checkbox) {
   }
   resetProductsInfiniteScroll();
   updateActiveCategoryTags();
-  renderProductsGrid('allProductsContainer', null, selectedCategories);
+  renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
 };
 
 window.resetCategories = function () {
@@ -2658,7 +2701,7 @@ window.resetCategories = function () {
   checkboxes.forEach(cb => cb.checked = false);
   resetProductsInfiniteScroll();
   updateActiveCategoryTags();
-  renderProductsGrid('allProductsContainer', null, selectedCategories);
+  renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
 
   const dropdown = document.getElementById('multiSelectDropdown');
   if (dropdown) dropdown.classList.remove('active');
@@ -2764,11 +2807,15 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
     }
   }
 
-  // Infinite Scroll Pagination logic for All Products page
-  const isInfiniteScroll = (limit === null);
+  // All Products page: show 30 first, then +30 on scroll (do not dump full catalog into DOM).
+  const isAllProductsGrid = containerId === 'allProductsContainer';
   let activeLimit = limit;
+  if (isAllProductsGrid) {
+    activeLimit = (limit == null) ? allProductsVisibleCount : limit;
+  }
+  const isInfiniteScroll = (limit === null) || isAllProductsGrid;
   const totalFilteredCount = filtered.length;
-  if (isInfiniteScroll) {
+  if (isAllProductsGrid || isInfiniteScroll) {
     window.productsGridTotalFilteredCount = totalFilteredCount;
   }
 
@@ -2824,10 +2871,11 @@ function renderProductsGrid(containerId, limit = null, filterCategories = []) {
     window.productsGridLastKey = gridStateKey;
     window.productsGridLastRenderedCount = filtered.length;
 
-    if (isInfiniteScroll) {
-      const hasMoreProducts = (typeof productsServerHasMore !== 'undefined' && productsServerHasMore);
+    if (isAllProductsGrid || isInfiniteScroll) {
+      const hasMoreLocal = filtered.length < totalFilteredCount;
+      const hasMoreServer = (typeof productsServerHasMore !== 'undefined' && productsServerHasMore);
       // Keep infinite loading visually silent to avoid blinking/jumping.
-      if (!hasMoreProducts) {
+      if (!hasMoreLocal && !hasMoreServer) {
         setProductsLoadMoreIndicator('end');
       } else {
         setProductsLoadMoreIndicator('hidden');
@@ -5399,13 +5447,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('allProductsContainer') || document.getElementById('adminProductsList')) {
     resetProductsInfiniteScroll();
     selectedCategories = parseProductsCategoryParams();
+    setupAllProductsInfiniteScroll();
 
     try {
       renderMultiSelect();
     } catch (e) {
       console.error("renderMultiSelect error:", e);
     }
-    renderProductsGrid('allProductsContainer', null, selectedCategories);
+    renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
 
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
@@ -5416,7 +5465,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           await performDatabaseSearch(qFromUrl, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false, true);
         }
         resetProductsInfiniteScroll();
-        renderProductsGrid('allProductsContainer', null, selectedCategories);
+        renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
         if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
       }
       let localSearchTimeout;
@@ -5427,7 +5476,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             await performDatabaseSearch(searchInput.value, typeof selectedCategories !== 'undefined' ? selectedCategories : [], false, true);
           }
           resetProductsInfiniteScroll();
-          renderProductsGrid('allProductsContainer', null, selectedCategories);
+          renderProductsGrid('allProductsContainer', getAllProductsRenderLimit(), selectedCategories);
           if (typeof renderFilteredFreeNotes === 'function') renderFilteredFreeNotes();
         }, 400);
       });
