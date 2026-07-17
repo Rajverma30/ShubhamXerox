@@ -47,6 +47,11 @@ SHIPROCKET_CHECKOUT_SESSION_PATH = os.getenv(
 if not SHIPROCKET_CHECKOUT_SESSION_PATH.startswith("/"):
     SHIPROCKET_CHECKOUT_SESSION_PATH = f"/{SHIPROCKET_CHECKOUT_SESSION_PATH}"
 SITE_BASE_URL = os.getenv("SITE_BASE_URL", "https://shubhamxerox.in").strip().rstrip("/")
+API_BASE_URL = os.getenv("API_BASE_URL", "").strip().rstrip("/") or SITE_BASE_URL
+SHIPROCKET_CHECKOUT_UI_BASE_URL = os.getenv(
+    "SHIPROCKET_CHECKOUT_UI_BASE_URL",
+    "https://fastrr-boost-ui.pickrr.com",
+).strip().rstrip("/")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "43200"))

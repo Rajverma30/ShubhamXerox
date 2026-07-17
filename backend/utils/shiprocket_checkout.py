@@ -6,6 +6,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import requests
 
@@ -14,6 +15,7 @@ from config import (
     SHIPROCKET_API_SECRET,
     SHIPROCKET_CHECKOUT_API_BASE_URL,
     SHIPROCKET_CHECKOUT_SESSION_PATH,
+    SHIPROCKET_CHECKOUT_UI_BASE_URL,
     SHIPROCKET_WEBHOOK_SECRET,
     SITE_BASE_URL,
 )
@@ -107,6 +109,58 @@ def _extract_checkout_url(data: Dict[str, Any]) -> str:
     return ""
 
 
+def build_fastrr_checkout_url(
+    *,
+    domain: str,
+    items: List[Dict[str, Any]],
+    external_order_id: str,
+) -> str:
+    """Open Fastrr hosted checkout UI (used when checkout-api session path is unavailable)."""
+    lines: List[Dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or item.get("product_id") or item.get("productId") or "0")
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            pid_int = abs(hash(pid)) % 10_000_000_000
+        price_paise = max(0, int(round(float(item.get("price") or 0) * 100)))
+        qty = int(item.get("quantity") or item.get("qty") or 1)
+        lines.append({
+            "product_id": pid_int,
+            "variant_id": pid_int,
+            "variant_available": True,
+            "inventory_quantity": 100,
+            "inventory_management": "shopify",
+            "inventory_policy": "deny",
+            "price": str(price_paise),
+            "title": "Default Title",
+            "value": "Default Title",
+            "name": str(item.get("name") or item.get("title") or "Product"),
+            "quantity": qty,
+        })
+
+    if not lines:
+        raise ShiprocketCheckoutError("Cart is empty")
+
+    product_details: Dict[str, Any] = lines[0] if len(lines) == 1 else {
+        "order_id": external_order_id,
+        "items": lines,
+    }
+    encoded = quote(
+        base64.b64encode(
+            json.dumps(product_details, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii"),
+        safe="",
+    )
+    seller_domain = quote((domain or SITE_BASE_URL or "shubhamxerox.in").split("/")[0], safe="")
+    return (
+        f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/"
+        f"?seller-domain={seller_domain}&productDetails={encoded}"
+    )
+
+
 def create_checkout_session(
     *,
     domain: str,
@@ -134,15 +188,31 @@ def create_checkout_session(
         },
     }
 
-    _, data = checkout_api_request("POST", SHIPROCKET_CHECKOUT_SESSION_PATH, payload)
-    checkout_url = _extract_checkout_url(data)
-    if not checkout_url:
-        raise ShiprocketCheckoutError("Shiprocket checkout API did not return a checkout URL")
+    if SHIPROCKET_API_KEY and SHIPROCKET_API_SECRET:
+        try:
+            _, data = checkout_api_request("POST", SHIPROCKET_CHECKOUT_SESSION_PATH, payload)
+            checkout_url = _extract_checkout_url(data)
+            if checkout_url:
+                return {
+                    "checkout_url": checkout_url,
+                    "provider": "shiprocket-checkout-api",
+                    "session": data,
+                }
+        except ShiprocketCheckoutError as exc:
+            logger.warning(
+                "Shiprocket checkout API session failed, using Fastrr UI fallback: %s",
+                exc,
+            )
 
+    checkout_url = build_fastrr_checkout_url(
+        domain=domain,
+        items=items,
+        external_order_id=external_order_id,
+    )
     return {
         "checkout_url": checkout_url,
-        "provider": "shiprocket-checkout-api",
-        "session": data,
+        "provider": "fastrr-boost-ui",
+        "session": {"fallback": True, "order_id": external_order_id},
     }
 
 

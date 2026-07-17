@@ -49,16 +49,26 @@ const API_BASE = window.API_BASE_URL || (
 );
 window.API_BASE_URL = API_BASE;
 let checkoutType = "manual";
+let checkoutTypeLoadPromise = null;
 let deletedCatalogIds = null;
 
 async function loadCheckoutType() {
   try {
     const data = await apiFetch("/settings/checkout-type", { method: "GET", auth: false });
     checkoutType = (data && data.checkout_type === "shiprocket") ? "shiprocket" : "manual";
+    console.info("[Shiprocket] checkout_type loaded:", checkoutType);
   } catch (e) {
     checkoutType = "manual";
+    console.warn("[Shiprocket] failed to load checkout_type, defaulting to manual", e);
   }
   return checkoutType;
+}
+
+function ensureCheckoutTypeLoaded() {
+  if (!checkoutTypeLoadPromise) {
+    checkoutTypeLoadPromise = loadCheckoutType();
+  }
+  return checkoutTypeLoadPromise;
 }
 
 function isShiprocketCheckoutEnabled() {
@@ -70,23 +80,32 @@ async function startShiprocketCheckout(items, total) {
     showToast("Your cart is empty.");
     return false;
   }
+  const endpoint = "/checkout/shiprocket-session";
+  const requestUrl = `${API_BASE}${endpoint}`;
+  const orderId = "ORD" + Date.now();
+  const payload = {
+    items,
+    total: Number(total || 0),
+    order_id: orderId,
+  };
   try {
     showToast("Opening Shiprocket Checkout...");
-    const data = await apiFetch("/checkout/shiprocket-session", {
+    console.info("[Shiprocket] API_BASE =", API_BASE);
+    console.info("[Shiprocket] POST", requestUrl, payload);
+    const data = await apiFetch(endpoint, {
       method: "POST",
-      body: {
-        items,
-        total: Number(total || 0),
-        order_id: "ORD" + Date.now(),
-      },
+      body: payload,
     });
+    console.info("[Shiprocket] response", data);
     if (data && data.checkout_url) {
+      console.info("[Shiprocket] redirect ->", data.checkout_url);
       window.location.href = data.checkout_url;
       return true;
     }
+    console.error("[Shiprocket] checkout_url missing in response:", data);
     throw new Error("Checkout URL missing");
   } catch (err) {
-    console.error("Shiprocket checkout failed:", err);
+    console.error("[Shiprocket] checkout failed:", err);
     showToast(err.message || "Failed to open Shiprocket Checkout");
     return false;
   }
@@ -2420,6 +2439,7 @@ async function handleCheckout(e) {
     return;
   }
 
+  await ensureCheckoutTypeLoaded();
   if (isShiprocketCheckoutEnabled()) {
     const btn = document.querySelector('button[type="submit"]');
     if (btn) { btn.disabled = true; btn.textContent = 'Opening Shiprocket Checkout...'; }
@@ -5349,7 +5369,7 @@ async function renderReviews(productId) {
 // --- Main Bootstrap ---
 document.addEventListener('DOMContentLoaded', async () => {
   injectPublicNavbarCategories();
-  loadCheckoutType().catch(() => {});
+  ensureCheckoutTypeLoaded().catch(() => {});
 
   // Kick off products fetch as early as possible.
   let fetchPromise = Promise.resolve();
@@ -5489,9 +5509,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (document.getElementById('checkoutForm')) {
-    await loadCheckoutType();
+    await ensureCheckoutTypeLoaded();
     renderCheckoutSummary();
     if (isShiprocketCheckoutEnabled()) {
+      const checkoutGrid = document.querySelector('.checkout-grid');
+      const loadingEl = document.getElementById('shiprocketCheckoutLoading');
+      if (checkoutGrid) checkoutGrid.style.display = 'none';
+      if (loadingEl) loadingEl.style.display = 'block';
       const items = getCheckoutItems();
       if (items.length > 0) {
         await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
@@ -5945,6 +5969,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           showToast("Product not found");
           return;
         }
+        await ensureCheckoutTypeLoaded();
         if (isShiprocketCheckoutEnabled()) {
           const item = { ...productToBuy, quantity: 1 };
           await startShiprocketCheckout([item], Number(productToBuy.price || 0) + DELIVERY_FEE);

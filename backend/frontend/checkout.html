@@ -33,6 +33,11 @@
     <div class="container" style="max-width: 800px;">
       <h1 class="section-title" style="text-align: left; margin-bottom: 32px;">Checkout</h1>
 
+      <div id="shiprocketCheckoutLoading" style="display:none; text-align:center; padding: 48px 24px;">
+        <p style="font-size: 1.1rem; font-weight: 600; color: var(--primary);">Opening Shiprocket Checkout...</p>
+        <p style="color: var(--text-muted); margin-top: 8px;">Please wait while we redirect you to secure payment.</p>
+      </div>
+
       <div class="checkout-grid">
         <form id="checkoutForm">
           <!-- Step 1: Address -->
@@ -111,7 +116,7 @@
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="/config.js"></script>
-  <script defer src="assets/js/script.js?v=4.5"></script>
+  <script defer src="assets/js/script.js?v=2026-07-17a"></script>
 </body>
 
 </html>

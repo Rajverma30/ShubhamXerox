@@ -40,6 +40,7 @@ from config import (
     OTP_EXPIRY_MINUTES,
     OTP_RATE_LIMIT_PER_MINUTE,
     SITE_BASE_URL,
+    API_BASE_URL,
 )
 from utils.shiprocket_checkout import (
     ShiprocketCheckoutError,
@@ -87,10 +88,15 @@ async def healthz():
     }
 
 @app.get("/config.js")
-async def get_config_js():
+async def get_config_js(request: Request):
     url = SUPABASE_URL
     anon_key = SUPABASE_ANON_KEY or SUPABASE_KEY
-    js_content = f"window.ENV_SUPABASE_URL = '{url}';\nwindow.ENV_SUPABASE_KEY = '{anon_key}';"
+    api_base = API_BASE_URL or str(request.base_url).rstrip("/")
+    js_content = (
+        f"window.ENV_SUPABASE_URL = '{url}';\n"
+        f"window.ENV_SUPABASE_KEY = '{anon_key}';\n"
+        f"window.API_BASE_URL = '{api_base}';\n"
+    )
     return Response(content=js_content, media_type="application/javascript")
 
 
@@ -1968,6 +1974,12 @@ async def create_shiprocket_checkout_session(
         raise HTTPException(status_code=400, detail="Cart is empty")
 
     order_id = (req.order_id or f"ORD{int(time.time() * 1000)}").strip()
+    logger.info(
+        "POST /checkout/shiprocket-session order_id=%s items=%d host=%s",
+        order_id,
+        len(req.items),
+        request.headers.get("host"),
+    )
     domain = default_store_domain(request.headers.get("host"))
     pending_payload = {
         "id": order_id,
@@ -1993,8 +2005,15 @@ async def create_shiprocket_checkout_session(
             cancel_url=f"{SITE_BASE_URL}/cart",
         )
     except ShiprocketCheckoutError as exc:
+        logger.error("Shiprocket session failed order_id=%s: %s", order_id, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    logger.info(
+        "Shiprocket session ok order_id=%s provider=%s checkout_url=%s",
+        order_id,
+        session.get("provider"),
+        session.get("checkout_url"),
+    )
     return {
         "checkout_url": session["checkout_url"],
         "order_id": order_id,
