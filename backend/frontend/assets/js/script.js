@@ -79,14 +79,11 @@ const FASTRR_UI_ORIGIN = "https://fastrr-boost-ui.pickrr.com";
 let fastrrSdkLoadPromise = null;
 
 function getFastrrSellerDomain(override) {
+  // Must match Fastrr dashboard Domain Name (jetshop), not the storefront host.
   if (override && String(override).trim()) {
     return String(override).trim().replace(/^https?:\/\//, "").split("/")[0];
   }
-  try {
-    const host = (window.location.host || "").split(":")[0];
-    if (host && !host.includes("localhost") && !host.includes("railway.app")) return host;
-  } catch (e) {}
-  return "shubhamxerox.in";
+  return "shubham-xerox.jetshop.co";
 }
 
 function ensureFastrrSellerDomainInput(domain) {
@@ -315,7 +312,7 @@ const PRODUCTS_SERVER_PAGE_SIZE = 10;
 const ALL_PRODUCTS_PAGE_SIZE = 30;
 let allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
 const PRODUCTS_JSON_BUILD_VERSION = '2026-07-15a';
-const SCRIPT_BUILD_VERSION = '2026-07-17b';
+const SCRIPT_BUILD_VERSION = '2026-07-17c';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */

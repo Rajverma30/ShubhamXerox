@@ -1984,7 +1984,9 @@ async def create_shiprocket_checkout_session(
         len(req.items),
         request.headers.get("host"),
     )
-    domain = default_store_domain(request.headers.get("host"))
+    # Fastrr Domain Name (e.g. shubham-xerox.jetshop.co) — NOT shubhamxerox.in
+    domain = FASTRR_SELLER_DOMAIN or default_store_domain(request.headers.get("host"))
+    logger.info("Shiprocket Fastrr seller_domain=%s", domain)
     pending_payload = {
         "id": order_id,
         "items": req.items,
@@ -2062,7 +2064,7 @@ async def create_shiprocket_checkout_session(
 @app.get("/checkout/shiprocket-diagnostics")
 async def shiprocket_checkout_diagnostics():
     """Quick health check for Fastrr headless setup (seller domain + catalog sample)."""
-    domain = FASTRR_SELLER_DOMAIN or (SITE_BASE_URL or "").replace("https://", "").replace("http://", "").strip("/")
+    domain = (FASTRR_SELLER_DOMAIN or "shubham-xerox.jetshop.co").replace("https://", "").replace("http://", "").strip("/")
     products = _merge_catalog_products()
     sample = None
     if products:
@@ -2075,6 +2077,8 @@ async def shiprocket_checkout_diagnostics():
     return {
         "seller_domain": domain,
         "platform": "CUSTOM",
+        "site_base_url": SITE_BASE_URL,
+        "note": "seller_domain must equal Fastrr dashboard Domain Name (shubham-xerox.jetshop.co), not the public website host.",
         "catalog_product_count": len(products),
         "catalog_url": f"{SITE_BASE_URL or 'https://shubhamxerox.in'}/shiprocket-checkout/products",
         "catalog_api_key_configured": bool(SHIPROCKET_API_KEY),
@@ -2084,8 +2088,8 @@ async def shiprocket_checkout_diagnostics():
         ),
         "sample_cart_line": sample,
         "fastrr_setup_hint": (
-            "In Shiprocket Fastrr dashboard: Domain Name must exactly match seller_domain. "
-            "Set catalog API URLs with X-Api-Key = your Railway SHIPROCKET_API_KEY. Wait for product sync."
+            f"Fastrr dashboard Domain Name must be exactly '{domain}'. "
+            "Catalog URLs still point at SITE_BASE_URL (shubhamxerox.in) with X-Api-Key header."
         ),
     }
 

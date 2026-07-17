@@ -193,7 +193,7 @@ def build_fastrr_headless_widget_url(
     success_url: Optional[str] = None,
 ) -> str:
     """Official Fastrr Boost headless popup URL (iframe overlay)."""
-    seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubhamxerox.in").replace("https://", "").replace("http://", "").split("/")[0]
+    seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubham-xerox.jetshop.co").replace("https://", "").replace("http://", "").split("/")[0]
     checkout_type = "product" if len(cart_products) == 1 else "cart"
     channel = {
         "shop_name": "company-logo",
@@ -222,7 +222,7 @@ def build_fastrr_checkout_url(
     cart_products: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     lines = cart_products or build_fastrr_cart_products(items, catalog_by_id)
-    seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubhamxerox.in").replace("https://", "").replace("http://", "").split("/")[0]
+    seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubham-xerox.jetshop.co").replace("https://", "").replace("http://", "").split("/")[0]
     widget_url = build_fastrr_headless_widget_url(
         domain=seller_domain,
         cart_products=lines,
@@ -422,8 +422,11 @@ def order_payload_from_webhook(payload: Dict[str, Any], pending: Optional[Dict[s
 
 
 def default_store_domain(request_host: Optional[str] = None) -> str:
+    """Fastrr seller-domain — must match dashboard Domain Name, not website host."""
+    if FASTRR_SELLER_DOMAIN:
+        return FASTRR_SELLER_DOMAIN.replace("https://", "").replace("http://", "").split("/")[0]
     if SITE_BASE_URL:
         host = SITE_BASE_URL.replace("https://", "").replace("http://", "").split("/")[0]
         if host and "localhost" not in host:
             return host
-    return (request_host or "shubhamxerox.in").split(":")[0]
+    return (request_host or "shubham-xerox.jetshop.co").split(":")[0]

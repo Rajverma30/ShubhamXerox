@@ -52,7 +52,11 @@ SHIPROCKET_CHECKOUT_UI_BASE_URL = os.getenv(
     "SHIPROCKET_CHECKOUT_UI_BASE_URL",
     "https://fastrr-boost-ui.pickrr.com",
 ).strip().rstrip("/")
-FASTRR_SELLER_DOMAIN = os.getenv("FASTRR_SELLER_DOMAIN", "").strip() or SITE_BASE_URL.replace("https://", "").replace("http://", "").split("/")[0]
+# Must match Domain Name in Shiprocket Fastrr dashboard exactly (often jetshop subdomain, not storefront URL).
+FASTRR_SELLER_DOMAIN = (
+    os.getenv("FASTRR_SELLER_DOMAIN", "").strip()
+    or "shubham-xerox.jetshop.co"
+)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "43200"))
