@@ -760,6 +760,36 @@ function clearAuthToken() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
+let _refreshPromise = null;
+async function tryRefreshToken() {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return false;
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data && data.token) { setAuthToken(data.token); return true; }
+      return false;
+    } catch (e) {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  return _refreshPromise;
+}
+
+function isTokenExpiringSoon(thresholdMinutes = 60) {
+  const payload = parseJwtPayload(getAuthToken());
+  if (!payload || !payload.exp) return false;
+  return (payload.exp - Date.now() / 1000) < thresholdMinutes * 60;
+}
+
 function parseJwtPayload(token) {
   try {
     const parts = String(token || "").split(".");
@@ -848,7 +878,7 @@ async function mergeRecentOrderIfMissing(dbOrders, photoOrders) {
   return { dbOrders: [data[0], ...dbOrders], photoOrders };
 }
 
-async function apiFetch(path, options = {}) {
+async function apiFetch(path, options = {}, _retried = false) {
   const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   const method = options.method || "GET";
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -862,6 +892,10 @@ async function apiFetch(path, options = {}) {
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
+  if (res.status === 401 && auth && !_retried) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) return apiFetch(path, options, true);
+  }
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
@@ -889,6 +923,15 @@ try {
 } catch (e) {
   console.error("Storage parse error:", e);
 }
+
+// Proactively refresh token if expiring within 2 days, so admin sessions don't break
+if (getAuthToken() && isTokenExpiringSoon(2 * 24 * 60)) {
+  tryRefreshToken().then(ok => { if (ok) currentUser = loadCurrentUserFromToken(); });
+}
+// Refresh token every 25 days to keep long sessions alive
+setInterval(() => {
+  if (getAuthToken()) tryRefreshToken().then(ok => { if (ok) currentUser = loadCurrentUserFromToken(); });
+}, 25 * 24 * 60 * 60 * 1000);
 
 
 // --- Migration: Merge new publisher categories ---

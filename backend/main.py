@@ -955,6 +955,11 @@ async def login(req: LoginRequest):
     token = _issue_jwt({"phone": row["phone"], "email": row.get("email", ""), "role": row.get("role", "user"), "name": row.get("name", "")})
     return {"token": token, "user": {"phone": row["phone"], "email": row.get("email", ""), "role": row.get("role", "user"), "name": row.get("name", "")}}
 
+@app.post("/auth/refresh")
+async def refresh_token(user: Dict[str, Any] = Depends(verify_user)):
+    token = _issue_jwt({"phone": user["phone"], "email": user.get("email", ""), "role": user.get("role", "user"), "name": user.get("name", "")})
+    return {"token": token}
+
 @app.post("/reset-password")
 async def reset_password(req: ResetPasswordRequest):
     sb = _require_supabase()
