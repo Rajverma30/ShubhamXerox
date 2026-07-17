@@ -43,6 +43,7 @@ from config import (
     API_BASE_URL,
     FASTRR_SELLER_DOMAIN,
     SHIPROCKET_API_KEY,
+    SHIPROCKET_API_SECRET,
 )
 from utils.shiprocket_checkout import (
     ShiprocketCheckoutError,
@@ -2084,7 +2085,11 @@ async def shiprocket_checkout_diagnostics():
         serialized = serialize_product(row, SITE_BASE_URL or "https://shubhamxerox.in")
         sample = build_fastrr_cart_line_from_serialized_product(serialized, 1)
     key_configured = bool(SHIPROCKET_API_KEY)
-    secret_configured = bool(SHIPROCKET_API_SECRET)
+    try:
+        from config import SHIPROCKET_API_SECRET as _sr_secret
+    except Exception:
+        _sr_secret = ""
+    secret_configured = bool(_sr_secret)
     return {
         "seller_domain": domain,
         "platform": "CUSTOM",
@@ -2194,6 +2199,61 @@ def _prepare_shiprocket_catalog_products() -> List[Dict[str, Any]]:
     return prepared
 
 
+def _shiprocket_catalog_request_api_key(request: Request) -> str:
+    api_key = (
+        request.headers.get("x-api-key")
+        or request.headers.get("X-Api-Key")
+        or request.query_params.get("api_key")
+        or request.query_params.get("x-api-key")
+        or ""
+    ).strip()
+    if not api_key:
+        auth = (request.headers.get("authorization") or request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            api_key = auth[7:].strip()
+        elif auth:
+            api_key = auth
+    return api_key
+
+
+def _log_shiprocket_catalog_debug(request: Request, route: str, *, status: int, items_returned: int = 0) -> None:
+    """Temporary debug logs for Fastrr catalog sync troubleshooting."""
+    api_key = _shiprocket_catalog_request_api_key(request)
+    key_present = bool(api_key)
+    key_prefix = api_key[:10] if api_key else ""
+    logger.info(
+        "[ShiprocketCatalogDebug] route=%s received=1 x_api_key_present=%s x_api_key_prefix=%s items_returned=%s response_status=%s",
+        route,
+        key_present,
+        key_prefix,
+        items_returned,
+        status,
+    )
+
+
+@app.get("/shiprocket-checkout/debug")
+async def shiprocket_checkout_debug():
+    """Temporary diagnostics — no X-Api-Key required. Remove after Fastrr sync is verified."""
+    products = _prepare_shiprocket_catalog_products()
+    collections_payload = build_collections_payload(products)
+    collections = collections_payload.get("collections") or []
+    first_product = None
+    if products:
+        base_url = SITE_BASE_URL or "https://shubhamxerox.in"
+        row = dict(products[0])
+        pid = str(row.get("id"))
+        row["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, pid)
+        row["img_url"] = _normalize_product_image_url(row.get("img"), base_url)
+        first_product = serialize_product(row, base_url)
+    return {
+        "api_key_configured": bool(SHIPROCKET_API_KEY),
+        "api_key_prefix": (SHIPROCKET_API_KEY or "")[:10],
+        "product_count": len(products),
+        "collection_count": len(collections),
+        "first_product": first_product,
+    }
+
+
 @app.get("/shiprocket-checkout/products")
 async def shiprocket_checkout_products(
     request: Request,
@@ -2201,19 +2261,37 @@ async def shiprocket_checkout_products(
     limit: int = 250,
     page: int = 1,
 ):
-    verify_catalog_request(request)
+    route = "/shiprocket-checkout/products"
+    _log_shiprocket_catalog_debug(request, route, status=0, items_returned=0)
+    try:
+        verify_catalog_request(request)
+    except HTTPException as exc:
+        _log_shiprocket_catalog_debug(request, route, status=exc.status_code, items_returned=0)
+        raise
     response.headers["Cache-Control"] = "private, max-age=300"
     base_url = SITE_BASE_URL or _sitemap_base_url(request)
     products = _prepare_shiprocket_catalog_products()
-    return build_products_payload(products, base_url=base_url, limit=limit, page=page)
+    payload = build_products_payload(products, base_url=base_url, limit=limit, page=page)
+    returned = len(payload.get("products") or [])
+    _log_shiprocket_catalog_debug(request, route, status=200, items_returned=returned)
+    return payload
 
 
 @app.get("/shiprocket-checkout/collections")
 async def shiprocket_checkout_collections(request: Request, response: Response):
-    verify_catalog_request(request)
+    route = "/shiprocket-checkout/collections"
+    _log_shiprocket_catalog_debug(request, route, status=0, items_returned=0)
+    try:
+        verify_catalog_request(request)
+    except HTTPException as exc:
+        _log_shiprocket_catalog_debug(request, route, status=exc.status_code, items_returned=0)
+        raise
     response.headers["Cache-Control"] = "private, max-age=300"
     products = _prepare_shiprocket_catalog_products()
-    return build_collections_payload(products)
+    payload = build_collections_payload(products)
+    returned = len(payload.get("collections") or [])
+    _log_shiprocket_catalog_debug(request, route, status=200, items_returned=returned)
+    return payload
 
 
 @app.get("/shiprocket-checkout/collections/{collection_id}/products")
@@ -2224,20 +2302,30 @@ async def shiprocket_checkout_collection_products(
     limit: int = 250,
     page: int = 1,
 ):
-    verify_catalog_request(request)
+    route = f"/shiprocket-checkout/collections/{collection_id}/products"
+    _log_shiprocket_catalog_debug(request, route, status=0, items_returned=0)
+    try:
+        verify_catalog_request(request)
+    except HTTPException as exc:
+        _log_shiprocket_catalog_debug(request, route, status=exc.status_code, items_returned=0)
+        raise
     response.headers["Cache-Control"] = "private, max-age=300"
     base_url = SITE_BASE_URL or _sitemap_base_url(request)
     products = _prepare_shiprocket_catalog_products()
     category = resolve_collection_category(collection_id, products)
     if not category:
+        _log_shiprocket_catalog_debug(request, route, status=404, items_returned=0)
         raise HTTPException(status_code=404, detail="Collection not found")
-    return build_products_payload(
+    payload = build_products_payload(
         products,
         base_url=base_url,
         category=category,
         limit=limit,
         page=page,
     )
+    returned = len(payload.get("products") or [])
+    _log_shiprocket_catalog_debug(request, route, status=200, items_returned=returned)
+    return payload
 
 
 @app.get("/admin/products")
