@@ -18,6 +18,7 @@ from config import (
     SHIPROCKET_CHECKOUT_UI_BASE_URL,
     SHIPROCKET_WEBHOOK_SECRET,
     SITE_BASE_URL,
+    FASTRR_SELLER_DOMAIN,
 )
 
 logger = logging.getLogger("shubhamxerox.shiprocket_checkout")
@@ -191,8 +192,8 @@ def build_fastrr_headless_widget_url(
     cart_products: List[Dict[str, Any]],
     success_url: Optional[str] = None,
 ) -> str:
-    """Official Fastrr Boost headless popup URL (iframe overlay, not productDetails redirect)."""
-    seller_domain = (domain or SITE_BASE_URL or "shubhamxerox.in").replace("https://", "").replace("http://", "").split("/")[0]
+    """Official Fastrr Boost headless popup URL (iframe overlay)."""
+    seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubhamxerox.in").replace("https://", "").replace("http://", "").split("/")[0]
     checkout_type = "product" if len(cart_products) == 1 else "cart"
     channel = {
         "shop_name": "company-logo",
@@ -201,13 +202,14 @@ def build_fastrr_headless_widget_url(
     }
     cart_token = _fastrr_b64_json(cart_products)
     channel_token = _fastrr_b64_json(channel)
+    # Match Fastrr custom.js widget URL builder: cart goes in hash, query values are raw base64.
     query = "&".join([
-        f"type={quote(checkout_type, safe='')}",
+        f"type={checkout_type}",
         "platform=CUSTOM",
-        f"seller-domain={quote(seller_domain, safe='')}",
-        f"channel={quote(channel_token, safe='')}",
+        f"seller-domain={seller_domain}",
+        f"channel={channel_token}",
     ])
-    return f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/?{query}#cart={quote(cart_token, safe='')}"
+    return f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/?{query}#cart={cart_token}"
 
 
 def build_fastrr_checkout_url(
@@ -217,11 +219,13 @@ def build_fastrr_checkout_url(
     external_order_id: str,
     catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
     success_url: Optional[str] = None,
+    cart_products: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    cart_products = build_fastrr_cart_products(items, catalog_by_id)
+    lines = cart_products or build_fastrr_cart_products(items, catalog_by_id)
+    seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubhamxerox.in").replace("https://", "").replace("http://", "").split("/")[0]
     widget_url = build_fastrr_headless_widget_url(
-        domain=domain,
-        cart_products=cart_products,
+        domain=seller_domain,
+        cart_products=lines,
         success_url=success_url,
     )
     return {
@@ -229,9 +233,13 @@ def build_fastrr_checkout_url(
         "widget_url": widget_url,
         "checkout_mode": "headless_popup",
         "platform": "CUSTOM",
-        "seller_domain": (domain or SITE_BASE_URL or "shubhamxerox.in").split("/")[0],
-        "cart_products": cart_products,
+        "seller_domain": seller_domain,
+        "cart_products": lines,
         "order_id": external_order_id,
+        "fastrr_setup_hint": (
+            "If Fastrr shows 'Something went wrong', verify in Shiprocket Fastrr dashboard: "
+            f"Domain Name = {seller_domain}, catalog URLs synced, and products exist in Fastrr catalog."
+        ),
     }
 
 
@@ -244,6 +252,7 @@ def create_checkout_session(
     success_url: Optional[str] = None,
     cancel_url: Optional[str] = None,
     catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    cart_products: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     sr_items = map_cart_items_for_shiprocket(items)
     if not sr_items:
@@ -282,11 +291,12 @@ def create_checkout_session(
             )
 
     headless = build_fastrr_checkout_url(
-        domain=domain,
+        domain=domain or FASTRR_SELLER_DOMAIN,
         items=items,
         external_order_id=external_order_id,
         catalog_by_id=catalog_by_id,
         success_url=resolved_success,
+        cart_products=cart_products,
     )
     logger.info(
         "Fastrr headless payload seller=%s products=%s url=%s",

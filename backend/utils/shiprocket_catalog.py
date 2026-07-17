@@ -35,8 +35,24 @@ def _iso_timestamp() -> str:
 
 def verify_catalog_request(request: Request) -> None:
     api_key = request.headers.get("x-api-key") or request.headers.get("X-Api-Key")
-    if not SHIPROCKET_API_KEY or api_key != SHIPROCKET_API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    if not SHIPROCKET_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Catalog API is not configured on the server (SHIPROCKET_API_KEY missing in Railway env).",
+        )
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Missing X-Api-Key header. Opening this URL in a browser will always fail. "
+                "Configure it only inside Shiprocket Fastrr dashboard catalog settings."
+            ),
+        )
+    if api_key != SHIPROCKET_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key. Use the exact SHIPROCKET_API_KEY value from Railway in Fastrr dashboard.",
+        )
 
     signature = request.headers.get("x-api-hmac-sha256") or request.headers.get("X-Api-HMAC-SHA256")
     if not signature or not SHIPROCKET_API_SECRET:
@@ -203,6 +219,46 @@ def build_products_payload(
         "total": total,
         "has_more": start + len(page_rows) < total,
     }
+
+
+def build_fastrr_cart_line_from_serialized_product(
+    shopify_product: Dict[str, Any],
+    quantity: int = 1,
+) -> Dict[str, Any]:
+    """Cart line shape expected by Fastrr headless SDK (matches Shopify channel mapper)."""
+    variants = shopify_product.get("variants") or []
+    if not variants:
+        raise ValueError("Product has no variants")
+    variant = variants[0]
+    try:
+        price_paise = int(variant.get("price") or shopify_product.get("price") or 0)
+    except (TypeError, ValueError):
+        price_paise = 0
+    image_obj = shopify_product.get("image") or {}
+    image_src = image_obj.get("src") if isinstance(image_obj, dict) else ""
+    if not image_src:
+        images = shopify_product.get("images") or []
+        if images and isinstance(images[0], dict):
+            image_src = images[0].get("src") or ""
+
+    qty = max(1, int(quantity or 1))
+    product_id = int(shopify_product.get("id") or variant.get("product_id") or 0)
+    variant_id = int(variant.get("id") or product_id)
+    line: Dict[str, Any] = {
+        "productId": product_id,
+        "variantId": variant_id,
+        "title": str(shopify_product.get("title") or "Product"),
+        "variantTitle": str(variant.get("title") or "Default Title"),
+        "price": round(price_paise / 100.0, 2),
+        "quantity": qty,
+        "vendor": str(shopify_product.get("vendor") or "Shubham Xerox"),
+        "product_type": str(shopify_product.get("product_type") or ""),
+        "item_meta_data": {"properties": {}},
+        "customAttributes": {},
+    }
+    if image_src:
+        line["image"] = image_src
+    return line
 
 
 def build_collections_payload(products: List[Dict[str, Any]]) -> Dict[str, Any]:

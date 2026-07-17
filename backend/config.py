@@ -52,6 +52,7 @@ SHIPROCKET_CHECKOUT_UI_BASE_URL = os.getenv(
     "SHIPROCKET_CHECKOUT_UI_BASE_URL",
     "https://fastrr-boost-ui.pickrr.com",
 ).strip().rstrip("/")
+FASTRR_SELLER_DOMAIN = os.getenv("FASTRR_SELLER_DOMAIN", "").strip() or SITE_BASE_URL.replace("https://", "").replace("http://", "").split("/")[0]
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "43200"))

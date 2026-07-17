@@ -78,12 +78,28 @@ function isShiprocketCheckoutEnabled() {
 const FASTRR_UI_ORIGIN = "https://fastrr-boost-ui.pickrr.com";
 let fastrrSdkLoadPromise = null;
 
-function getFastrrSellerDomain() {
+function getFastrrSellerDomain(override) {
+  if (override && String(override).trim()) {
+    return String(override).trim().replace(/^https?:\/\//, "").split("/")[0];
+  }
   try {
     const host = (window.location.host || "").split(":")[0];
     if (host && !host.includes("localhost") && !host.includes("railway.app")) return host;
   } catch (e) {}
   return "shubhamxerox.in";
+}
+
+function ensureFastrrSellerDomainInput(domain) {
+  const value = getFastrrSellerDomain(domain);
+  let input = document.getElementById("sellerDomain");
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "hidden";
+    input.id = "sellerDomain";
+    document.body.appendChild(input);
+  }
+  input.value = value;
+  return value;
 }
 
 function loadScriptOnce(src, id) {
@@ -102,23 +118,64 @@ function loadScriptOnce(src, id) {
   });
 }
 
-function ensureFastrrBoostSdk() {
+function ensureFastrrMainContainer() {
+  if (!document.getElementById("fastrr-main-container")) {
+    const container = document.createElement("div");
+    container.id = "fastrr-main-container";
+    document.body.appendChild(container);
+  }
+}
+
+function ensureFastrrCheckoutStyles() {
+  if (!document.getElementById("fastrr-boost-css")) {
+    const link = document.createElement("link");
+    link.id = "fastrr-boost-css";
+    link.rel = "stylesheet";
+    link.href = `${FASTRR_UI_ORIGIN}/assets/styles/sr-checkout.css`;
+    document.head.appendChild(link);
+  }
+}
+
+function closeFastrrIframeOverlay() {
+  const container = document.getElementById("headless-container");
+  if (container) container.remove();
+  document.body.style.overflow = "";
+}
+
+function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
+  if (!widgetUrl) return false;
+  ensureFastrrSellerDomainInput(sellerDomain);
+  ensureFastrrMainContainer();
+  ensureFastrrCheckoutStyles();
+
+  let overlay = document.getElementById("headless-container");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "headless-container";
+    overlay.innerHTML = `
+      <div class="headless-modal">
+        <div class="headless-modal-content">
+          <div class="headless-modal-body">
+            <iframe id="headless-iframe" src="${widgetUrl}" allow="geolocation; payment"></iframe>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById("fastrr-main-container").prepend(overlay);
+  } else {
+    const iframe = document.getElementById("headless-iframe");
+    if (iframe) iframe.src = widgetUrl;
+  }
+  document.body.style.overflow = "hidden";
+  console.info("[Shiprocket] opened iframe popup", widgetUrl);
+  return true;
+}
+
+function ensureFastrrBoostSdk(sellerDomain) {
   if (!fastrrSdkLoadPromise) {
     fastrrSdkLoadPromise = (async () => {
-      if (!document.getElementById("sellerDomain")) {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.id = "sellerDomain";
-        input.value = getFastrrSellerDomain();
-        document.body.appendChild(input);
-      }
-      if (!document.getElementById("fastrr-boost-css")) {
-        const link = document.createElement("link");
-        link.id = "fastrr-boost-css";
-        link.rel = "stylesheet";
-        link.href = `${FASTRR_UI_ORIGIN}/assets/styles/sr-checkout.css`;
-        document.head.appendChild(link);
-      }
+      ensureFastrrSellerDomainInput(sellerDomain);
+      ensureFastrrMainContainer();
+      ensureFastrrCheckoutStyles();
       await loadScriptOnce(`${FASTRR_UI_ORIGIN}/assets/js/channels/custom.js`, "fastrr-custom-channel-js");
       return window.HeadlessCheckout || null;
     })().catch((err) => {
@@ -129,17 +186,20 @@ function ensureFastrrBoostSdk() {
   return fastrrSdkLoadPromise;
 }
 
-function openFastrrHeadlessPopup(cartProducts, fallbackUrl) {
-  return ensureFastrrBoostSdk().then((HeadlessCheckout) => {
+function openFastrrHeadlessPopup(cartProducts, widgetUrl, sellerDomain) {
+  if (widgetUrl && openFastrrIframeOverlay(widgetUrl, sellerDomain)) {
+    return Promise.resolve(true);
+  }
+  return ensureFastrrBoostSdk(sellerDomain).then((HeadlessCheckout) => {
     if (!HeadlessCheckout || typeof HeadlessCheckout.InitiateDirectCheckout !== "function") {
       throw new Error("Fastrr Boost SDK unavailable");
     }
-    console.info("[Shiprocket] opening headless popup", cartProducts);
+    console.info("[Shiprocket] SDK fallback", cartProducts);
     HeadlessCheckout.InitiateDirectCheckout(null, null, cartProducts || []);
     return true;
   }).catch((err) => {
-    console.warn("[Shiprocket] popup failed, falling back to redirect", err);
-    if (fallbackUrl) window.location.href = fallbackUrl;
+    console.warn("[Shiprocket] popup failed:", err);
+    showToast("Could not open checkout popup. Please try again.");
     return false;
   });
 }
@@ -166,14 +226,27 @@ async function startShiprocketCheckout(items, total) {
       body: payload,
     });
     console.info("[Shiprocket] response", data);
-    if (data && data.checkout_mode === "headless_popup" && Array.isArray(data.cart_products) && data.cart_products.length) {
-      const opened = await openFastrrHeadlessPopup(data.cart_products, data.checkout_url || data.widget_url);
-      if (opened) return true;
+    if (data && data.fastrr_setup_hint) {
+      console.warn("[Shiprocket] setup hint:", data.fastrr_setup_hint);
     }
-    if (data && data.checkout_url) {
-      console.info("[Shiprocket] redirect ->", data.checkout_url);
-      window.location.href = data.checkout_url;
-      return true;
+    const sellerDomain = data && data.seller_domain;
+    const widgetUrl = data && (data.widget_url || data.checkout_url);
+    if (widgetUrl && (data.checkout_mode === "headless_popup" || Array.isArray(data.cart_products))) {
+      const opened = await openFastrrHeadlessPopup(
+        data.cart_products || [],
+        widgetUrl,
+        sellerDomain
+      );
+      if (opened) {
+        if (data.fastrr_setup_hint) {
+          console.info("[Shiprocket] If checkout shows an error, verify Fastrr dashboard:", data.fastrr_setup_hint);
+        }
+        return true;
+      }
+    }
+    if (widgetUrl) {
+      const opened = openFastrrIframeOverlay(widgetUrl, sellerDomain);
+      if (opened) return true;
     }
     console.error("[Shiprocket] checkout_url missing in response:", data);
     throw new Error("Checkout URL missing");
@@ -242,7 +315,7 @@ const PRODUCTS_SERVER_PAGE_SIZE = 10;
 const ALL_PRODUCTS_PAGE_SIZE = 30;
 let allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
 const PRODUCTS_JSON_BUILD_VERSION = '2026-07-15a';
-const SCRIPT_BUILD_VERSION = '2026-07-15a';
+const SCRIPT_BUILD_VERSION = '2026-07-17b';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */

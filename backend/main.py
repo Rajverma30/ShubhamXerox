@@ -41,6 +41,8 @@ from config import (
     OTP_RATE_LIMIT_PER_MINUTE,
     SITE_BASE_URL,
     API_BASE_URL,
+    FASTRR_SELLER_DOMAIN,
+    SHIPROCKET_API_KEY,
 )
 from utils.shiprocket_checkout import (
     ShiprocketCheckoutError,
@@ -51,8 +53,10 @@ from utils.shiprocket_checkout import (
 )
 from utils.shiprocket_catalog import (
     build_collections_payload,
+    build_fastrr_cart_line_from_serialized_product,
     build_products_payload,
     resolve_collection_category,
+    serialize_product,
     verify_catalog_request,
 )
 from utils.otp import generate_and_hash_otp, hash_otp
@@ -1996,6 +2000,29 @@ async def create_shiprocket_checkout_session(
     _save_pending_shiprocket_checkout(order_id, pending_payload)
 
     catalog_by_id = {str(row.get("id")): row for row in _merge_catalog_products() if row.get("id") is not None}
+    base_url = SITE_BASE_URL or "https://shubhamxerox.in"
+    cart_products: List[Dict[str, Any]] = []
+    missing_ids: List[str] = []
+    for item in req.items:
+        pid = str(item.get("id") or item.get("productId") or item.get("product_id") or "")
+        catalog_row = catalog_by_id.get(pid)
+        if not catalog_row:
+            missing_ids.append(pid or "unknown")
+            continue
+        prepared = dict(catalog_row)
+        prepared["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, str(pid))
+        prepared["img_url"] = _normalize_product_image_url(prepared.get("img"), base_url)
+        serialized = serialize_product(prepared, base_url)
+        qty = int(item.get("quantity") or item.get("qty") or 1)
+        cart_products.append(build_fastrr_cart_line_from_serialized_product(serialized, qty))
+
+    if missing_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Products not found in Shiprocket catalog: {', '.join(missing_ids)}",
+        )
+    if not cart_products:
+        raise HTTPException(status_code=400, detail="Cart is empty")
 
     try:
         session = create_checkout_session(
@@ -2006,6 +2033,7 @@ async def create_shiprocket_checkout_session(
             success_url=f"{SITE_BASE_URL}/my-orders",
             cancel_url=f"{SITE_BASE_URL}/cart",
             catalog_by_id=catalog_by_id,
+            cart_products=cart_products,
         )
     except ShiprocketCheckoutError as exc:
         logger.error("Shiprocket session failed order_id=%s: %s", order_id, exc)
@@ -2022,11 +2050,43 @@ async def create_shiprocket_checkout_session(
         "checkout_url": session["checkout_url"],
         "widget_url": session.get("widget_url") or session["checkout_url"],
         "checkout_mode": session.get("checkout_mode") or "redirect",
-        "cart_products": session.get("cart_products") or [],
+        "cart_products": session.get("cart_products") or cart_products,
         "seller_domain": session.get("seller_domain") or domain,
         "platform": session.get("platform") or "CUSTOM",
         "order_id": order_id,
         "provider": session.get("provider"),
+        "fastrr_setup_hint": session.get("fastrr_setup_hint"),
+    }
+
+
+@app.get("/checkout/shiprocket-diagnostics")
+async def shiprocket_checkout_diagnostics():
+    """Quick health check for Fastrr headless setup (seller domain + catalog sample)."""
+    domain = FASTRR_SELLER_DOMAIN or (SITE_BASE_URL or "").replace("https://", "").replace("http://", "").strip("/")
+    products = _merge_catalog_products()
+    sample = None
+    if products:
+        row = dict(products[0])
+        pid = str(row.get("id"))
+        row["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, pid)
+        row["img_url"] = _normalize_product_image_url(row.get("img"), SITE_BASE_URL or "https://shubhamxerox.in")
+        serialized = serialize_product(row, SITE_BASE_URL or "https://shubhamxerox.in")
+        sample = build_fastrr_cart_line_from_serialized_product(serialized, 1)
+    return {
+        "seller_domain": domain,
+        "platform": "CUSTOM",
+        "catalog_product_count": len(products),
+        "catalog_url": f"{SITE_BASE_URL or 'https://shubhamxerox.in'}/shiprocket-checkout/products",
+        "catalog_api_key_configured": bool(SHIPROCKET_API_KEY),
+        "catalog_browser_note": (
+            "Opening /shiprocket-checkout/products in a browser will show an error — "
+            "that is normal. Only Shiprocket Fastrr servers should call it with X-Api-Key."
+        ),
+        "sample_cart_line": sample,
+        "fastrr_setup_hint": (
+            "In Shiprocket Fastrr dashboard: Domain Name must exactly match seller_domain. "
+            "Set catalog API URLs with X-Api-Key = your Railway SHIPROCKET_API_KEY. Wait for product sync."
+        ),
     }
 
 
