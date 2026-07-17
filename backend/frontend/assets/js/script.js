@@ -116,11 +116,13 @@ function loadScriptOnce(src, id) {
 }
 
 function ensureFastrrMainContainer() {
-  if (!document.getElementById("fastrr-main-container")) {
-    const container = document.createElement("div");
+  let container = document.getElementById("fastrr-main-container");
+  if (!container) {
+    container = document.createElement("div");
     container.id = "fastrr-main-container";
     document.body.appendChild(container);
   }
+  return container;
 }
 
 function ensureFastrrCheckoutStyles() {
@@ -131,12 +133,53 @@ function ensureFastrrCheckoutStyles() {
     link.href = `${FASTRR_UI_ORIGIN}/assets/styles/sr-checkout.css`;
     document.head.appendChild(link);
   }
+  if (!document.getElementById("fastrr-local-overlay-css")) {
+    const style = document.createElement("style");
+    style.id = "fastrr-local-overlay-css";
+    style.textContent = `
+      #fastrr-main-container { position: relative; z-index: 2147483000; }
+      #headless-container.headless-overlay-local {
+        position: fixed; inset: 0; z-index: 2147483646;
+        background: rgba(0,0,0,0.55);
+        display: flex; align-items: center; justify-content: center;
+      }
+      #headless-container.headless-overlay-local .headless-modal {
+        position: relative; width: min(480px, 100vw); height: min(100vh, 900px);
+        max-height: 100vh; margin: 0 auto; background: #fff;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.35); overflow: hidden;
+      }
+      #headless-container.headless-overlay-local .headless-modal-content,
+      #headless-container.headless-overlay-local .headless-modal-body {
+        width: 100%; height: 100%; margin: 0; padding: 0;
+      }
+      #headless-container.headless-overlay-local #headless-iframe {
+        display: block; width: 100%; height: 100%; border: 0; background: #fff;
+      }
+      #fastrr-overlay-close {
+        position: absolute; top: 10px; right: 10px; z-index: 2;
+        width: 36px; height: 36px; border: 0; border-radius: 999px;
+        background: #111; color: #fff; font-size: 22px; line-height: 1;
+        cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      }
+      @media (max-width: 640px) {
+        #headless-container.headless-overlay-local .headless-modal {
+          width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 }
 
 function closeFastrrIframeOverlay() {
   const container = document.getElementById("headless-container");
   if (container) container.remove();
   document.body.style.overflow = "";
+  document.removeEventListener("keydown", onFastrrEscapeClose);
+}
+
+function onFastrrEscapeClose(event) {
+  if (event.key === "Escape") closeFastrrIframeOverlay();
 }
 
 function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
@@ -145,23 +188,29 @@ function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
   ensureFastrrMainContainer();
   ensureFastrrCheckoutStyles();
 
-  let overlay = document.getElementById("headless-container");
-  if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "headless-container";
-    overlay.innerHTML = `
-      <div class="headless-modal">
-        <div class="headless-modal-content">
-          <div class="headless-modal-body">
-            <iframe id="headless-iframe" src="${widgetUrl}" allow="geolocation; payment"></iframe>
-          </div>
+  closeFastrrIframeOverlay();
+
+  const overlay = document.createElement("div");
+  overlay.id = "headless-container";
+  overlay.className = "headless-overlay-local";
+  overlay.innerHTML = `
+    <div class="headless-modal" role="dialog" aria-modal="true" aria-label="Checkout">
+      <button type="button" id="fastrr-overlay-close" aria-label="Close checkout">&times;</button>
+      <div class="headless-modal-content">
+        <div class="headless-modal-body">
+          <iframe id="headless-iframe" title="Shiprocket Checkout" src="${widgetUrl}" allow="geolocation; payment"></iframe>
         </div>
-      </div>`;
-    document.getElementById("fastrr-main-container").prepend(overlay);
-  } else {
-    const iframe = document.getElementById("headless-iframe");
-    if (iframe) iframe.src = widgetUrl;
-  }
+      </div>
+    </div>`;
+  document.getElementById("fastrr-main-container").prepend(overlay);
+
+  const closeBtn = document.getElementById("fastrr-overlay-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeFastrrIframeOverlay);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) closeFastrrIframeOverlay();
+  });
+  document.addEventListener("keydown", onFastrrEscapeClose);
+
   document.body.style.overflow = "hidden";
   console.info("[Shiprocket] opened iframe popup", widgetUrl);
   return true;
@@ -312,7 +361,7 @@ const PRODUCTS_SERVER_PAGE_SIZE = 10;
 const ALL_PRODUCTS_PAGE_SIZE = 30;
 let allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
 const PRODUCTS_JSON_BUILD_VERSION = '2026-07-15a';
-const SCRIPT_BUILD_VERSION = '2026-07-17c';
+const SCRIPT_BUILD_VERSION = '2026-07-17d';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
