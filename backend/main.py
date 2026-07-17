@@ -39,6 +39,20 @@ from config import (
     ADMIN_DEFAULT_PASSWORD,
     OTP_EXPIRY_MINUTES,
     OTP_RATE_LIMIT_PER_MINUTE,
+    SITE_BASE_URL,
+)
+from utils.shiprocket_checkout import (
+    ShiprocketCheckoutError,
+    create_checkout_session,
+    default_store_domain,
+    order_payload_from_webhook,
+    verify_webhook_signature,
+)
+from utils.shiprocket_catalog import (
+    build_collections_payload,
+    build_products_payload,
+    resolve_collection_category,
+    verify_catalog_request,
 )
 from utils.otp import generate_and_hash_otp, hash_otp
 from utils.email_service import send_otp_email
@@ -296,6 +310,14 @@ class AdminSettingsUpdate(BaseModel):
 
 class AdminOfferUpdate(BaseModel):
     text: str
+
+class AdminCheckoutTypeUpdate(BaseModel):
+    checkout_type: str
+
+class ShiprocketCheckoutSessionRequest(BaseModel):
+    items: List[Dict[str, Any]]
+    total: float
+    order_id: Optional[str] = None
 
 # --- Auth / Security ---
 
@@ -1863,6 +1885,239 @@ async def update_global_offer(req: AdminOfferUpdate, _admin: Dict[str, Any] = De
             logger.warning(f"Failed to save offer to database: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to save offer to database: {e}")
     return {"status": "ok", "text": offer_text}
+
+
+def _get_checkout_type() -> str:
+    checkout_type = "manual"
+    if supabase:
+        try:
+            res = supabase.table("settings").select("value").eq("key", "checkout_type").execute()
+            if res.data:
+                raw = res.data[0].get("value")
+                if isinstance(raw, dict):
+                    checkout_type = str(raw.get("type") or "manual")
+                elif isinstance(raw, str):
+                    checkout_type = raw
+        except Exception:
+            logger.exception("Failed to load checkout_type setting")
+    return "shiprocket" if checkout_type == "shiprocket" else "manual"
+
+
+def _set_checkout_type(checkout_type: str) -> str:
+    normalized = "shiprocket" if checkout_type == "shiprocket" else "manual"
+    if supabase:
+        supabase.table("settings").upsert({
+            "key": "checkout_type",
+            "value": {"type": normalized},
+        }).execute()
+    return normalized
+
+
+def _save_pending_shiprocket_checkout(order_id: str, payload: Dict[str, Any]) -> None:
+    if not supabase:
+        return
+    supabase.table("settings").upsert({
+        "key": f"sr_pending_{order_id}",
+        "value": payload,
+    }).execute()
+
+
+def _load_pending_shiprocket_checkout(order_id: str) -> Optional[Dict[str, Any]]:
+    if not supabase or not order_id:
+        return None
+    try:
+        res = supabase.table("settings").select("value").eq("key", f"sr_pending_{order_id}").execute()
+        if res.data:
+            value = res.data[0].get("value")
+            return value if isinstance(value, dict) else None
+    except Exception:
+        logger.exception("Failed to load pending Shiprocket checkout %s", order_id)
+    return None
+
+
+def _delete_pending_shiprocket_checkout(order_id: str) -> None:
+    if not supabase or not order_id:
+        return
+    try:
+        supabase.table("settings").delete().eq("key", f"sr_pending_{order_id}").execute()
+    except Exception:
+        pass
+
+
+@app.get("/settings/checkout-type")
+async def get_checkout_type_setting():
+    return {"checkout_type": _get_checkout_type()}
+
+
+@app.put("/admin/settings/checkout-type")
+async def update_checkout_type_setting(req: AdminCheckoutTypeUpdate, _admin: Dict[str, Any] = Depends(verify_admin)):
+    normalized = _set_checkout_type((req.checkout_type or "").strip().lower())
+    return {"status": "ok", "checkout_type": normalized}
+
+
+@app.post("/checkout/shiprocket-session")
+async def create_shiprocket_checkout_session(
+    req: ShiprocketCheckoutSessionRequest,
+    request: Request,
+    user: Optional[Dict[str, Any]] = Depends(verify_user_optional),
+):
+    if _get_checkout_type() != "shiprocket":
+        raise HTTPException(status_code=400, detail="Shiprocket checkout is not enabled")
+
+    if not req.items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+
+    order_id = (req.order_id or f"ORD{int(time.time() * 1000)}").strip()
+    domain = default_store_domain(request.headers.get("host"))
+    pending_payload = {
+        "id": order_id,
+        "items": req.items,
+        "total": float(req.total or 0),
+        "status": "Pending",
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "checkout_source": "shiprocket",
+    }
+    if user and user.get("phone"):
+        pending_payload["customerphone"] = _normalize_phone(user["phone"])
+        pending_payload["customer"] = user.get("name") or ""
+
+    _save_pending_shiprocket_checkout(order_id, pending_payload)
+
+    try:
+        session = create_checkout_session(
+            domain=domain,
+            items=req.items,
+            external_order_id=order_id,
+            subtotal=float(req.total or 0),
+            success_url=f"{SITE_BASE_URL}/my-orders",
+            cancel_url=f"{SITE_BASE_URL}/cart",
+        )
+    except ShiprocketCheckoutError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "checkout_url": session["checkout_url"],
+        "order_id": order_id,
+        "provider": session.get("provider"),
+    }
+
+
+@app.post("/shiprocket-checkout/webhook")
+async def shiprocket_checkout_webhook(request: Request):
+    body = await request.body()
+    signature = request.headers.get("x-api-hmac-sha256") or request.headers.get("X-Api-HMAC-SHA256")
+    if not verify_webhook_signature(body, signature):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    order_blob = data.get("order") if isinstance(data.get("order"), dict) else data
+    external_id = (
+        order_blob.get("external_order_id")
+        or order_blob.get("order_id")
+        or data.get("external_order_id")
+        or payload.get("external_order_id")
+    )
+    pending = _load_pending_shiprocket_checkout(str(external_id)) if external_id else None
+    order_data = order_payload_from_webhook(payload, pending)
+
+    existing = supabase.table("orders").select("id").eq("id", order_data["id"]).execute()
+    if existing.data:
+        update_fields = {
+            k: order_data[k]
+            for k in ("shiprocket_order_id", "shipment_id", "tracking_id", "courier_name", "tracking_url", "method", "status")
+            if order_data.get(k)
+        }
+        if update_fields:
+            supabase.table("orders").update(update_fields).eq("id", order_data["id"]).execute()
+        _delete_pending_shiprocket_checkout(order_data["id"])
+        return {"status": "ok", "message": "Order already exists; metadata updated"}
+
+    if order_data.get("tracking_id") and not order_data.get("tracking_url"):
+        order_data["tracking_url"] = f"https://shiprocket.co/tracking/{order_data['tracking_id']}"
+
+    allowed_keys = {
+        "id", "customer", "customerphone", "address", "items", "total", "method", "status", "date",
+        "shiprocket_order_id", "shipment_id", "tracking_id", "tracking_url",
+    }
+    insert_payload = {k: v for k, v in order_data.items() if k in allowed_keys and v not in ("", None)}
+    if order_data.get("courier_name"):
+        insert_payload["method"] = f"{insert_payload.get('method', 'Online')} ({order_data['courier_name']})"
+    _normalize_order_phones(insert_payload, "orders")
+    _insert_order_payload("orders", insert_payload)
+    _delete_pending_shiprocket_checkout(order_data["id"])
+    return {"status": "ok", "message": "Order created from Shiprocket checkout"}
+
+
+def _prepare_shiprocket_catalog_products() -> List[Dict[str, Any]]:
+    image_map = _load_db_product_images_map()
+    base_url = SITE_BASE_URL or "https://shubhamxerox.in"
+    _refresh_product_slug_cache()
+    slug_map = PRODUCT_SLUG_CACHE.get("id_to_slug", {})
+    prepared: List[Dict[str, Any]] = []
+    for row in _merge_catalog_products():
+        enriched = _attach_db_image(dict(row), image_map)
+        product_id = enriched.get("id")
+        if product_id is None:
+            continue
+        enriched["slug"] = slug_map.get(str(product_id), str(product_id))
+        enriched["img_url"] = _normalize_product_image_url(enriched.get("img"), base_url)
+        prepared.append(enriched)
+    return prepared
+
+
+@app.get("/shiprocket-checkout/products")
+async def shiprocket_checkout_products(
+    request: Request,
+    response: Response,
+    limit: int = 250,
+    page: int = 1,
+):
+    verify_catalog_request(request)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    base_url = SITE_BASE_URL or _sitemap_base_url(request)
+    products = _prepare_shiprocket_catalog_products()
+    return build_products_payload(products, base_url=base_url, limit=limit, page=page)
+
+
+@app.get("/shiprocket-checkout/collections")
+async def shiprocket_checkout_collections(request: Request, response: Response):
+    verify_catalog_request(request)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    products = _prepare_shiprocket_catalog_products()
+    return build_collections_payload(products)
+
+
+@app.get("/shiprocket-checkout/collections/{collection_id}/products")
+async def shiprocket_checkout_collection_products(
+    collection_id: str,
+    request: Request,
+    response: Response,
+    limit: int = 250,
+    page: int = 1,
+):
+    verify_catalog_request(request)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    base_url = SITE_BASE_URL or _sitemap_base_url(request)
+    products = _prepare_shiprocket_catalog_products()
+    category = resolve_collection_category(collection_id, products)
+    if not category:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return build_products_payload(
+        products,
+        base_url=base_url,
+        category=category,
+        limit=limit,
+        page=page,
+    )
+
 
 @app.get("/admin/products")
 async def admin_list_products(

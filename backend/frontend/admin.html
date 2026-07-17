@@ -134,6 +134,18 @@
       </div>
 
       <div class="admin-card" style="margin-bottom: 60px;">
+        <h2 style="font-size: 1.35rem; margin-bottom: 16px;">Checkout Type</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
+          Switch between your existing Razorpay checkout and Shiprocket Checkout. Manual keeps the current flow unchanged.
+        </p>
+        <div id="checkoutTypeToggle" style="display:flex; gap:12px; flex-wrap:wrap;">
+          <button type="button" id="checkoutTypeManualBtn" class="btn btn-outline-purple" style="padding:10px 24px;">Manual</button>
+          <button type="button" id="checkoutTypeShiprocketBtn" class="btn btn-outline-purple" style="padding:10px 24px;">Shiprocket</button>
+        </div>
+        <p id="checkoutTypeStatus" style="margin-top:14px; color:var(--text-muted); font-size:0.9rem;">Loading checkout mode...</p>
+      </div>
+
+      <div class="admin-card" style="margin-bottom: 60px;">
         <h2 style="font-size: 1.35rem; margin-bottom: 16px;">Today's Offer Scrolling Announcement</h2>
         <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">Write custom announcement text that scrolls at the very top of all shop pages.</p>
         <form id="offerForm" style="display:flex; flex-direction:column; gap:16px;">

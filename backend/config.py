@@ -32,10 +32,21 @@ RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip()
 
-# Shiprocket Config
-SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "").strip()
-SHIPROCKET_PASSWORD = os.getenv("SHIPROCKET_PASSWORD", "").strip()
-SHIPROCKET_PICKUP_LOCATION = os.getenv("SHIPROCKET_PICKUP_LOCATION", "Primary").strip()
+# Shiprocket Fastrr Checkout API (official)
+SHIPROCKET_API_KEY = os.getenv("SHIPROCKET_API_KEY", "").strip()
+SHIPROCKET_API_SECRET = os.getenv("SHIPROCKET_API_SECRET", "").strip()
+SHIPROCKET_WEBHOOK_SECRET = os.getenv("SHIPROCKET_WEBHOOK_SECRET", "").strip()
+SHIPROCKET_CHECKOUT_API_BASE_URL = os.getenv(
+    "SHIPROCKET_CHECKOUT_API_BASE_URL",
+    "https://checkout-api.shiprocket.com",
+).strip().rstrip("/")
+SHIPROCKET_CHECKOUT_SESSION_PATH = os.getenv(
+    "SHIPROCKET_CHECKOUT_SESSION_PATH",
+    "/api/v1/checkout/sessions",
+).strip()
+if not SHIPROCKET_CHECKOUT_SESSION_PATH.startswith("/"):
+    SHIPROCKET_CHECKOUT_SESSION_PATH = f"/{SHIPROCKET_CHECKOUT_SESSION_PATH}"
+SITE_BASE_URL = os.getenv("SITE_BASE_URL", "https://shubhamxerox.in").strip().rstrip("/")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "43200"))

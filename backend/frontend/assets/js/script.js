@@ -48,7 +48,49 @@ const API_BASE = window.API_BASE_URL || (
     : "https://shubhamxerox-production.up.railway.app"
 );
 window.API_BASE_URL = API_BASE;
+let checkoutType = "manual";
 let deletedCatalogIds = null;
+
+async function loadCheckoutType() {
+  try {
+    const data = await apiFetch("/settings/checkout-type", { method: "GET", auth: false });
+    checkoutType = (data && data.checkout_type === "shiprocket") ? "shiprocket" : "manual";
+  } catch (e) {
+    checkoutType = "manual";
+  }
+  return checkoutType;
+}
+
+function isShiprocketCheckoutEnabled() {
+  return checkoutType === "shiprocket";
+}
+
+async function startShiprocketCheckout(items, total) {
+  if (!items || !items.length) {
+    showToast("Your cart is empty.");
+    return false;
+  }
+  try {
+    showToast("Opening Shiprocket Checkout...");
+    const data = await apiFetch("/checkout/shiprocket-session", {
+      method: "POST",
+      body: {
+        items,
+        total: Number(total || 0),
+        order_id: "ORD" + Date.now(),
+      },
+    });
+    if (data && data.checkout_url) {
+      window.location.href = data.checkout_url;
+      return true;
+    }
+    throw new Error("Checkout URL missing");
+  } catch (err) {
+    console.error("Shiprocket checkout failed:", err);
+    showToast(err.message || "Failed to open Shiprocket Checkout");
+    return false;
+  }
+}
 
 async function fetchDeletedCatalogIds(force = false) {
   if (!force && deletedCatalogIds) return deletedCatalogIds;
@@ -2375,6 +2417,14 @@ async function handleCheckout(e) {
   if (items.length === 0) {
     showToast("Your checkout is empty!");
     setTimeout(() => window.location.href = "/products", 1500);
+    return;
+  }
+
+  if (isShiprocketCheckoutEnabled()) {
+    const btn = document.querySelector('button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Opening Shiprocket Checkout...'; }
+    const ok = await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
+    if (!ok && btn) { btn.disabled = false; btn.textContent = 'Pay Online & Place Order'; }
     return;
   }
 
@@ -5299,6 +5349,7 @@ async function renderReviews(productId) {
 // --- Main Bootstrap ---
 document.addEventListener('DOMContentLoaded', async () => {
   injectPublicNavbarCategories();
+  loadCheckoutType().catch(() => {});
 
   // Kick off products fetch as early as possible.
   let fetchPromise = Promise.resolve();
@@ -5438,7 +5489,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (document.getElementById('checkoutForm')) {
+    await loadCheckoutType();
     renderCheckoutSummary();
+    if (isShiprocketCheckoutEnabled()) {
+      const items = getCheckoutItems();
+      if (items.length > 0) {
+        await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
+        return;
+      }
+    }
     if (currentUser) {
       document.getElementById('fullName').value = currentUser.name || "";
       const phoneEl = document.getElementById('phoneNumber');
@@ -5733,6 +5792,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     }
+
+    const checkoutManualBtn = document.getElementById('checkoutTypeManualBtn');
+    const checkoutShiprocketBtn = document.getElementById('checkoutTypeShiprocketBtn');
+    const checkoutTypeStatus = document.getElementById('checkoutTypeStatus');
+    if (checkoutManualBtn && checkoutShiprocketBtn) {
+      const paintCheckoutTypeButtons = (mode) => {
+        const isManual = mode !== 'shiprocket';
+        checkoutManualBtn.className = isManual ? 'btn btn-primary' : 'btn btn-outline-purple';
+        checkoutShiprocketBtn.className = !isManual ? 'btn btn-primary' : 'btn btn-outline-purple';
+        if (checkoutTypeStatus) {
+          checkoutTypeStatus.textContent = isManual
+            ? 'Active mode: Manual (current Razorpay checkout)'
+            : 'Active mode: Shiprocket Checkout';
+        }
+      };
+
+      try {
+        const modeData = await apiFetch('/settings/checkout-type', { method: 'GET', auth: false });
+        const mode = (modeData && modeData.checkout_type === 'shiprocket') ? 'shiprocket' : 'manual';
+        checkoutType = mode;
+        paintCheckoutTypeButtons(mode);
+      } catch (err) {
+        console.error('Failed to load checkout type', err);
+        paintCheckoutTypeButtons('manual');
+      }
+
+      const saveCheckoutType = async (mode) => {
+        try {
+          await apiFetch('/admin/settings/checkout-type', { method: 'PUT', body: { checkout_type: mode } });
+          checkoutType = mode;
+          paintCheckoutTypeButtons(mode);
+          showToast(`Checkout switched to ${mode === 'shiprocket' ? 'Shiprocket' : 'Manual'}`);
+        } catch (err) {
+          showToast(err.message || 'Failed to update checkout type');
+        }
+      };
+
+      checkoutManualBtn.addEventListener('click', () => saveCheckoutType('manual'));
+      checkoutShiprocketBtn.addEventListener('click', () => saveCheckoutType('shiprocket'));
+    }
   }
 
   if (path.includes('admin-returns')) {
@@ -5840,14 +5939,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (product) {
       window.currentProductDetail = product;
-      window.buyNow = function (pid) {
+      window.buyNow = async function (pid) {
         const productToBuy = products.find(p => String(p.id) === String(pid));
-        if (productToBuy) {
-          sessionStorage.setItem('shubham_buy_now_item', JSON.stringify({ ...productToBuy, quantity: 1 }));
-          window.location.href = "/checkout";
-        } else {
+        if (!productToBuy) {
           showToast("Product not found");
+          return;
         }
+        if (isShiprocketCheckoutEnabled()) {
+          const item = { ...productToBuy, quantity: 1 };
+          await startShiprocketCheckout([item], Number(productToBuy.price || 0) + DELIVERY_FEE);
+          return;
+        }
+        sessionStorage.setItem('shubham_buy_now_item', JSON.stringify({ ...productToBuy, quantity: 1 }));
+        window.location.href = "/checkout";
       };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
