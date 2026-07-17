@@ -474,6 +474,10 @@ async function startShiprocketCheckout(items, total) {
     if (data && data.fastrr_setup_hint) {
       console.warn("[Shiprocket] setup hint:", data.fastrr_setup_hint);
     }
+    if (data && data.catalog_api_key_configured === false) {
+      console.error("[Shiprocket] SHIPROCKET_API_KEY missing on server — Fastrr catalog sync will fail");
+      showToast("Shiprocket API key missing on server. Check Railway env.");
+    }
     const sellerDomain = data && data.seller_domain;
     const widgetUrl = data && (data.widget_url || data.checkout_url);
     if (widgetUrl && (data.checkout_mode === "headless_popup" || Array.isArray(data.cart_products))) {
@@ -560,7 +564,7 @@ const PRODUCTS_SERVER_PAGE_SIZE = 10;
 const ALL_PRODUCTS_PAGE_SIZE = 30;
 let allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
 const PRODUCTS_JSON_BUILD_VERSION = '2026-07-15a';
-const SCRIPT_BUILD_VERSION = '2026-07-17g';
+const SCRIPT_BUILD_VERSION = '2026-07-17h';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */

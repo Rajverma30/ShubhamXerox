@@ -2057,7 +2057,16 @@ async def create_shiprocket_checkout_session(
         "platform": session.get("platform") or "CUSTOM",
         "order_id": order_id,
         "provider": session.get("provider"),
-        "fastrr_setup_hint": session.get("fastrr_setup_hint"),
+        "catalog_api_key_configured": bool(SHIPROCKET_API_KEY),
+        "fastrr_setup_hint": session.get("fastrr_setup_hint") or (
+            None
+            if SHIPROCKET_API_KEY
+            else (
+                "SHIPROCKET_API_KEY is missing on Railway. Fastrr cannot sync catalog and will show "
+                "'Something went wrong'. Set SHIPROCKET_API_KEY + SHIPROCKET_API_SECRET in Railway, "
+                "then add the same key in Fastrr dashboard catalog settings."
+            )
+        ),
     }
 
 
@@ -2082,6 +2091,12 @@ async def shiprocket_checkout_diagnostics():
         "catalog_product_count": len(products),
         "catalog_url": f"{SITE_BASE_URL or 'https://shubhamxerox.in'}/shiprocket-checkout/products",
         "catalog_api_key_configured": bool(SHIPROCKET_API_KEY),
+        "ready_for_fastrr": bool(SHIPROCKET_API_KEY) and len(products) > 0,
+        "blocker": (
+            None
+            if SHIPROCKET_API_KEY
+            else "SHIPROCKET_API_KEY is missing in Railway environment variables"
+        ),
         "catalog_browser_note": (
             "Opening /shiprocket-checkout/products in a browser will show an error — "
             "that is normal. Only Shiprocket Fastrr servers should call it with X-Api-Key."
@@ -2089,7 +2104,8 @@ async def shiprocket_checkout_diagnostics():
         "sample_cart_line": sample,
         "fastrr_setup_hint": (
             f"Fastrr dashboard Domain Name must be exactly '{domain}'. "
-            "Catalog URLs still point at SITE_BASE_URL (shubhamxerox.in) with X-Api-Key header."
+            "Set Railway SHIPROCKET_API_KEY + SHIPROCKET_API_SECRET, then in Fastrr catalog settings "
+            "use the same X-Api-Key and catalog URL on SITE_BASE_URL (shubhamxerox.in)."
         ),
     }
 
