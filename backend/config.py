@@ -32,10 +32,34 @@ RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip()
 
+def _env_first(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 # Shiprocket Fastrr Checkout API (official)
-SHIPROCKET_API_KEY = os.getenv("SHIPROCKET_API_KEY", "").strip()
-SHIPROCKET_API_SECRET = os.getenv("SHIPROCKET_API_SECRET", "").strip()
-SHIPROCKET_WEBHOOK_SECRET = os.getenv("SHIPROCKET_WEBHOOK_SECRET", "").strip()
+# Accept common aliases — exact name must still exist in Railway Variables.
+# Fallback key only if Railway env is empty (move to Railway Variables when possible).
+_SHIPROCKET_API_KEY_FALLBACK = "ke0ZEIJNCLvGJUYB"
+SHIPROCKET_API_KEY = _env_first(
+    "SHIPROCKET_API_KEY",
+    "FASTRR_API_KEY",
+    "SHIPROCKET_CHECKOUT_API_KEY",
+    "X_API_KEY",
+) or _SHIPROCKET_API_KEY_FALLBACK
+SHIPROCKET_API_SECRET = _env_first(
+    "SHIPROCKET_API_SECRET",
+    "FASTRR_API_SECRET",
+    "SHIPROCKET_CHECKOUT_API_SECRET",
+)
+SHIPROCKET_WEBHOOK_SECRET = _env_first(
+    "SHIPROCKET_WEBHOOK_SECRET",
+    "FASTRR_WEBHOOK_SECRET",
+) or SHIPROCKET_API_SECRET
+
 SHIPROCKET_CHECKOUT_API_BASE_URL = os.getenv(
     "SHIPROCKET_CHECKOUT_API_BASE_URL",
     "https://checkout-api.shiprocket.com",
