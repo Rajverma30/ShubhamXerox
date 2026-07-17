@@ -126,40 +126,37 @@ function ensureFastrrMainContainer() {
 }
 
 function ensureFastrrCheckoutStyles() {
-  // Local overlay styles only — Fastrr sr-checkout.css fights our layout
-  // (position:fixed on .headless-modal) and can leave a blank white panel.
+  if (!document.getElementById("fastrr-boost-css")) {
+    const link = document.createElement("link");
+    link.id = "fastrr-boost-css";
+    link.rel = "stylesheet";
+    link.href = `${FASTRR_UI_ORIGIN}/assets/styles/sr-checkout.css`;
+    document.head.appendChild(link);
+  }
   if (!document.getElementById("fastrr-local-overlay-css")) {
     const style = document.createElement("style");
     style.id = "fastrr-local-overlay-css";
+    // Match official Fastrr Me() layout: full-viewport iframe (not a centered 440px card).
     style.textContent = `
-      #fastrr-main-container {
-        position: relative;
-        z-index: 2147483000;
-      }
+      #fastrr-main-container { position: relative; z-index: 2147483000; }
       #headless-container.headless-overlay-local {
         position: fixed !important;
         inset: 0 !important;
         z-index: 2147483646 !important;
-        background: rgba(0,0,0,0.55) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        padding: 0 !important;
+        background: #fff !important;
         margin: 0 !important;
+        padding: 0 !important;
       }
       #headless-container.headless-overlay-local .headless-modal {
-        position: relative !important;
-        left: auto !important;
-        top: auto !important;
-        bottom: auto !important;
-        right: auto !important;
-        width: min(440px, 100vw) !important;
-        height: 100vh !important;
-        max-height: 100vh !important;
-        margin: 0 auto !important;
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-height: none !important;
+        margin: 0 !important;
         background: #fff !important;
-        box-shadow: 0 12px 40px rgba(0,0,0,0.35) !important;
         overflow: hidden !important;
+        box-shadow: none !important;
         border-radius: 0 !important;
       }
       #headless-container.headless-overlay-local .headless-modal-content,
@@ -170,7 +167,6 @@ function ensureFastrrCheckoutStyles() {
         height: 100% !important;
         margin: 0 !important;
         padding: 0 !important;
-        overflow: hidden !important;
       }
       #headless-container.headless-overlay-local #headless-iframe {
         position: absolute !important;
@@ -183,20 +179,20 @@ function ensureFastrrCheckoutStyles() {
         z-index: 1 !important;
       }
       #fastrr-overlay-close {
-        position: absolute !important;
-        top: 10px !important;
-        right: 10px !important;
-        z-index: 3 !important;
-        width: 36px !important;
-        height: 36px !important;
+        position: fixed !important;
+        top: 12px !important;
+        right: 12px !important;
+        z-index: 2147483647 !important;
+        width: 40px !important;
+        height: 40px !important;
         border: 0 !important;
         border-radius: 999px !important;
         background: #111 !important;
         color: #fff !important;
-        font-size: 22px !important;
+        font-size: 24px !important;
         line-height: 1 !important;
         cursor: pointer !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important;
       }
       #fastrr-overlay-loading {
         position: absolute;
@@ -206,21 +202,81 @@ function ensureFastrrCheckoutStyles() {
         align-items: center;
         justify-content: center;
         flex-direction: column;
-        gap: 12px;
+        gap: 14px;
         background: #fff;
         color: #222;
         font-family: system-ui, sans-serif;
         font-size: 15px;
+        text-align: center;
+        padding: 24px;
       }
       #fastrr-overlay-loading[hidden] { display: none !important; }
-      @media (max-width: 640px) {
-        #headless-container.headless-overlay-local .headless-modal {
-          width: 100vw !important;
-        }
+      #fastrr-overlay-loading button {
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #802a7e;
+        color: #fff;
+        cursor: pointer;
+        font-size: 14px;
       }
     `;
     document.head.appendChild(style);
   }
+}
+
+function postFastrrHeadlessStorage() {
+  try {
+    const iframe = document.getElementById("headless-iframe");
+    if (!iframe || !iframe.contentWindow) return;
+    iframe.contentWindow.postMessage(
+      { trigger: "headless-storage", data: JSON.stringify(window.localStorage) },
+      FASTRR_UI_ORIGIN
+    );
+  } catch (e) {
+    console.warn("[Shiprocket] headless-storage post failed", e);
+  }
+}
+
+function ensureFastrrParentBridge() {
+  if (window.__fastrrParentBridgeReady) return;
+  window.__fastrrParentBridgeReady = true;
+  window.checkoutBuyer = window.checkoutBuyer || `${FASTRR_UI_ORIGIN}/`;
+
+  window.addEventListener("message", (event) => {
+    try {
+      if (!event || !event.origin || event.origin.indexOf("fastrr-boost-ui.pickrr.com") === -1) return;
+      const payload = event.data;
+      if (!payload) return;
+
+      // Official SDK format: { actions: [{ action, data }] }
+      if (Array.isArray(payload.actions)) {
+        payload.actions.forEach((item) => {
+          const action = item && item.action;
+          if (action === "loadStorage" || action === "headless-storage") {
+            postFastrrHeadlessStorage();
+          } else if (action === "headlessClose" || action === "headless-close") {
+            closeFastrrIframeOverlay();
+          } else if (action === "redirectTo" && item.data && item.data.url) {
+            window.location.href = item.data.url;
+          }
+        });
+        return;
+      }
+
+      const trigger = payload.trigger;
+      if (trigger === "headless-storage" || trigger === "headless-storage-prefetch") {
+        postFastrrHeadlessStorage();
+      } else if (trigger === "headless-close") {
+        closeFastrrIframeOverlay();
+      } else if (trigger === "reload-iframe" && payload.data) {
+        const iframe = document.getElementById("headless-iframe");
+        if (iframe) iframe.src = payload.data;
+      }
+    } catch (err) {
+      console.warn("[Shiprocket] parent bridge error", err);
+    }
+  });
 }
 
 function closeFastrrIframeOverlay() {
@@ -239,6 +295,7 @@ function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
   ensureFastrrSellerDomainInput(sellerDomain);
   ensureFastrrMainContainer();
   ensureFastrrCheckoutStyles();
+  ensureFastrrParentBridge();
   closeFastrrIframeOverlay();
 
   const overlay = document.createElement("div");
@@ -280,22 +337,29 @@ function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
     loading.hidden = true;
   };
 
+  const showFallback = () => {
+    loading.hidden = false;
+    loading.innerHTML = `
+      <div>Checkout is taking too long.</div>
+      <button type="button" id="fastrr-open-tab">Open checkout in new tab</button>
+      <button type="button" id="fastrr-close-overlay" style="background:#444;">Close</button>
+    `;
+    const tabBtn = loading.querySelector("#fastrr-open-tab");
+    const closeFallback = loading.querySelector("#fastrr-close-overlay");
+    if (tabBtn) tabBtn.addEventListener("click", () => window.open(widgetUrl, "_blank", "noopener"));
+    if (closeFallback) closeFallback.addEventListener("click", closeFastrrIframeOverlay);
+  };
+
   iframe.addEventListener("load", () => {
+    // Fastrr headless expects parent to push localStorage into the iframe.
+    postFastrrHeadlessStorage();
+    setTimeout(postFastrrHeadlessStorage, 300);
+    setTimeout(postFastrrHeadlessStorage, 1000);
     finishLoading();
     console.info("[Shiprocket] iframe loaded", iframe.src);
   });
-  iframe.addEventListener("error", () => {
-    finishLoading();
-    loading.hidden = false;
-    loading.innerHTML = `
-      <div>Checkout failed to load.</div>
-      <button type="button" id="fastrr-open-tab" style="padding:10px 14px;cursor:pointer;">Open in new tab</button>
-    `;
-    const tabBtn = loading.querySelector("#fastrr-open-tab");
-    if (tabBtn) tabBtn.addEventListener("click", () => window.open(widgetUrl, "_blank", "noopener"));
-  });
+  iframe.addEventListener("error", showFallback);
 
-  // Set src via JS so #cart= hash is preserved (innerHTML can mangle fragments).
   iframe.src = widgetUrl;
 
   body.appendChild(loading);
@@ -306,14 +370,15 @@ function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
   overlay.appendChild(modal);
   document.getElementById("fastrr-main-container").prepend(overlay);
 
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) closeFastrrIframeOverlay();
-  });
   document.addEventListener("keydown", onFastrrEscapeClose);
   document.body.style.overflow = "hidden";
 
-  // If Fastrr never fires load (rare), still hide spinner after timeout.
-  setTimeout(finishLoading, 12000);
+  // If still blank/unusable, offer new-tab fallback.
+  setTimeout(() => {
+    if (!document.getElementById("headless-iframe")) return;
+    // Keep iframe visible; only show helper if user is still stuck with loading layer.
+    if (!settled) showFallback();
+  }, 10000);
 
   console.info("[Shiprocket] opened iframe popup", widgetUrl);
   return true;
@@ -365,20 +430,23 @@ function openFastrrHeadlessPopup(cartProducts, widgetUrl, sellerDomain) {
   const domain = getFastrrSellerDomain(sellerDomain);
   ensureFastrrSellerDomainInput(domain);
 
-  // Prefer client-built URL (exact Fastrr SDK encoding). Backend URL is fallback.
   let url = "";
   if (Array.isArray(cartProducts) && cartProducts.length) {
     url = buildFastrrWidgetUrl(cartProducts, domain);
   }
   if (!url) url = widgetUrl || "";
-  if (!url) {
-    return Promise.resolve(false);
-  }
+  if (!url) return Promise.resolve(false);
 
-  if (openFastrrIframeOverlay(url, domain)) {
-    return Promise.resolve(true);
-  }
-  return Promise.resolve(false);
+  // Load official custom.js so Fastrr parent↔iframe bridge is ready, then open iframe.
+  return ensureFastrrBoostSdk(domain)
+    .catch((err) => {
+      console.warn("[Shiprocket] SDK preload warning (continuing with local bridge)", err);
+      return null;
+    })
+    .then(() => {
+      ensureFastrrParentBridge();
+      return openFastrrIframeOverlay(url, domain);
+    });
 }
 
 async function startShiprocketCheckout(items, total) {
@@ -492,7 +560,7 @@ const PRODUCTS_SERVER_PAGE_SIZE = 10;
 const ALL_PRODUCTS_PAGE_SIZE = 30;
 let allProductsVisibleCount = ALL_PRODUCTS_PAGE_SIZE;
 const PRODUCTS_JSON_BUILD_VERSION = '2026-07-15a';
-const SCRIPT_BUILD_VERSION = '2026-07-17f';
+const SCRIPT_BUILD_VERSION = '2026-07-17g';
 let productSlugById = {};
 let productIdBySlug = {};
 /** When set, /products requests are scoped to this category (from products.html?category=…). */
