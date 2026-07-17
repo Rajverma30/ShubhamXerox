@@ -1995,6 +1995,8 @@ async def create_shiprocket_checkout_session(
 
     _save_pending_shiprocket_checkout(order_id, pending_payload)
 
+    catalog_by_id = {str(row.get("id")): row for row in _merge_catalog_products() if row.get("id") is not None}
+
     try:
         session = create_checkout_session(
             domain=domain,
@@ -2003,19 +2005,26 @@ async def create_shiprocket_checkout_session(
             subtotal=float(req.total or 0),
             success_url=f"{SITE_BASE_URL}/my-orders",
             cancel_url=f"{SITE_BASE_URL}/cart",
+            catalog_by_id=catalog_by_id,
         )
     except ShiprocketCheckoutError as exc:
         logger.error("Shiprocket session failed order_id=%s: %s", order_id, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     logger.info(
-        "Shiprocket session ok order_id=%s provider=%s checkout_url=%s",
+        "Shiprocket session ok order_id=%s provider=%s mode=%s checkout_url=%s",
         order_id,
         session.get("provider"),
+        session.get("checkout_mode"),
         session.get("checkout_url"),
     )
     return {
         "checkout_url": session["checkout_url"],
+        "widget_url": session.get("widget_url") or session["checkout_url"],
+        "checkout_mode": session.get("checkout_mode") or "redirect",
+        "cart_products": session.get("cart_products") or [],
+        "seller_domain": session.get("seller_domain") or domain,
+        "platform": session.get("platform") or "CUSTOM",
         "order_id": order_id,
         "provider": session.get("provider"),
     }

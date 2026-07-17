@@ -109,56 +109,130 @@ def _extract_checkout_url(data: Dict[str, Any]) -> str:
     return ""
 
 
+def _fastrr_b64_json(value: Any) -> str:
+    """Match JS: btoa(encodeURIComponent(JSON.stringify(value)))."""
+    raw = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    escaped = quote(raw, safe="~()*!.'")
+    return base64.b64encode(escaped.encode("utf-8")).decode("ascii")
+
+
+def _resolve_image_url(catalog_row: Optional[Dict[str, Any]], item: Dict[str, Any]) -> str:
+    for source in (catalog_row, item):
+        if not isinstance(source, dict):
+            continue
+        for key in ("img_url", "image", "img"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                url = value.strip()
+                if url.startswith(("http://", "https://", "//")):
+                    return url
+                return f"{SITE_BASE_URL.rstrip('/')}/{url.lstrip('/')}"
+    return ""
+
+
+def build_fastrr_cart_products(
+    items: List[Dict[str, Any]],
+    catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Build cart lines for Fastrr headless popup (same shape as B3 Books / Shopify SDK)."""
+    catalog_by_id = catalog_by_id or {}
+    lines: List[Dict[str, Any]] = []
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        pid_raw = item.get("id") or item.get("productId") or item.get("product_id")
+        if pid_raw is None:
+            continue
+        pid_key = str(pid_raw)
+        try:
+            product_id = int(pid_raw)
+        except (TypeError, ValueError):
+            raise ShiprocketCheckoutError(f"Invalid product id: {pid_raw}")
+
+        catalog_row = catalog_by_id.get(pid_key) or catalog_by_id.get(str(product_id))
+        name = str(
+            item.get("name") or item.get("title")
+            or (catalog_row or {}).get("name")
+            or "Product"
+        ).strip() or "Product"
+        price = float(item.get("price") or (catalog_row or {}).get("price") or 0)
+        if price <= 0 and catalog_row:
+            price = float(catalog_row.get("price") or 0)
+        qty = int(item.get("quantity") or item.get("qty") or 1)
+        if qty < 1:
+            qty = 1
+
+        category = str((catalog_row or {}).get("category") or item.get("category") or "").strip()
+        image = _resolve_image_url(catalog_row, item)
+
+        line: Dict[str, Any] = {
+            "productId": product_id,
+            "variantId": product_id,
+            "title": name,
+            "variantTitle": "Default Title",
+            "price": round(price, 2),
+            "quantity": qty,
+            "vendor": str((catalog_row or {}).get("vendor") or "Shubham Xerox"),
+            "product_type": category,
+        }
+        if image:
+            line["image"] = image
+        lines.append(line)
+
+    if not lines:
+        raise ShiprocketCheckoutError("Cart is empty")
+    return lines
+
+
+def build_fastrr_headless_widget_url(
+    *,
+    domain: str,
+    cart_products: List[Dict[str, Any]],
+    success_url: Optional[str] = None,
+) -> str:
+    """Official Fastrr Boost headless popup URL (iframe overlay, not productDetails redirect)."""
+    seller_domain = (domain or SITE_BASE_URL or "shubhamxerox.in").replace("https://", "").replace("http://", "").split("/")[0]
+    checkout_type = "product" if len(cart_products) == 1 else "cart"
+    channel = {
+        "shop_name": "company-logo",
+        "shop_url": seller_domain,
+        "redirectUrl": success_url or f"{SITE_BASE_URL}/my-orders",
+    }
+    cart_token = _fastrr_b64_json(cart_products)
+    channel_token = _fastrr_b64_json(channel)
+    query = "&".join([
+        f"type={quote(checkout_type, safe='')}",
+        "platform=CUSTOM",
+        f"seller-domain={quote(seller_domain, safe='')}",
+        f"channel={quote(channel_token, safe='')}",
+    ])
+    return f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/?{query}#cart={quote(cart_token, safe='')}"
+
+
 def build_fastrr_checkout_url(
     *,
     domain: str,
     items: List[Dict[str, Any]],
     external_order_id: str,
-) -> str:
-    """Open Fastrr hosted checkout UI (used when checkout-api session path is unavailable)."""
-    lines: List[Dict[str, Any]] = []
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-        pid = str(item.get("id") or item.get("product_id") or item.get("productId") or "0")
-        try:
-            pid_int = int(pid)
-        except (TypeError, ValueError):
-            pid_int = abs(hash(pid)) % 10_000_000_000
-        price_paise = max(0, int(round(float(item.get("price") or 0) * 100)))
-        qty = int(item.get("quantity") or item.get("qty") or 1)
-        lines.append({
-            "product_id": pid_int,
-            "variant_id": pid_int,
-            "variant_available": True,
-            "inventory_quantity": 100,
-            "inventory_management": "shopify",
-            "inventory_policy": "deny",
-            "price": str(price_paise),
-            "title": "Default Title",
-            "value": "Default Title",
-            "name": str(item.get("name") or item.get("title") or "Product"),
-            "quantity": qty,
-        })
-
-    if not lines:
-        raise ShiprocketCheckoutError("Cart is empty")
-
-    product_details: Dict[str, Any] = lines[0] if len(lines) == 1 else {
+    catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    success_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    cart_products = build_fastrr_cart_products(items, catalog_by_id)
+    widget_url = build_fastrr_headless_widget_url(
+        domain=domain,
+        cart_products=cart_products,
+        success_url=success_url,
+    )
+    return {
+        "checkout_url": widget_url,
+        "widget_url": widget_url,
+        "checkout_mode": "headless_popup",
+        "platform": "CUSTOM",
+        "seller_domain": (domain or SITE_BASE_URL or "shubhamxerox.in").split("/")[0],
+        "cart_products": cart_products,
         "order_id": external_order_id,
-        "items": lines,
     }
-    encoded = quote(
-        base64.b64encode(
-            json.dumps(product_details, separators=(",", ":")).encode("utf-8")
-        ).decode("ascii"),
-        safe="",
-    )
-    seller_domain = quote((domain or SITE_BASE_URL or "shubhamxerox.in").split("/")[0], safe="")
-    return (
-        f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/"
-        f"?seller-domain={seller_domain}&productDetails={encoded}"
-    )
 
 
 def create_checkout_session(
@@ -169,17 +243,19 @@ def create_checkout_session(
     subtotal: float,
     success_url: Optional[str] = None,
     cancel_url: Optional[str] = None,
+    catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     sr_items = map_cart_items_for_shiprocket(items)
     if not sr_items:
         return {"error": "Cart is empty"}
 
+    resolved_success = success_url or f"{SITE_BASE_URL}/my-orders"
     payload = {
         "order_id": external_order_id,
         "external_order_id": external_order_id,
         "domain": domain,
-        "redirect_url": success_url or f"{SITE_BASE_URL}/my-orders",
-        "success_url": success_url or f"{SITE_BASE_URL}/my-orders",
+        "redirect_url": resolved_success,
+        "success_url": resolved_success,
         "cancel_url": cancel_url or f"{SITE_BASE_URL}/cart",
         "cart": {
             "currency": "INR",
@@ -196,22 +272,31 @@ def create_checkout_session(
                 return {
                     "checkout_url": checkout_url,
                     "provider": "shiprocket-checkout-api",
+                    "checkout_mode": "redirect",
                     "session": data,
                 }
         except ShiprocketCheckoutError as exc:
             logger.warning(
-                "Shiprocket checkout API session failed, using Fastrr UI fallback: %s",
+                "Shiprocket checkout API session failed, using Fastrr headless fallback: %s",
                 exc,
             )
 
-    checkout_url = build_fastrr_checkout_url(
+    headless = build_fastrr_checkout_url(
         domain=domain,
         items=items,
         external_order_id=external_order_id,
+        catalog_by_id=catalog_by_id,
+        success_url=resolved_success,
+    )
+    logger.info(
+        "Fastrr headless payload seller=%s products=%s url=%s",
+        headless.get("seller_domain"),
+        json.dumps(headless.get("cart_products") or [], ensure_ascii=False),
+        headless.get("widget_url"),
     )
     return {
-        "checkout_url": checkout_url,
-        "provider": "fastrr-boost-ui",
+        **headless,
+        "provider": "fastrr-headless-ui",
         "session": {"fallback": True, "order_id": external_order_id},
     }
 

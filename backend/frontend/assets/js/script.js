@@ -75,6 +75,75 @@ function isShiprocketCheckoutEnabled() {
   return checkoutType === "shiprocket";
 }
 
+const FASTRR_UI_ORIGIN = "https://fastrr-boost-ui.pickrr.com";
+let fastrrSdkLoadPromise = null;
+
+function getFastrrSellerDomain() {
+  try {
+    const host = (window.location.host || "").split(":")[0];
+    if (host && !host.includes("localhost") && !host.includes("railway.app")) return host;
+  } catch (e) {}
+  return "shubhamxerox.in";
+}
+
+function loadScriptOnce(src, id) {
+  return new Promise((resolve, reject) => {
+    if (id && document.getElementById(id)) {
+      resolve(true);
+      return;
+    }
+    const el = document.createElement("script");
+    if (id) el.id = id;
+    el.src = src;
+    el.defer = true;
+    el.onload = () => resolve(true);
+    el.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(el);
+  });
+}
+
+function ensureFastrrBoostSdk() {
+  if (!fastrrSdkLoadPromise) {
+    fastrrSdkLoadPromise = (async () => {
+      if (!document.getElementById("sellerDomain")) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.id = "sellerDomain";
+        input.value = getFastrrSellerDomain();
+        document.body.appendChild(input);
+      }
+      if (!document.getElementById("fastrr-boost-css")) {
+        const link = document.createElement("link");
+        link.id = "fastrr-boost-css";
+        link.rel = "stylesheet";
+        link.href = `${FASTRR_UI_ORIGIN}/assets/styles/sr-checkout.css`;
+        document.head.appendChild(link);
+      }
+      await loadScriptOnce(`${FASTRR_UI_ORIGIN}/assets/js/channels/custom.js`, "fastrr-custom-channel-js");
+      return window.HeadlessCheckout || null;
+    })().catch((err) => {
+      fastrrSdkLoadPromise = null;
+      throw err;
+    });
+  }
+  return fastrrSdkLoadPromise;
+}
+
+function openFastrrHeadlessPopup(cartProducts, fallbackUrl) {
+  return ensureFastrrBoostSdk().then((HeadlessCheckout) => {
+    if (!HeadlessCheckout || typeof HeadlessCheckout.InitiateDirectCheckout !== "function") {
+      throw new Error("Fastrr Boost SDK unavailable");
+    }
+    console.info("[Shiprocket] opening headless popup", cartProducts);
+    HeadlessCheckout.InitiateDirectCheckout(null, null, cartProducts || []);
+    return true;
+  }).catch((err) => {
+    console.warn("[Shiprocket] popup failed, falling back to redirect", err);
+    if (fallbackUrl) window.location.href = fallbackUrl;
+    return false;
+  });
+}
+
 async function startShiprocketCheckout(items, total) {
   if (!items || !items.length) {
     showToast("Your cart is empty.");
@@ -97,6 +166,10 @@ async function startShiprocketCheckout(items, total) {
       body: payload,
     });
     console.info("[Shiprocket] response", data);
+    if (data && data.checkout_mode === "headless_popup" && Array.isArray(data.cart_products) && data.cart_products.length) {
+      const opened = await openFastrrHeadlessPopup(data.cart_products, data.checkout_url || data.widget_url);
+      if (opened) return true;
+    }
     if (data && data.checkout_url) {
       console.info("[Shiprocket] redirect ->", data.checkout_url);
       window.location.href = data.checkout_url;
