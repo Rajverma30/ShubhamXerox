@@ -96,7 +96,15 @@ async def healthz():
 async def get_config_js(request: Request):
     url = SUPABASE_URL
     anon_key = SUPABASE_ANON_KEY or SUPABASE_KEY
-    api_base = API_BASE_URL or str(request.base_url).rstrip("/")
+    # Same-origin always — avoids www vs apex / dead Railway custom-domain mismatch
+    # (apex shubhamxerox.in currently 404s; live host is www.shubhamxerox.in).
+    request_origin = str(request.base_url).rstrip("/")
+    configured = (API_BASE_URL or "").rstrip("/")
+    if configured and configured.rstrip("/") == request_origin:
+        api_base = configured
+    else:
+        # Prefer the host the browser is actually on (www or localhost).
+        api_base = request_origin
     js_content = (
         f"window.ENV_SUPABASE_URL = '{url}';\n"
         f"window.ENV_SUPABASE_KEY = '{anon_key}';\n"
@@ -2003,7 +2011,7 @@ async def create_shiprocket_checkout_session(
     _save_pending_shiprocket_checkout(order_id, pending_payload)
 
     catalog_by_id = {str(row.get("id")): row for row in _merge_catalog_products() if row.get("id") is not None}
-    base_url = SITE_BASE_URL or "https://shubhamxerox.in"
+    base_url = SITE_BASE_URL or "https://www.shubhamxerox.in"
     cart_products: List[Dict[str, Any]] = []
     missing_ids: List[str] = []
     for item in req.items:
@@ -2081,8 +2089,8 @@ async def shiprocket_checkout_diagnostics():
         row = dict(products[0])
         pid = str(row.get("id"))
         row["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, pid)
-        row["img_url"] = _normalize_product_image_url(row.get("img"), SITE_BASE_URL or "https://shubhamxerox.in")
-        serialized = serialize_product(row, SITE_BASE_URL or "https://shubhamxerox.in")
+        row["img_url"] = _normalize_product_image_url(row.get("img"), SITE_BASE_URL or "https://www.shubhamxerox.in")
+        serialized = serialize_product(row, SITE_BASE_URL or "https://www.shubhamxerox.in")
         sample = build_fastrr_cart_line_from_serialized_product(serialized, 1)
     key_configured = bool(SHIPROCKET_API_KEY)
     try:
@@ -2096,7 +2104,7 @@ async def shiprocket_checkout_diagnostics():
         "site_base_url": SITE_BASE_URL,
         "note": "seller_domain must equal Fastrr dashboard Domain Name (shubham-xerox.jetshop.co), not the public website host.",
         "catalog_product_count": len(products),
-        "catalog_url": f"{SITE_BASE_URL or 'https://shubhamxerox.in'}/shiprocket-checkout/products",
+        "catalog_url": f"{SITE_BASE_URL or 'https://www.shubhamxerox.in'}/shiprocket-checkout/products",
         "catalog_api_key_configured": key_configured,
         "catalog_api_secret_configured": secret_configured,
         "catalog_api_key_length": len(SHIPROCKET_API_KEY or ""),
@@ -2184,7 +2192,7 @@ async def shiprocket_checkout_webhook(request: Request):
 
 def _prepare_shiprocket_catalog_products() -> List[Dict[str, Any]]:
     image_map = _load_db_product_images_map()
-    base_url = SITE_BASE_URL or "https://shubhamxerox.in"
+    base_url = SITE_BASE_URL or "https://www.shubhamxerox.in"
     _refresh_product_slug_cache()
     slug_map = PRODUCT_SLUG_CACHE.get("id_to_slug", {})
     prepared: List[Dict[str, Any]] = []
@@ -2239,7 +2247,7 @@ async def shiprocket_checkout_debug():
     collections = collections_payload.get("collections") or []
     first_product = None
     if products:
-        base_url = SITE_BASE_URL or "https://shubhamxerox.in"
+        base_url = SITE_BASE_URL or "https://www.shubhamxerox.in"
         row = dict(products[0])
         pid = str(row.get("id"))
         row["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, pid)
@@ -2878,13 +2886,15 @@ def _xml_escape(value: Any) -> str:
 
 def _sitemap_base_url(request: Request) -> str:
     configured = os.getenv("SITE_BASE_URL", "").strip().rstrip("/")
+    if configured in ("https://shubhamxerox.in", "http://shubhamxerox.in"):
+        configured = "https://www.shubhamxerox.in"
     if configured:
         return configured
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "shubhamxerox.in"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "www.shubhamxerox.in"
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
     if "localhost" in host or host.startswith("127.0.0.1"):
         return f"{scheme}://{host}".rstrip("/")
-    return "https://shubhamxerox.in"
+    return "https://www.shubhamxerox.in"
 
 def _build_sitemap_url(loc: str, lastmod: str, changefreq: str, priority: str) -> str:
     return (

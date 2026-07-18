@@ -70,8 +70,14 @@ SHIPROCKET_CHECKOUT_SESSION_PATH = os.getenv(
 ).strip()
 if not SHIPROCKET_CHECKOUT_SESSION_PATH.startswith("/"):
     SHIPROCKET_CHECKOUT_SESSION_PATH = f"/{SHIPROCKET_CHECKOUT_SESSION_PATH}"
-SITE_BASE_URL = os.getenv("SITE_BASE_URL", "https://shubhamxerox.in").strip().rstrip("/")
+# Live storefront is www — apex (shubhamxerox.in) is not attached on Railway and returns 404.
+_SITE_BASE_DEFAULT = "https://www.shubhamxerox.in"
+SITE_BASE_URL = os.getenv("SITE_BASE_URL", _SITE_BASE_DEFAULT).strip().rstrip("/")
+if SITE_BASE_URL in ("https://shubhamxerox.in", "http://shubhamxerox.in"):
+    SITE_BASE_URL = _SITE_BASE_DEFAULT
 API_BASE_URL = os.getenv("API_BASE_URL", "").strip().rstrip("/") or SITE_BASE_URL
+if API_BASE_URL in ("https://shubhamxerox.in", "http://shubhamxerox.in"):
+    API_BASE_URL = SITE_BASE_URL
 SHIPROCKET_CHECKOUT_UI_BASE_URL = os.getenv(
     "SHIPROCKET_CHECKOUT_UI_BASE_URL",
     "https://fastrr-boost-ui.pickrr.com",

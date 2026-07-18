@@ -45,7 +45,7 @@ const CE_PAPER_SIZE_MULTIPLIERS = { a4: 1, a3: 2.5, legal: 1, letter: 1 };
 const API_BASE = window.API_BASE_URL || (
   window.location.protocol === "http:" || window.location.protocol === "https:"
     ? window.location.origin
-    : "https://shubhamxerox-production.up.railway.app"
+    : "https://www.shubhamxerox.in"
 );
 window.API_BASE_URL = API_BASE;
 let checkoutType = "manual";
@@ -501,7 +501,12 @@ async function startShiprocketCheckout(items, total) {
     throw new Error("Checkout URL missing");
   } catch (err) {
     console.error("[Shiprocket] checkout failed:", err);
-    showToast(err.message || "Failed to open Shiprocket Checkout");
+    const msg = String(err && err.message || "");
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      showToast("Shiprocket API unreachable. Open site on www.shubhamxerox.in and hard-refresh.");
+    } else {
+      showToast(msg || "Failed to open Shiprocket Checkout");
+    }
     return false;
   }
 }
@@ -6244,7 +6249,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           paintCheckoutTypeButtons(mode);
           showToast(`Checkout switched to ${mode === 'shiprocket' ? 'Shiprocket' : 'Manual'}`);
         } catch (err) {
-          showToast(err.message || 'Failed to update checkout type');
+          const msg = String(err && err.message || '');
+          if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+            showToast('API unreachable (Failed to fetch). Use https://www.shubhamxerox.in and hard-refresh (Ctrl+Shift+R).');
+          } else {
+            showToast(msg || 'Failed to update checkout type');
+          }
         }
       };
 
