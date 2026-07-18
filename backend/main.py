@@ -92,19 +92,31 @@ async def healthz():
         "railway_deployment": os.getenv("RAILWAY_DEPLOYMENT_ID", ""),
     }
 
+def _public_request_origin(request: Request) -> str:
+    """Browser-facing origin (https on Railway). request.base_url is often http behind proxy."""
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or "www.shubhamxerox.in"
+    ).split(",")[0].strip()
+    scheme = (
+        request.headers.get("x-forwarded-proto")
+        or request.url.scheme
+        or "https"
+    ).split(",")[0].strip().lower()
+    is_local = "localhost" in host or host.startswith("127.0.0.1")
+    if not is_local:
+        scheme = "https"
+    return f"{scheme}://{host}".rstrip("/")
+
+
 @app.get("/config.js")
 async def get_config_js(request: Request):
     url = SUPABASE_URL
     anon_key = SUPABASE_ANON_KEY or SUPABASE_KEY
-    # Same-origin always — avoids www vs apex / dead Railway custom-domain mismatch
-    # (apex shubhamxerox.in currently 404s; live host is www.shubhamxerox.in).
-    request_origin = str(request.base_url).rstrip("/")
-    configured = (API_BASE_URL or "").rstrip("/")
-    if configured and configured.rstrip("/") == request_origin:
-        api_base = configured
-    else:
-        # Prefer the host the browser is actually on (www or localhost).
-        api_base = request_origin
+    # Same host as the page the user opened — always https in production so
+    # HTTPS pages never get mixed-content "Failed to fetch" on API calls.
+    api_base = _public_request_origin(request)
     js_content = (
         f"window.ENV_SUPABASE_URL = '{url}';\n"
         f"window.ENV_SUPABASE_KEY = '{anon_key}';\n"

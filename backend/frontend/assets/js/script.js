@@ -42,11 +42,18 @@ const WHATSAPP_NUMBER = "919826462963";
 let DELIVERY_FEE = 70;
 const CE_BINDING_FEES = { none: 0, spiral: 20, pin: 10 };
 const CE_PAPER_SIZE_MULTIPLIERS = { a4: 1, a3: 2.5, legal: 1, letter: 1 };
-const API_BASE = window.API_BASE_URL || (
-  window.location.protocol === "http:" || window.location.protocol === "https:"
-    ? window.location.origin
-    : "https://www.shubhamxerox.in"
-);
+const API_BASE = (() => {
+  let base = window.API_BASE_URL || (
+    window.location.protocol === "http:" || window.location.protocol === "https:"
+      ? window.location.origin
+      : "https://www.shubhamxerox.in"
+  );
+  // Prevent mixed-content "Failed to fetch" when config.js returns http behind Railway proxy.
+  if (typeof window !== "undefined" && window.location.protocol === "https:" && String(base).startsWith("http://")) {
+    base = "https://" + String(base).slice("http://".length);
+  }
+  return String(base).replace(/\/$/, "");
+})();
 window.API_BASE_URL = API_BASE;
 let checkoutType = "manual";
 let checkoutTypeLoadPromise = null;
@@ -503,7 +510,7 @@ async function startShiprocketCheckout(items, total) {
     console.error("[Shiprocket] checkout failed:", err);
     const msg = String(err && err.message || "");
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-      showToast("Shiprocket API unreachable. Open site on www.shubhamxerox.in and hard-refresh.");
+      showToast("Shiprocket API blocked (check config.js uses https). Hard-refresh after deploy.");
     } else {
       showToast(msg || "Failed to open Shiprocket Checkout");
     }
@@ -6251,7 +6258,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (err) {
           const msg = String(err && err.message || '');
           if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-            showToast('API unreachable (Failed to fetch). Use https://www.shubhamxerox.in and hard-refresh (Ctrl+Shift+R).');
+            showToast('API blocked (http/https mismatch). Hard-refresh after deploy, or open Console → Network.');
           } else {
             showToast(msg || 'Failed to update checkout type');
           }
