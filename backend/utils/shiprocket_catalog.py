@@ -172,10 +172,11 @@ def serialize_product(row: Dict[str, Any], base_url: str) -> Dict[str, Any]:
             "variant_ids": [product_id],
         })
 
-    tags: List[str] = []
+    tag_parts: List[str] = []
     exam = str(row.get("exam") or "").strip()
     if exam:
-        tags.append(exam)
+        tag_parts.append(exam)
+    tags = ",".join(tag_parts)
 
     product_url = f"{base_url.rstrip('/')}/products/{slug}"
     return {
