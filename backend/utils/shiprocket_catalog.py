@@ -113,9 +113,9 @@ def build_collection_index(products: List[Dict[str, Any]]) -> Tuple[List[Dict[st
 def _serialize_variant(row: Dict[str, Any], product_id: int, price_paise: int, compare_paise: Optional[int]) -> Dict[str, Any]:
     stock = row.get("stock")
     try:
-        inventory_quantity = max(0, int(stock))
+        quantity = max(0, int(stock))
     except (TypeError, ValueError):
-        inventory_quantity = 100
+        quantity = 9999
 
     variant: Dict[str, Any] = {
         "id": product_id,
@@ -135,11 +135,12 @@ def _serialize_variant(row: Dict[str, Any], product_id: int, price_paise: int, c
         "weight": 0.5,
         "weight_unit": "kg",
         "inventory_item_id": product_id,
-        "inventory_quantity": inventory_quantity,
+        "inventory_quantity": quantity,
+        "quantity": quantity,
         "requires_shipping": True,
         "fulfillment_service": "manual",
         "inventory_management": "shopify",
-        "available": inventory_quantity > 0,
+        "available": quantity > 0,
     }
     return variant
 
