@@ -2294,7 +2294,12 @@ async def shiprocket_checkout_products(
     payload = build_products_payload(products, base_url=base_url, limit=limit, page=page)
     returned = len(payload.get("products") or [])
     _log_shiprocket_catalog_debug(request, route, status=200, items_returned=returned)
-    return payload
+    return {
+        "data": {
+            "total": payload["total"],
+            "products": payload["products"],
+        }
+    }
 
 
 @app.get("/shiprocket-checkout/collections")
