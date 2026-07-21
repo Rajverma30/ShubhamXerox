@@ -80,11 +80,39 @@ def verify_catalog_request(request: Request) -> None:
         return
 
 
+def serialize_collection(
+    *,
+    collection_id: int,
+    handle: str,
+    title: str,
+    body_html: str = "",
+    image_src: str = "",
+    created_at: Optional[str] = None,
+    updated_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    now = updated_at or _iso_timestamp()
+    created = created_at or now
+    return {
+        "id": collection_id,
+        "updated_at": now,
+        "body_html": body_html or "",
+        "handle": handle,
+        "image": {"src": image_src or ""},
+        "title": title,
+        "created_at": created,
+    }
+
+
 def build_collection_index(products: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     grouped: Dict[str, int] = {}
+    category_images: Dict[str, str] = {}
     for row in products:
         category = str(row.get("category") or "Uncategorized").strip() or "Uncategorized"
         grouped[category] = grouped.get(category, 0) + 1
+        if category not in category_images:
+            image_src = str(row.get("img_url") or row.get("img") or "").strip()
+            if image_src:
+                category_images[category] = image_src
 
     collections: List[Dict[str, Any]] = []
     lookup: Dict[str, str] = {}
@@ -95,18 +123,15 @@ def build_collection_index(products: List[Dict[str, Any]]) -> Tuple[List[Dict[st
         lookup[str(collection_id)] = category
         lookup[handle] = category
         lookup[handle.lower()] = category
-        collections.append({
-            "id": collection_id,
-            "handle": handle,
-            "title": category,
-            "body_html": "",
-            "published_at": now,
-            "updated_at": now,
-            "sort_order": "best-selling",
-            "template_suffix": None,
-            "published_scope": "web",
-            "products_count": grouped[category],
-        })
+        collections.append(serialize_collection(
+            collection_id=collection_id,
+            handle=handle,
+            title=category,
+            body_html="",
+            image_src=category_images.get(category, ""),
+            created_at=now,
+            updated_at=now,
+        ))
     return collections, lookup
 
 
