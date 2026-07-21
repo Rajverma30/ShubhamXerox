@@ -2314,9 +2314,15 @@ async def shiprocket_checkout_collections(request: Request, response: Response):
     response.headers["Cache-Control"] = "private, max-age=300"
     products = _prepare_shiprocket_catalog_products()
     payload = build_collections_payload(products)
-    returned = len(payload.get("collections") or [])
+    collections = payload.get("collections") or []
+    returned = len(collections)
     _log_shiprocket_catalog_debug(request, route, status=200, items_returned=returned)
-    return payload
+    return {
+        "data": {
+            "total": returned,
+            "collections": collections,
+        }
+    }
 
 
 @app.get("/shiprocket-checkout/collections/{collection_id}/products")
@@ -2350,7 +2356,12 @@ async def shiprocket_checkout_collection_products(
     )
     returned = len(payload.get("products") or [])
     _log_shiprocket_catalog_debug(request, route, status=200, items_returned=returned)
-    return payload
+    return {
+        "data": {
+            "total": payload["total"],
+            "products": payload["products"],
+        }
+    }
 
 
 @app.get("/admin/products")
