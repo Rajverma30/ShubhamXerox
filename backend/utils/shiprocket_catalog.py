@@ -22,11 +22,12 @@ def _stable_collection_id(category: str) -> int:
     return int(digest[:12], 16)
 
 
-def _price_paise(value: Any) -> int:
+def _price_rupees(value: Any) -> float:
+    """Catalog prices in rupees (same unit as checkout session cart lines)."""
     try:
-        return max(0, int(round(float(value or 0) * 100)))
+        return max(0.0, round(float(value or 0), 2))
     except (TypeError, ValueError):
-        return 0
+        return 0.0
 
 
 def _iso_timestamp() -> str:
@@ -135,7 +136,7 @@ def build_collection_index(products: List[Dict[str, Any]]) -> Tuple[List[Dict[st
     return collections, lookup
 
 
-def _serialize_variant(row: Dict[str, Any], product_id: int, price_paise: int, compare_paise: Optional[int]) -> Dict[str, Any]:
+def _serialize_variant(row: Dict[str, Any], product_id: int, price: float, compare_at_price: Optional[float]) -> Dict[str, Any]:
     stock = row.get("stock")
     try:
         quantity = max(0, int(stock))
@@ -146,11 +147,11 @@ def _serialize_variant(row: Dict[str, Any], product_id: int, price_paise: int, c
         "id": product_id,
         "product_id": product_id,
         "title": "Default Title",
-        "price": str(price_paise),
+        "price": str(price),
         "sku": str(product_id),
         "position": 1,
         "inventory_policy": "deny",
-        "compare_at_price": str(compare_paise) if compare_paise else None,
+        "compare_at_price": str(compare_at_price) if compare_at_price else None,
         "option1": "Default Title",
         "option2": None,
         "option3": None,
@@ -181,10 +182,10 @@ def serialize_product(row: Dict[str, Any], base_url: str) -> Dict[str, Any]:
     image_url = str(row.get("img_url") or "").strip()
     now = _iso_timestamp()
 
-    price_paise = _price_paise(row.get("price"))
-    original_paise = _price_paise(row.get("original_price"))
-    compare_paise = original_paise if original_paise > price_paise else None
-    variant = _serialize_variant(row, product_id, price_paise, compare_paise)
+    price = _price_rupees(row.get("price"))
+    original_price = _price_rupees(row.get("original_price"))
+    compare_at_price = original_price if original_price > price else None
+    variant = _serialize_variant(row, product_id, price, compare_at_price)
 
     images: List[Dict[str, Any]] = []
     if image_url:
@@ -224,14 +225,14 @@ def serialize_product(row: Dict[str, Any], base_url: str) -> Dict[str, Any]:
         "options": [{"id": product_id, "product_id": product_id, "name": "Title", "position": 1, "values": ["Default Title"]}],
         "images": images,
         "image": images[0] if images else None,
-        "price": price_paise,
-        "price_min": price_paise,
-        "price_max": price_paise,
+        "price": price,
+        "price_min": price,
+        "price_max": price,
         "available": variant["available"],
         "price_varies": False,
-        "compare_at_price": compare_paise,
-        "compare_at_price_min": compare_paise or 0,
-        "compare_at_price_max": compare_paise or 0,
+        "compare_at_price": compare_at_price,
+        "compare_at_price_min": compare_at_price or 0,
+        "compare_at_price_max": compare_at_price or 0,
         "compare_at_price_varies": False,
         "url": product_url,
     }
@@ -274,9 +275,9 @@ def build_fastrr_cart_line_from_serialized_product(
         raise ValueError("Product has no variants")
     variant = variants[0]
     try:
-        price_paise = int(variant.get("price") or shopify_product.get("price") or 0)
+        price = float(variant.get("price") or shopify_product.get("price") or 0)
     except (TypeError, ValueError):
-        price_paise = 0
+        price = 0.0
     image_obj = shopify_product.get("image") or {}
     image_src = image_obj.get("src") if isinstance(image_obj, dict) else ""
     if not image_src:
@@ -293,7 +294,7 @@ def build_fastrr_cart_line_from_serialized_product(
         "sku": str(variant_id),
         "title": str(shopify_product.get("title") or "Product"),
         "variantTitle": str(variant.get("title") or "Default Title"),
-        "price": round(price_paise / 100.0, 2),
+        "price": round(price, 2),
         "quantity": qty,
         "vendor": str(shopify_product.get("vendor") or "Shubham Xerox"),
         "product_type": str(shopify_product.get("product_type") or ""),
