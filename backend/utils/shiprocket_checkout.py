@@ -339,19 +339,150 @@ def _first(*values: Any) -> Any:
     return ""
 
 
+def _nested_dicts(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    order = data.get("order") if isinstance(data.get("order"), dict) else data
+    blobs = [payload, data, order]
+    for key in ("shipment", "tracking", "payment", "result"):
+        nested = data.get(key) if isinstance(data, dict) else None
+        if isinstance(nested, dict):
+            blobs.append(nested)
+        nested_order = order.get(key) if isinstance(order, dict) else None
+        if isinstance(nested_order, dict):
+            blobs.append(nested_order)
+    return [b for b in blobs if isinstance(b, dict)]
+
+
+def _collect_text_signals(payload: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for blob in _nested_dicts(payload):
+        for key in (
+            "event",
+            "event_type",
+            "eventType",
+            "type",
+            "status",
+            "order_status",
+            "payment_status",
+            "current_status",
+            "shipment_status",
+            "message",
+            "action",
+        ):
+            value = blob.get(key)
+            if value is not None and str(value).strip():
+                parts.append(str(value).strip().lower())
+    return " | ".join(parts)
+
+
+def classify_checkout_webhook(payload: Dict[str, Any]) -> str:
+    """
+    Classify Fastrr/Shiprocket checkout webhook.
+    Returns: success | failed | update | ignore
+    """
+    if not isinstance(payload, dict):
+        return "ignore"
+
+    signal = _collect_text_signals(payload)
+    failed_tokens = (
+        "payment_failed",
+        "payment-failed",
+        "payment failed",
+        "failed",
+        "failure",
+        "cancelled",
+        "canceled",
+        "abandoned",
+        "abandon",
+        "dropped",
+        "rejected",
+        "declined",
+    )
+    success_tokens = (
+        "order_placed",
+        "order-placed",
+        "order placed",
+        "fastrr_order_placed",
+        "purchase",
+        "payment_success",
+        "payment-success",
+        "payment successful",
+        "payment_successful",
+        "paid",
+        "captured",
+        "completed",
+        "confirmed",
+        "order_created",
+        "order-created",
+    )
+    update_tokens = (
+        "awb",
+        "shipped",
+        "shipping",
+        "tracking",
+        "out for delivery",
+        "ofd",
+        "delivered",
+        "pickup",
+        "in transit",
+        "manifest",
+    )
+
+    if any(token in signal for token in failed_tokens) and not any(
+        token in signal for token in ("order_placed", "purchase", "paid", "payment_success", "payment successful")
+    ):
+        return "failed"
+
+    if any(token in signal for token in success_tokens):
+        return "success"
+
+    # Tracking/status-only updates (order should already exist).
+    if any(token in signal for token in update_tokens):
+        return "update"
+
+    # Unknown event with cart/order money → treat as success so paid orders are not dropped.
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    order = data.get("order") if isinstance(data.get("order"), dict) else data
+    has_money = bool(_first(order.get("total"), order.get("sub_total"), data.get("total"), order.get("payment_id")))
+    has_items = isinstance(order.get("items") or order.get("order_items") or data.get("items"), list)
+    if has_money or has_items:
+        return "success"
+    return "ignore"
+
+
+def extract_external_order_id(payload: Dict[str, Any], pending: Optional[Dict[str, Any]] = None) -> str:
+    pending = pending or {}
+    for blob in _nested_dicts(payload):
+        candidate = _first(
+            blob.get("external_order_id"),
+            blob.get("channel_order_id"),
+            blob.get("merchant_order_id"),
+            blob.get("platform_order_id"),
+            blob.get("platformOrderId"),
+            blob.get("order_id") if str(blob.get("order_id") or "").startswith("ORD") else None,
+            blob.get("id") if str(blob.get("id") or "").startswith("ORD") else None,
+        )
+        if candidate:
+            return str(candidate).strip()
+    return str(pending.get("id") or "").strip()
+
+
+def build_tracking_url(tracking_id: Any = None, tracking_url: Any = None) -> str:
+    url = str(tracking_url or "").strip()
+    if url:
+        return url
+    awb = str(tracking_id or "").strip()
+    if awb:
+        return f"https://shiprocket.co/tracking/{awb}"
+    return ""
+
+
 def order_payload_from_webhook(payload: Dict[str, Any], pending: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     pending = pending or {}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     order = data.get("order") if isinstance(data.get("order"), dict) else data
 
-    external_id = _first(
-        order.get("external_order_id"),
-        order.get("order_id"),
-        order.get("id"),
-        data.get("external_order_id"),
-        payload.get("external_order_id"),
-        pending.get("id"),
-    )
+    external_id = extract_external_order_id(payload, pending)
     if external_id and not str(external_id).startswith("ORD"):
         external_id = pending.get("id") or f"ORD{external_id}"
 
@@ -376,7 +507,15 @@ def order_payload_from_webhook(payload: Dict[str, Any], pending: Optional[Dict[s
         order.get("address"),
         data.get("address"),
         pending.get("address"),
+        "Address captured via Shiprocket Checkout",
     )
+    if isinstance(address, dict):
+        address = ", ".join(
+            str(address.get(k) or "").strip()
+            for k in ("address", "address_1", "address1", "city", "state", "pincode", "zip", "country")
+            if str(address.get(k) or "").strip()
+        ) or "Address captured via Shiprocket Checkout"
+
     total = float(_first(order.get("total"), order.get("sub_total"), data.get("total"), pending.get("total"), 0) or 0)
     payment_method = _first(order.get("payment_method"), data.get("payment_method"), "Online")
     payment_id = _first(
@@ -409,6 +548,22 @@ def order_payload_from_webhook(payload: Dict[str, Any], pending: Optional[Dict[s
     elif str(payment_method).lower() == "cod":
         method = "COD"
 
+    tracking_id = str(_first(
+        order.get("awb"),
+        order.get("awb_code"),
+        order.get("tracking_id"),
+        order.get("tracking_number"),
+        data.get("awb"),
+        data.get("awb_code"),
+        data.get("tracking_id"),
+        payload.get("awb"),
+        payload.get("awb_code"),
+    ) or "")
+    tracking_url = build_tracking_url(
+        tracking_id,
+        _first(order.get("tracking_url"), data.get("tracking_url"), payload.get("tracking_url"), pending.get("tracking_url")),
+    )
+
     return {
         "id": str(external_id or pending.get("id") or f"ORD{int(time.time() * 1000)}"),
         "customer": customer_name,
@@ -419,11 +574,20 @@ def order_payload_from_webhook(payload: Dict[str, Any], pending: Optional[Dict[s
         "method": method,
         "status": "Pending",
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "shiprocket_order_id": str(_first(order.get("shiprocket_order_id"), order.get("sr_order_id"), data.get("order_id"), "")),
-        "shipment_id": str(_first(order.get("shipment_id"), data.get("shipment_id"), "")),
-        "tracking_id": str(_first(order.get("awb"), order.get("awb_code"), data.get("awb"), "")),
-        "courier_name": str(_first(order.get("courier_name"), order.get("courier"), data.get("courier_name"), "")),
-        "tracking_url": str(_first(order.get("tracking_url"), data.get("tracking_url"), "")),
+        "shiprocket_order_id": str(_first(
+            order.get("shiprocket_order_id"),
+            order.get("sr_order_id"),
+            data.get("shiprocket_order_id"),
+            data.get("sr_order_id"),
+            payload.get("sr_order_id"),
+            # Prefer SR numeric id only when it is not our ORD* id.
+            data.get("order_id") if not str(data.get("order_id") or "").startswith("ORD") else None,
+            order.get("order_id") if not str(order.get("order_id") or "").startswith("ORD") else None,
+        ) or ""),
+        "shipment_id": str(_first(order.get("shipment_id"), data.get("shipment_id"), payload.get("shipment_id"), "")),
+        "tracking_id": tracking_id,
+        "courier_name": str(_first(order.get("courier_name"), order.get("courier"), data.get("courier_name"), payload.get("courier_name"), "")),
+        "tracking_url": tracking_url,
     }
 
 

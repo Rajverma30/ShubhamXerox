@@ -115,10 +115,14 @@ function getFastrrReturnUrl() {
   return `${window.location.origin}${window.location.pathname}`;
 }
 
-function beginFastrrCheckoutSession() {
+function beginFastrrCheckoutSession(orderId) {
   fastrrCheckoutActive = true;
   fastrrCheckoutSucceeded = false;
   fastrrCheckoutReturnUrl = getFastrrReturnUrl();
+  fastrrCheckoutFinishing = false;
+  if (orderId) {
+    sessionStorage.setItem("shubham_sr_pending_order_id", String(orderId));
+  }
 }
 
 function resetFastrrCheckoutSession() {
@@ -126,6 +130,40 @@ function resetFastrrCheckoutSession() {
   fastrrCheckoutSucceeded = false;
   fastrrCheckoutReturnUrl = "";
   fastrrCheckoutFinishing = false;
+}
+
+async function confirmShiprocketOrderIfNeeded() {
+  const orderId = String(sessionStorage.getItem("shubham_sr_pending_order_id") || "").trim();
+  if (!orderId) return null;
+  try {
+    const data = await apiFetch("/checkout/shiprocket-confirm", {
+      method: "POST",
+      body: { order_id: orderId },
+    });
+    console.info("[Shiprocket] confirm order ok", data);
+    return data;
+  } catch (err) {
+    console.warn("[Shiprocket] confirm order failed (webhook may still create it)", err);
+    return null;
+  } finally {
+    sessionStorage.removeItem("shubham_sr_pending_order_id");
+  }
+}
+
+async function finishFastrrCheckoutSuccess() {
+  if (fastrrCheckoutFinishing) return;
+  fastrrCheckoutFinishing = true;
+  markFastrrCheckoutSuccess();
+  userCloseFastrrCheckout(false);
+  sessionStorage.removeItem("shubham_buy_now_item");
+  if (Array.isArray(cart) && cart.length) {
+    cart = [];
+    saveCart();
+  }
+  await confirmShiprocketOrderIfNeeded();
+  sessionStorage.setItem("orderBanner", "success");
+  resetFastrrCheckoutSession();
+  window.location.href = "/my-orders";
 }
 
 function normalizeFastrrUrl(url) {
@@ -186,21 +224,6 @@ function restoreCheckoutPageAfterShiprocketFailure() {
   const loadingEl = document.getElementById("shiprocketCheckoutLoading");
   if (checkoutGrid) checkoutGrid.style.display = "";
   if (loadingEl) loadingEl.style.display = "none";
-}
-
-function finishFastrrCheckoutSuccess() {
-  if (fastrrCheckoutFinishing) return;
-  fastrrCheckoutFinishing = true;
-  markFastrrCheckoutSuccess();
-  userCloseFastrrCheckout(false);
-  sessionStorage.removeItem("shubham_buy_now_item");
-  if (Array.isArray(cart) && cart.length) {
-    cart = [];
-    saveCart();
-  }
-  sessionStorage.setItem("orderBanner", "success");
-  resetFastrrCheckoutSession();
-  window.location.href = "/my-orders";
 }
 
 function blockFastrrParentNavigation(url, reason) {
@@ -627,10 +650,10 @@ async function startShiprocketCheckout(items, total) {
     showToast("Your cart is empty.");
     return false;
   }
-  beginFastrrCheckoutSession();
   const endpoint = "/checkout/shiprocket-session";
   const requestUrl = `${API_BASE}${endpoint}`;
   const orderId = "ORD" + Date.now();
+  beginFastrrCheckoutSession(orderId);
   const payload = {
     items,
     total: Number(total || 0),
@@ -4758,6 +4781,15 @@ function adminEscapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+function getOrderTrackingUrl(o) {
+  if (!o || typeof o !== 'object') return '';
+  const direct = String(o.tracking_link || o.tracking_url || '').trim();
+  if (direct) return direct;
+  const awb = String(o.tracking_id || o.awb || o.awb_code || '').trim();
+  if (awb) return `https://shiprocket.co/tracking/${encodeURIComponent(awb)}`;
+  return '';
+}
+
 /** Full delivery block for book orders (supports multiline address from checkout). */
 function formatAdminBookOrderDeliveryHtml(o) {
   const name = adminEscapeHtml((o.customer || o.customer_name || '').trim() || '—');
@@ -4767,7 +4799,7 @@ function formatAdminBookOrderDeliveryHtml(o) {
   const addr = adminEscapeHtml((o.address || '').trim() || '—');
   
   // Combine shiprocket and zippee tracking for display
-  const tracking = (o.tracking_link || o.tracking_url || '').trim();
+  const tracking = getOrderTrackingUrl(o);
   const shipNote = (o.tracking_id || o.shiprocket_order_id || o.shipment_id)
     ? `<div style="font-size:0.8rem; color:var(--text-muted); margin-top:8px;">Tracking ID: ${adminEscapeHtml(String(o.tracking_id || o.shiprocket_order_id || ''))}</div>`
     : '';
@@ -5264,7 +5296,7 @@ async function renderMyOrders() {
       const rawStatusStr = String(o.status || 'Pending').trim();
       const statusStr = rawStatusStr === 'Cancelled' ? 'Cancel Refund' : rawStatusStr;
       const customerStatusLabel = getBookCustomerStatusLabel(o);
-      const hasTracking = o.tracking_link || o.tracking_url;
+      const hasTracking = getOrderTrackingUrl(o);
       const trackingBtn = hasTracking
         ? `<a href="${hasTracking}" target="_blank" style="display:inline-block; margin-top: 12px; background:var(--primary); color:#000; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem; display:flex; align-items:center; gap:8px; width:fit-content;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg> Track Order</a>`
         : `<p style="color:var(--text-muted); font-size:0.85rem; margin-top:12px;">Tracking will be available shortly.</p>`;
@@ -5345,9 +5377,9 @@ async function renderMyOrders() {
 
         ${timeline}
 
-        ${o.tracking_url ? `<div style="margin-top:16px; padding: 16px; background:var(--bg-color); border:1px solid var(--border-color); border-radius:8px;">
+        ${getOrderTrackingUrl(o) ? `<div style="margin-top:16px; padding: 16px; background:var(--bg-color); border:1px solid var(--border-color); border-radius:8px;">
           <strong style="display:block; margin-bottom:8px; font-size:1.05rem;">Delivery Tracking:</strong>
-          <a href="${o.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:8px; background:var(--primary); color:#000; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem;">
+          <a href="${getOrderTrackingUrl(o)}" target="_blank" style="display:inline-flex; align-items:center; gap:8px; background:var(--primary); color:#000; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg> Track via Shiprocket
           </a>
         </div>` : ''}

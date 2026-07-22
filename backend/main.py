@@ -48,8 +48,11 @@ from config import (
 )
 from utils.shiprocket_checkout import (
     ShiprocketCheckoutError,
+    build_tracking_url,
+    classify_checkout_webhook,
     create_checkout_session,
     default_store_domain,
+    extract_external_order_id,
     order_payload_from_webhook,
     verify_webhook_signature,
 )
@@ -352,6 +355,9 @@ class ShiprocketCheckoutSessionRequest(BaseModel):
     order_id: Optional[str] = None
     return_url: Optional[str] = None
 
+class ShiprocketCheckoutConfirmRequest(BaseModel):
+    order_id: str
+
 # --- Auth / Security ---
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -581,26 +587,156 @@ def _preserve_stripped_photocopy_field(payload: Dict[str, Any], column: str, pay
     payload.pop(column, None)
 
 def _insert_order_payload(table: str, payload: Dict[str, Any], payment_id: Optional[str] = None):
-    max_retries = 10
+    max_retries = 12
     last_error: Optional[Exception] = None
+    working = dict(payload)
     for _ in range(max_retries):
         try:
-            response = supabase.table(table).insert(payload).execute()
+            response = supabase.table(table).insert(working).execute()
             if not response.data:
                 raise Exception("No data returned from insert")
             return response
         except Exception as e:
             last_error = e
-            if table != "photocopy_orders":
-                raise
             match = _MISSING_COLUMN_RE.search(str(e))
             if not match:
                 raise
             column = match.group(1)
-            if column not in payload:
+            if column not in working:
                 raise
-            _preserve_stripped_photocopy_field(payload, column, payment_id)
+            if table == "photocopy_orders":
+                _preserve_stripped_photocopy_field(working, column, payment_id)
+            else:
+                # Soft-drop optional shipping/tracking columns on older orders schemas.
+                working.pop(column, None)
+                logger.warning("orders insert dropped missing column=%s", column)
     raise last_error or Exception("Database insertion failed after column fallbacks")
+
+
+def _update_order_shipping_fields(order_id: str, fields: Dict[str, Any]) -> None:
+    """Update shipping/tracking fields; ignore missing optional columns."""
+    if not order_id or not fields:
+        return
+    working = {k: v for k, v in fields.items() if v not in ("", None)}
+    if not working:
+        return
+    for _ in range(8):
+        try:
+            supabase.table("orders").update(working).eq("id", order_id).execute()
+            return
+        except Exception as e:
+            match = _MISSING_COLUMN_RE.search(str(e))
+            if not match:
+                raise
+            column = match.group(1)
+            if column not in working:
+                raise
+            working.pop(column, None)
+            if not working:
+                return
+
+
+def _find_order_id_for_shiprocket_payload(payload: Dict[str, Any]) -> Optional[str]:
+    """Resolve our ORD* id from checkout/logistics webhook fields."""
+    external_id = extract_external_order_id(payload)
+    if external_id:
+        if str(external_id).startswith("ORD"):
+            return str(external_id)
+        pending = _load_pending_shiprocket_checkout(str(external_id))
+        if pending and pending.get("id"):
+            return str(pending["id"])
+
+    awb = str(
+        payload.get("awb")
+        or payload.get("awb_code")
+        or (payload.get("data") or {}).get("awb")
+        or ""
+    ).strip()
+    sr_order_id = str(
+        payload.get("sr_order_id")
+        or payload.get("shiprocket_order_id")
+        or (payload.get("data") or {}).get("sr_order_id")
+        or ""
+    ).strip()
+
+    if not supabase:
+        return None
+
+    if awb:
+        try:
+            res = supabase.table("orders").select("id").like("tracking_url", f"%{awb}%").limit(1).execute()
+            if res.data:
+                return str(res.data[0]["id"])
+            res = supabase.table("orders").select("id").eq("tracking_id", awb).limit(1).execute()
+            if res.data:
+                return str(res.data[0]["id"])
+        except Exception:
+            logger.exception("Failed looking up order by AWB")
+
+    if sr_order_id:
+        try:
+            res = supabase.table("orders").select("id").eq("shiprocket_order_id", sr_order_id).limit(1).execute()
+            if res.data:
+                return str(res.data[0]["id"])
+        except Exception:
+            logger.exception("Failed looking up order by shiprocket_order_id")
+    return None
+
+
+def _upsert_shiprocket_order_from_payload(
+    payload: Dict[str, Any],
+    *,
+    create_if_missing: bool,
+) -> Dict[str, Any]:
+    external_hint = extract_external_order_id(payload)
+    pending = _load_pending_shiprocket_checkout(str(external_hint)) if external_hint else None
+    if not pending and external_hint and not str(external_hint).startswith("ORD"):
+        # Try matching pending keys that are our ORD ids stored earlier.
+        pending = None
+    order_data = order_payload_from_webhook(payload, pending)
+
+    # Prefer pending ORD id when webhook external id is Shiprocket-native.
+    if pending and pending.get("id"):
+        order_data["id"] = str(pending["id"])
+
+    existing = supabase.table("orders").select("id").eq("id", order_data["id"]).execute()
+    shipping_fields = {
+        k: order_data.get(k)
+        for k in ("shiprocket_order_id", "shipment_id", "tracking_id", "courier_name", "tracking_url", "method", "status")
+        if order_data.get(k)
+    }
+    if order_data.get("tracking_id") and not order_data.get("tracking_url"):
+        order_data["tracking_url"] = build_tracking_url(order_data.get("tracking_id"))
+        shipping_fields["tracking_url"] = order_data["tracking_url"]
+
+    if existing.data:
+        _update_order_shipping_fields(order_data["id"], shipping_fields)
+        _delete_pending_shiprocket_checkout(order_data["id"])
+        return {"status": "ok", "message": "Order already exists; shipping metadata updated", "order_id": order_data["id"]}
+
+    if not create_if_missing:
+        return {"status": "ignored", "message": "No existing order to update", "order_id": order_data["id"]}
+
+    if not order_data.get("items"):
+        raise HTTPException(status_code=400, detail="Cannot create order without items")
+    if not order_data.get("customerphone"):
+        raise HTTPException(status_code=400, detail="Cannot create order without customer phone")
+
+    allowed_keys = {
+        "id", "customer", "customerphone", "address", "items", "total", "method", "status", "date",
+        "shiprocket_order_id", "shipment_id", "tracking_id", "tracking_url", "courier_name",
+    }
+    insert_payload = {k: v for k, v in order_data.items() if k in allowed_keys and v not in ("", None)}
+    if order_data.get("courier_name"):
+        insert_payload["method"] = f"{insert_payload.get('method', 'Online')} ({order_data['courier_name']})"
+    _normalize_order_phones(insert_payload, "orders")
+    if not insert_payload.get("address"):
+        insert_payload["address"] = "Address captured via Shiprocket Checkout"
+    if not insert_payload.get("customer"):
+        insert_payload["customer"] = "Customer"
+    _insert_order_payload("orders", insert_payload)
+    _delete_pending_shiprocket_checkout(order_data["id"])
+    return {"status": "ok", "message": "Order created from Shiprocket checkout", "order_id": order_data["id"]}
 
 def _seed_admin_user() -> None:
     """
@@ -1308,26 +1444,43 @@ async def create_photocopy_shiprocket(req: Request, _admin: Dict[str, Any] = Dep
 
 @app.post("/shiprocket-webhook")
 async def shiprocket_webhook(request: Request):
+    """Logistics tracking webhook — update existing orders by AWB / channel order id; never create unpaid orders."""
     try:
         payload = await request.json()
-        status = payload.get("current_status")
-        awb = payload.get("awb")
-        
-        if status == "DELIVERED" and awb:
-            # We don't know if it's books or photocopy, so check both
-            books_res = supabase.table("orders").select("id").like("tracking_url", f"%{awb}%").execute()
-            if books_res.data:
-                supabase.table("orders").update({"status": "Delivered"}).eq("id", books_res.data[0]["id"]).execute()
-            else:
-                photo_res = supabase.table("photocopy_orders").select("*").like("tracking_url", f"%{awb}%").execute()
-                if photo_res.data:
-                    order = photo_res.data[0]
-                    purge_fields = _purge_photocopy_order_pdfs(order)
-                    supabase.table("photocopy_orders").update({
-                        "status": "Delivered",
-                        **purge_fields,
-                    }).eq("id", order["id"]).execute()
-                    
+        if not isinstance(payload, dict):
+            return {"status": "ok"}
+
+        status = str(
+            payload.get("current_status")
+            or payload.get("shipment_status")
+            or payload.get("status")
+            or ""
+        ).strip()
+        awb = str(payload.get("awb") or payload.get("awb_code") or "").strip()
+        tracking_url = build_tracking_url(awb, payload.get("tracking_url"))
+        order_id = _find_order_id_for_shiprocket_payload(payload)
+
+        if order_id and (awb or tracking_url or status):
+            fields: Dict[str, Any] = {}
+            if awb:
+                fields["tracking_id"] = awb
+            if tracking_url:
+                fields["tracking_url"] = tracking_url
+            if status.upper() == "DELIVERED":
+                fields["status"] = "Delivered"
+            _update_order_shipping_fields(order_id, fields)
+
+        if status.upper() == "DELIVERED" and awb and supabase:
+            # Photocopy orders still keyed by tracking_url contains AWB.
+            photo_res = supabase.table("photocopy_orders").select("*").like("tracking_url", f"%{awb}%").execute()
+            if photo_res.data:
+                order = photo_res.data[0]
+                purge_fields = _purge_photocopy_order_pdfs(order)
+                supabase.table("photocopy_orders").update({
+                    "status": "Delivered",
+                    **purge_fields,
+                }).eq("id", order["id"]).execute()
+
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Webhook error: {e}")
@@ -2168,43 +2321,96 @@ async def shiprocket_checkout_webhook(request: Request):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
 
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-    order_blob = data.get("order") if isinstance(data.get("order"), dict) else data
-    external_id = (
-        order_blob.get("external_order_id")
-        or order_blob.get("order_id")
-        or data.get("external_order_id")
-        or payload.get("external_order_id")
+    kind = classify_checkout_webhook(payload if isinstance(payload, dict) else {})
+    logger.info(
+        "Shiprocket checkout webhook kind=%s external_id=%s",
+        kind,
+        extract_external_order_id(payload if isinstance(payload, dict) else {}),
     )
-    pending = _load_pending_shiprocket_checkout(str(external_id)) if external_id else None
-    order_data = order_payload_from_webhook(payload, pending)
 
-    existing = supabase.table("orders").select("id").eq("id", order_data["id"]).execute()
+    if kind == "failed":
+        external_id = extract_external_order_id(payload if isinstance(payload, dict) else {})
+        if external_id:
+            _delete_pending_shiprocket_checkout(str(external_id))
+            if not str(external_id).startswith("ORD"):
+                # Also clear pending stored under ORD* if present in nested fields.
+                pending_id = _find_order_id_for_shiprocket_payload(payload)
+                if pending_id:
+                    _delete_pending_shiprocket_checkout(pending_id)
+        return {"status": "ok", "message": "Payment failed — order not created"}
+
+    if kind == "ignore":
+        return {"status": "ok", "message": "Webhook ignored"}
+
+    if kind == "update":
+        return _upsert_shiprocket_order_from_payload(payload, create_if_missing=False)
+
+    # success → create order (or update shipping if already created by confirm endpoint)
+    return _upsert_shiprocket_order_from_payload(payload, create_if_missing=True)
+
+
+@app.post("/checkout/shiprocket-confirm")
+async def confirm_shiprocket_checkout(
+    req: ShiprocketCheckoutConfirmRequest,
+    user: Optional[Dict[str, Any]] = Depends(verify_user_optional),
+):
+    """
+    Client fallback when Fastrr UI reports payment success.
+    Creates the order from the pending session only (never invents cart data).
+    Failed/abandoned checkouts never call this, so no order is created.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    order_id = (req.order_id or "").strip()
+    if not order_id:
+        raise HTTPException(status_code=400, detail="order_id required")
+
+    existing = supabase.table("orders").select("id,tracking_url,tracking_id,shiprocket_order_id").eq("id", order_id).execute()
     if existing.data:
-        update_fields = {
-            k: order_data[k]
-            for k in ("shiprocket_order_id", "shipment_id", "tracking_id", "courier_name", "tracking_url", "method", "status")
-            if order_data.get(k)
+        row = existing.data[0]
+        return {
+            "status": "ok",
+            "order_id": order_id,
+            "created": False,
+            "tracking_url": row.get("tracking_url") or build_tracking_url(row.get("tracking_id")),
+            "tracking_id": row.get("tracking_id") or "",
+            "shiprocket_order_id": row.get("shiprocket_order_id") or "",
         }
-        if update_fields:
-            supabase.table("orders").update(update_fields).eq("id", order_data["id"]).execute()
-        _delete_pending_shiprocket_checkout(order_data["id"])
-        return {"status": "ok", "message": "Order already exists; metadata updated"}
 
-    if order_data.get("tracking_id") and not order_data.get("tracking_url"):
-        order_data["tracking_url"] = f"https://shiprocket.co/tracking/{order_data['tracking_id']}"
+    pending = _load_pending_shiprocket_checkout(order_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail="No pending Shiprocket checkout for this order_id")
 
-    allowed_keys = {
-        "id", "customer", "customerphone", "address", "items", "total", "method", "status", "date",
-        "shiprocket_order_id", "shipment_id", "tracking_id", "tracking_url",
+    if user and user.get("phone"):
+        pending_phone = _normalize_phone(pending.get("customerphone") or "")
+        user_phone = _normalize_phone(user.get("phone") or "")
+        if pending_phone and user_phone and pending_phone != user_phone:
+            raise HTTPException(status_code=403, detail="Order does not belong to this user")
+
+    payload = {
+        "external_order_id": order_id,
+        "event": "order_placed",
+        "data": {
+            "order": {
+                "external_order_id": order_id,
+                "customer_name": pending.get("customer") or (user or {}).get("name") or "Customer",
+                "customer_phone": pending.get("customerphone") or (user or {}).get("phone") or "",
+                "address": pending.get("address") or "Address captured via Shiprocket Checkout",
+                "total": pending.get("total") or 0,
+                "payment_method": "Online",
+                "items": pending.get("items") or [],
+            }
+        },
     }
-    insert_payload = {k: v for k, v in order_data.items() if k in allowed_keys and v not in ("", None)}
-    if order_data.get("courier_name"):
-        insert_payload["method"] = f"{insert_payload.get('method', 'Online')} ({order_data['courier_name']})"
-    _normalize_order_phones(insert_payload, "orders")
-    _insert_order_payload("orders", insert_payload)
-    _delete_pending_shiprocket_checkout(order_data["id"])
-    return {"status": "ok", "message": "Order created from Shiprocket checkout"}
+    result = _upsert_shiprocket_order_from_payload(payload, create_if_missing=True)
+    return {
+        "status": "ok",
+        "order_id": result.get("order_id") or order_id,
+        "created": True,
+        "tracking_url": "",
+        "message": result.get("message"),
+    }
 
 
 def _prepare_shiprocket_catalog_products() -> List[Dict[str, Any]]:
