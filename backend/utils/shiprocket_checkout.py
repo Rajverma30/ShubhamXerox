@@ -191,6 +191,7 @@ def build_fastrr_headless_widget_url(
     domain: str,
     cart_products: List[Dict[str, Any]],
     success_url: Optional[str] = None,
+    channel_return_url: Optional[str] = None,
 ) -> str:
     """Official Fastrr Boost headless popup URL (iframe overlay)."""
     seller_domain = (domain or FASTRR_SELLER_DOMAIN or "shubham-xerox.jetshop.co").replace("https://", "").replace("http://", "").split("/")[0]
@@ -198,7 +199,7 @@ def build_fastrr_headless_widget_url(
     channel = {
         "shop_name": "company-logo",
         "shop_url": seller_domain,
-        "redirectUrl": success_url or f"{SITE_BASE_URL}/my-orders",
+        "redirectUrl": channel_return_url or success_url or f"{SITE_BASE_URL}/checkout",
     }
     cart_token = _fastrr_b64_json(cart_products)
     channel_token = _fastrr_b64_json(channel)
@@ -219,6 +220,7 @@ def build_fastrr_checkout_url(
     external_order_id: str,
     catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
     success_url: Optional[str] = None,
+    channel_return_url: Optional[str] = None,
     cart_products: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     lines = cart_products or build_fastrr_cart_products(items, catalog_by_id)
@@ -227,6 +229,7 @@ def build_fastrr_checkout_url(
         domain=seller_domain,
         cart_products=lines,
         success_url=success_url,
+        channel_return_url=channel_return_url,
     )
     return {
         "checkout_url": widget_url,
@@ -250,6 +253,7 @@ def create_checkout_session(
     external_order_id: str,
     subtotal: float,
     success_url: Optional[str] = None,
+    channel_return_url: Optional[str] = None,
     cancel_url: Optional[str] = None,
     catalog_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
     cart_products: Optional[List[Dict[str, Any]]] = None,
@@ -259,6 +263,7 @@ def create_checkout_session(
         return {"error": "Cart is empty"}
 
     resolved_success = success_url or f"{SITE_BASE_URL}/my-orders"
+    resolved_channel_return = channel_return_url or f"{SITE_BASE_URL}/checkout"
     payload = {
         "order_id": external_order_id,
         "external_order_id": external_order_id,
@@ -296,6 +301,7 @@ def create_checkout_session(
         external_order_id=external_order_id,
         catalog_by_id=catalog_by_id,
         success_url=resolved_success,
+        channel_return_url=resolved_channel_return,
         cart_products=cart_products,
     )
     logger.info(

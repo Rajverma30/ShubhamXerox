@@ -349,6 +349,7 @@ class ShiprocketCheckoutSessionRequest(BaseModel):
     items: List[Dict[str, Any]]
     total: float
     order_id: Optional[str] = None
+    return_url: Optional[str] = None
 
 # --- Auth / Security ---
 
@@ -2047,6 +2048,8 @@ async def create_shiprocket_checkout_session(
     if not cart_products:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
+    return_url = (req.return_url or f"{SITE_BASE_URL}/checkout").strip()
+
     try:
         session = create_checkout_session(
             domain=domain,
@@ -2054,6 +2057,7 @@ async def create_shiprocket_checkout_session(
             external_order_id=order_id,
             subtotal=float(req.total or 0),
             success_url=f"{SITE_BASE_URL}/my-orders",
+            channel_return_url=return_url,
             cancel_url=f"{SITE_BASE_URL}/cart",
             catalog_by_id=catalog_by_id,
             cart_products=cart_products,

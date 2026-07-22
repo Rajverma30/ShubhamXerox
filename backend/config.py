@@ -42,8 +42,9 @@ def _env_first(*names: str) -> str:
 
 # Shiprocket Fastrr Checkout API (official)
 # Accept common aliases — exact name must still exist in Railway Variables.
-# Fallback key only if Railway env is empty (move to Railway Variables when possible).
-_SHIPROCKET_API_KEY_FALLBACK = "ke0ZEIJNCLvGJUYB"
+# Fallback keys only if Railway env is empty (move to Railway Variables when possible).
+_SHIPROCKET_API_KEY_FALLBACK = "rdPDPq4KGC3caj3Q"
+_SHIPROCKET_API_SECRET_FALLBACK = "L5T7KIM8855YFcJp87f9TCJDWqfEjADa"
 SHIPROCKET_API_KEY = _env_first(
     "SHIPROCKET_API_KEY",
     "FASTRR_API_KEY",
@@ -54,7 +55,7 @@ SHIPROCKET_API_SECRET = _env_first(
     "SHIPROCKET_API_SECRET",
     "FASTRR_API_SECRET",
     "SHIPROCKET_CHECKOUT_API_SECRET",
-)
+) or _SHIPROCKET_API_SECRET_FALLBACK
 SHIPROCKET_WEBHOOK_SECRET = _env_first(
     "SHIPROCKET_WEBHOOK_SECRET",
     "FASTRR_WEBHOOK_SECRET",

@@ -84,6 +84,188 @@ function isShiprocketCheckoutEnabled() {
 
 const FASTRR_UI_ORIGIN = "https://fastrr-boost-ui.pickrr.com";
 let fastrrSdkLoadPromise = null;
+const FASTRR_SUCCESS_EVENTS = new Set([
+  "purchase",
+  "order-placed",
+  "order_placed",
+  "payment-success",
+  "fastrr_order_placed",
+]);
+let fastrrCheckoutActive = false;
+let fastrrCheckoutSucceeded = false;
+let fastrrCheckoutReturnUrl = "";
+let fastrrCheckoutFinishing = false;
+
+function getFastrrReturnUrl() {
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function beginFastrrCheckoutSession() {
+  fastrrCheckoutActive = true;
+  fastrrCheckoutSucceeded = false;
+  fastrrCheckoutReturnUrl = getFastrrReturnUrl();
+}
+
+function resetFastrrCheckoutSession() {
+  fastrrCheckoutActive = false;
+  fastrrCheckoutSucceeded = false;
+  fastrrCheckoutReturnUrl = "";
+  fastrrCheckoutFinishing = false;
+}
+
+function normalizeFastrrUrl(url) {
+  try {
+    return new URL(String(url || ""), window.location.origin);
+  } catch (_) {
+    return null;
+  }
+}
+
+function isFastrrMyOrdersUrl(url) {
+  const parsed = normalizeFastrrUrl(url);
+  return parsed ? parsed.pathname.replace(/\/+$/, "") === "/my-orders" : String(url || "").includes("/my-orders");
+}
+
+function isFastrrReturnUrl(url) {
+  const parsed = normalizeFastrrUrl(url);
+  const ret = normalizeFastrrUrl(fastrrCheckoutReturnUrl || getFastrrReturnUrl());
+  if (!parsed || !ret) return false;
+  return parsed.origin === ret.origin && parsed.pathname === ret.pathname;
+}
+
+function isFastrrSellerDomainUrl(url) {
+  const domain = getFastrrSellerDomain();
+  return String(url || "").includes(domain);
+}
+
+function markFastrrCheckoutSuccess() {
+  fastrrCheckoutSucceeded = true;
+}
+
+function isFastrrSuccessGtmPayload(data) {
+  const candidates = [];
+  if (!data) return false;
+  if (typeof data === "string") {
+    try {
+      candidates.push(JSON.parse(data));
+    } catch (_) {}
+  } else if (Array.isArray(data)) {
+    candidates.push(...data);
+  } else if (typeof data === "object") {
+    candidates.push(data);
+    if (Array.isArray(data.events)) candidates.push(...data.events);
+  }
+  for (const item of candidates) {
+    if (!item || typeof item !== "object") continue;
+    const name = String(item.event || item.eventName || item.name || "").trim().toLowerCase();
+    if (!name) continue;
+    if (FASTRR_SUCCESS_EVENTS.has(name)) return true;
+    if (name.includes("order") && name.includes("placed")) return true;
+    if (name === "purchase" || name === "payment-success") return true;
+  }
+  return false;
+}
+
+function restoreCheckoutPageAfterShiprocketFailure() {
+  const checkoutGrid = document.querySelector(".checkout-grid");
+  const loadingEl = document.getElementById("shiprocketCheckoutLoading");
+  if (checkoutGrid) checkoutGrid.style.display = "";
+  if (loadingEl) loadingEl.style.display = "none";
+}
+
+function finishFastrrCheckoutSuccess() {
+  if (fastrrCheckoutFinishing) return;
+  fastrrCheckoutFinishing = true;
+  markFastrrCheckoutSuccess();
+  closeFastrrIframeOverlay();
+  sessionStorage.removeItem("shubham_buy_now_item");
+  if (Array.isArray(cart) && cart.length) {
+    cart = [];
+    saveCart();
+  }
+  sessionStorage.setItem("orderBanner", "success");
+  resetFastrrCheckoutSession();
+  window.location.href = "/my-orders";
+}
+
+function handleFastrrCheckoutFailure(message) {
+  closeFastrrIframeOverlay();
+  resetFastrrCheckoutSession();
+  restoreCheckoutPageAfterShiprocketFailure();
+  if (message) showToast(message);
+}
+
+function handleFastrrRedirectRequest(url) {
+  if (!url) return;
+
+  if (fastrrCheckoutSucceeded) {
+    if (isFastrrMyOrdersUrl(url) || isFastrrReturnUrl(url) || isFastrrSellerDomainUrl(url)) {
+      finishFastrrCheckoutSuccess();
+      return;
+    }
+  }
+
+  if (fastrrCheckoutActive && isFastrrMyOrdersUrl(url)) {
+    handleFastrrCheckoutFailure("Checkout could not be completed. Please try again.");
+    return;
+  }
+
+  if (fastrrCheckoutActive && (isFastrrReturnUrl(url) || isFastrrSellerDomainUrl(url))) {
+    closeFastrrIframeOverlay();
+    resetFastrrCheckoutSession();
+    restoreCheckoutPageAfterShiprocketFailure();
+    return;
+  }
+
+  window.location.href = url;
+}
+
+function processFastrrParentMessage(payload) {
+  if (!payload) return;
+
+  if (payload.trigger === "gtm-events" && isFastrrSuccessGtmPayload(payload.data)) {
+    markFastrrCheckoutSuccess();
+    setTimeout(() => {
+      if (fastrrCheckoutSucceeded && fastrrCheckoutActive) {
+        finishFastrrCheckoutSuccess();
+      }
+    }, 1200);
+  }
+
+  const actions = Array.isArray(payload.actions) ? payload.actions : [];
+  for (const item of actions) {
+    const action = item && item.action;
+    if (action === "loadStorage" || action === "headless-storage") {
+      postFastrrHeadlessStorage();
+    } else if (action === "headlessClose" || action === "headless-close") {
+      if (fastrrCheckoutSucceeded) {
+        finishFastrrCheckoutSuccess();
+      } else {
+        closeFastrrIframeOverlay();
+        resetFastrrCheckoutSession();
+        restoreCheckoutPageAfterShiprocketFailure();
+      }
+    } else if (action === "redirectTo" && item.data && item.data.url) {
+      handleFastrrRedirectRequest(item.data.url);
+    }
+  }
+
+  const trigger = payload.trigger;
+  if (trigger === "headless-storage" || trigger === "headless-storage-prefetch") {
+    postFastrrHeadlessStorage();
+  } else if (trigger === "headless-close") {
+    if (fastrrCheckoutSucceeded) {
+      finishFastrrCheckoutSuccess();
+    } else {
+      closeFastrrIframeOverlay();
+      resetFastrrCheckoutSession();
+      restoreCheckoutPageAfterShiprocketFailure();
+    }
+  } else if (trigger === "reload-iframe" && payload.data) {
+    const iframe = document.getElementById("headless-iframe");
+    if (iframe) iframe.src = payload.data;
+  }
+}
 
 function getFastrrSellerDomain(override) {
   // Must match Fastrr dashboard Domain Name (jetshop), not the storefront host.
@@ -253,33 +435,7 @@ function ensureFastrrParentBridge() {
   window.addEventListener("message", (event) => {
     try {
       if (!event || !event.origin || event.origin.indexOf("fastrr-boost-ui.pickrr.com") === -1) return;
-      const payload = event.data;
-      if (!payload) return;
-
-      // Official SDK format: { actions: [{ action, data }] }
-      if (Array.isArray(payload.actions)) {
-        payload.actions.forEach((item) => {
-          const action = item && item.action;
-          if (action === "loadStorage" || action === "headless-storage") {
-            postFastrrHeadlessStorage();
-          } else if (action === "headlessClose" || action === "headless-close") {
-            closeFastrrIframeOverlay();
-          } else if (action === "redirectTo" && item.data && item.data.url) {
-            window.location.href = item.data.url;
-          }
-        });
-        return;
-      }
-
-      const trigger = payload.trigger;
-      if (trigger === "headless-storage" || trigger === "headless-storage-prefetch") {
-        postFastrrHeadlessStorage();
-      } else if (trigger === "headless-close") {
-        closeFastrrIframeOverlay();
-      } else if (trigger === "reload-iframe" && payload.data) {
-        const iframe = document.getElementById("headless-iframe");
-        if (iframe) iframe.src = payload.data;
-      }
+      processFastrrParentMessage(event.data);
     } catch (err) {
       console.warn("[Shiprocket] parent bridge error", err);
     }
@@ -299,6 +455,7 @@ function onFastrrEscapeClose(event) {
 
 function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
   if (!widgetUrl) return false;
+  beginFastrrCheckoutSession();
   ensureFastrrSellerDomainInput(sellerDomain);
   ensureFastrrMainContainer();
   ensureFastrrCheckoutStyles();
@@ -412,14 +569,14 @@ function fastrrB64Json(value) {
   return window.btoa(encodeURIComponent(JSON.stringify(value)));
 }
 
-function buildFastrrWidgetUrl(cartProducts, sellerDomain, successUrl) {
+function buildFastrrWidgetUrl(cartProducts, sellerDomain, returnUrl) {
   const domain = getFastrrSellerDomain(sellerDomain);
   const products = Array.isArray(cartProducts) ? cartProducts : [];
   const checkoutType = products.length === 1 ? "product" : "cart";
   const channel = fastrrB64Json({
     shop_name: "company-logo",
     shop_url: domain,
-    redirectUrl: successUrl || `${window.location.origin}/my-orders`,
+    redirectUrl: returnUrl || getFastrrReturnUrl(),
     credInstalled: false,
     gpayInstalled: "YES",
   });
@@ -434,12 +591,13 @@ function buildFastrrWidgetUrl(cartProducts, sellerDomain, successUrl) {
 }
 
 function openFastrrHeadlessPopup(cartProducts, widgetUrl, sellerDomain) {
+  if (!fastrrCheckoutActive) beginFastrrCheckoutSession();
   const domain = getFastrrSellerDomain(sellerDomain);
   ensureFastrrSellerDomainInput(domain);
 
   let url = "";
   if (Array.isArray(cartProducts) && cartProducts.length) {
-    url = buildFastrrWidgetUrl(cartProducts, domain);
+    url = buildFastrrWidgetUrl(cartProducts, domain, fastrrCheckoutReturnUrl || getFastrrReturnUrl());
   }
   if (!url) url = widgetUrl || "";
   if (!url) return Promise.resolve(false);
@@ -461,6 +619,7 @@ async function startShiprocketCheckout(items, total) {
     showToast("Your cart is empty.");
     return false;
   }
+  beginFastrrCheckoutSession();
   const endpoint = "/checkout/shiprocket-session";
   const requestUrl = `${API_BASE}${endpoint}`;
   const orderId = "ORD" + Date.now();
@@ -468,6 +627,7 @@ async function startShiprocketCheckout(items, total) {
     items,
     total: Number(total || 0),
     order_id: orderId,
+    return_url: getFastrrReturnUrl(),
   };
   try {
     showToast("Opening Shiprocket Checkout...");
@@ -508,6 +668,8 @@ async function startShiprocketCheckout(items, total) {
     throw new Error("Checkout URL missing");
   } catch (err) {
     console.error("[Shiprocket] checkout failed:", err);
+    resetFastrrCheckoutSession();
+    restoreCheckoutPageAfterShiprocketFailure();
     const msg = String(err && err.message || "");
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
       showToast("Shiprocket API blocked (check config.js uses https). Hard-refresh after deploy.");
@@ -5925,7 +6087,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (loadingEl) loadingEl.style.display = 'block';
       const items = getCheckoutItems();
       if (items.length > 0) {
-        await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
+        const ok = await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
+        if (!ok) restoreCheckoutPageAfterShiprocketFailure();
         return;
       }
     }
