@@ -71,8 +71,8 @@ async function loadCheckoutType() {
   return checkoutType;
 }
 
-function ensureCheckoutTypeLoaded() {
-  if (!checkoutTypeLoadPromise) {
+function ensureCheckoutTypeLoaded(force = false) {
+  if (force || !checkoutTypeLoadPromise) {
     checkoutTypeLoadPromise = loadCheckoutType();
   }
   return checkoutTypeLoadPromise;
@@ -80,6 +80,21 @@ function ensureCheckoutTypeLoaded() {
 
 function isShiprocketCheckoutEnabled() {
   return checkoutType === "shiprocket";
+}
+
+function isShiprocketDisabledError(err) {
+  const msg = String((err && err.message) || err || "").toLowerCase();
+  return msg.includes("shiprocket checkout is not enabled");
+}
+
+function goToManualCheckout(productOrItems) {
+  if (productOrItems && !Array.isArray(productOrItems) && productOrItems.id != null) {
+    sessionStorage.setItem(
+      "shubham_buy_now_item",
+      JSON.stringify({ ...productOrItems, quantity: Number(productOrItems.quantity) || 1 })
+    );
+  }
+  window.location.href = "/checkout";
 }
 
 const FASTRR_UI_ORIGIN = "https://fastrr-boost-ui.pickrr.com";
@@ -666,6 +681,13 @@ async function startShiprocketCheckout(items, total) {
     resetFastrrCheckoutSession();
     restoreCheckoutPageAfterShiprocketFailure();
     const msg = String(err && err.message || "");
+    if (isShiprocketDisabledError(err)) {
+      // Admin switched to Manual — keep storefront checkout working.
+      checkoutType = "manual";
+      checkoutTypeLoadPromise = Promise.resolve("manual");
+      console.warn("[Shiprocket] disabled on server; falling back to manual checkout");
+      return false;
+    }
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
       showToast("Shiprocket API blocked (check config.js uses https). Hard-refresh after deploy.");
     } else {
@@ -3003,13 +3025,15 @@ async function handleCheckout(e) {
     return;
   }
 
-  await ensureCheckoutTypeLoaded();
+  await ensureCheckoutTypeLoaded(true);
   if (isShiprocketCheckoutEnabled()) {
     const btn = document.querySelector('button[type="submit"]');
     if (btn) { btn.disabled = true; btn.textContent = 'Opening Shiprocket Checkout...'; }
     const ok = await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
-    if (!ok && btn) { btn.disabled = false; btn.textContent = 'Pay Online & Place Order'; }
-    return;
+    if (ok) return;
+    if (btn) { btn.disabled = false; btn.textContent = 'Pay Online & Place Order'; }
+    // If Shiprocket is disabled server-side, continue with manual Razorpay below.
+    if (isShiprocketCheckoutEnabled()) return;
   }
 
   const name = document.getElementById('fullName').value.trim();
@@ -6073,7 +6097,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (document.getElementById('checkoutForm')) {
-    await ensureCheckoutTypeLoaded();
+    await ensureCheckoutTypeLoaded(true);
     renderCheckoutSummary();
     if (isShiprocketCheckoutEnabled()) {
       const checkoutGrid = document.querySelector('.checkout-grid');
@@ -6083,8 +6107,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const items = getCheckoutItems();
       if (items.length > 0) {
         const ok = await startShiprocketCheckout(items, getCheckoutTotal() + DELIVERY_FEE);
-        if (!ok) restoreCheckoutPageAfterShiprocketFailure();
-        return;
+        if (ok) return;
+        restoreCheckoutPageAfterShiprocketFailure();
+        // Manual mode (or Shiprocket disabled) — show normal checkout form below.
+      } else {
+        restoreCheckoutPageAfterShiprocketFailure();
       }
     }
     if (currentUser) {
@@ -6411,6 +6438,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
           await apiFetch('/admin/settings/checkout-type', { method: 'PUT', body: { checkout_type: mode } });
           checkoutType = mode;
+          checkoutTypeLoadPromise = Promise.resolve(mode);
           paintCheckoutTypeButtons(mode);
           showToast(`Checkout switched to ${mode === 'shiprocket' ? 'Shiprocket' : 'Manual'}`);
         } catch (err) {
@@ -6539,14 +6567,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           showToast("Product not found");
           return;
         }
-        await ensureCheckoutTypeLoaded();
+        await ensureCheckoutTypeLoaded(true);
         if (isShiprocketCheckoutEnabled()) {
           const item = { ...productToBuy, quantity: 1 };
-          await startShiprocketCheckout([item], Number(productToBuy.price || 0) + DELIVERY_FEE);
-          return;
+          const ok = await startShiprocketCheckout([item], Number(productToBuy.price || 0) + DELIVERY_FEE);
+          if (ok) return;
+          // Only fall back when server says Shiprocket is disabled (mode is now manual).
+          if (isShiprocketCheckoutEnabled()) return;
         }
-        sessionStorage.setItem('shubham_buy_now_item', JSON.stringify({ ...productToBuy, quantity: 1 }));
-        window.location.href = "/checkout";
+        goToManualCheckout({ ...productToBuy, quantity: 1 });
       };
       const pDesc = product.desc || `Premium quality ${product.category.toLowerCase()} available for you at Shubham Xerox. Perfect for your exam preparation with clear printing and accurate content.`;
 
