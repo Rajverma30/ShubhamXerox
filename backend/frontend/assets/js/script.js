@@ -252,11 +252,11 @@ function processFastrrParentMessage(payload) {
 }
 
 function getFastrrSellerDomain(override) {
-  // Must match Fastrr dashboard Domain Name (jetshop), not the storefront host.
+  // Must match Fastrr dashboard Domain Name.
   if (override && String(override).trim()) {
     return String(override).trim().replace(/^https?:\/\//, "").split("/")[0];
   }
-  return "shubham-xerox.jetshop.co";
+  return "shubhamxerox.in";
 }
 
 function ensureFastrrSellerDomainInput(domain) {

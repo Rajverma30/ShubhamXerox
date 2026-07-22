@@ -2007,7 +2007,7 @@ async def create_shiprocket_checkout_session(
         len(req.items),
         request.headers.get("host"),
     )
-    # Fastrr Domain Name (e.g. shubham-xerox.jetshop.co) — NOT shubhamxerox.in
+    # Fastrr Domain Name (shubhamxerox.in)
     domain = FASTRR_SELLER_DOMAIN or default_store_domain(request.headers.get("host"))
     logger.info("Shiprocket Fastrr seller_domain=%s", domain)
     pending_payload = {
@@ -2099,7 +2099,7 @@ async def create_shiprocket_checkout_session(
 @app.get("/checkout/shiprocket-diagnostics")
 async def shiprocket_checkout_diagnostics():
     """Quick health check for Fastrr headless setup (seller domain + catalog sample)."""
-    domain = (FASTRR_SELLER_DOMAIN or "shubham-xerox.jetshop.co").replace("https://", "").replace("http://", "").strip("/")
+    domain = (FASTRR_SELLER_DOMAIN or "shubhamxerox.in").replace("https://", "").replace("http://", "").strip("/")
     products = _merge_catalog_products()
     sample = None
     if products:
@@ -2119,7 +2119,7 @@ async def shiprocket_checkout_diagnostics():
         "seller_domain": domain,
         "platform": "CUSTOM",
         "site_base_url": SITE_BASE_URL,
-        "note": "seller_domain must equal Fastrr dashboard Domain Name (shubham-xerox.jetshop.co), not the public website host.",
+        "note": "seller_domain must equal Fastrr dashboard Domain Name (shubhamxerox.in).",
         "catalog_product_count": len(products),
         "catalog_url": f"{SITE_BASE_URL or 'https://www.shubhamxerox.in'}/shiprocket-checkout/products",
         "catalog_api_key_configured": key_configured,
