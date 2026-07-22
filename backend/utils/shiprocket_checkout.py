@@ -199,7 +199,7 @@ def build_fastrr_headless_widget_url(
     channel = {
         "shop_name": "company-logo",
         "shop_url": seller_domain,
-        "redirectUrl": channel_return_url or success_url or f"{SITE_BASE_URL}/checkout",
+        "redirectUrl": channel_return_url or f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/",
     }
     cart_token = _fastrr_b64_json(cart_products)
     channel_token = _fastrr_b64_json(channel)
@@ -263,7 +263,7 @@ def create_checkout_session(
         return {"error": "Cart is empty"}
 
     resolved_success = success_url or f"{SITE_BASE_URL}/my-orders"
-    resolved_channel_return = channel_return_url or f"{SITE_BASE_URL}/checkout"
+    resolved_channel_return = channel_return_url or f"{SHIPROCKET_CHECKOUT_UI_BASE_URL}/"
     payload = {
         "order_id": external_order_id,
         "external_order_id": external_order_id,

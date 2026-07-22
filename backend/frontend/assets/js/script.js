@@ -177,7 +177,7 @@ function finishFastrrCheckoutSuccess() {
   if (fastrrCheckoutFinishing) return;
   fastrrCheckoutFinishing = true;
   markFastrrCheckoutSuccess();
-  closeFastrrIframeOverlay();
+  userCloseFastrrCheckout(false);
   sessionStorage.removeItem("shubham_buy_now_item");
   if (Array.isArray(cart) && cart.length) {
     cart = [];
@@ -188,32 +188,24 @@ function finishFastrrCheckoutSuccess() {
   window.location.href = "/my-orders";
 }
 
-function handleFastrrCheckoutFailure(message) {
-  closeFastrrIframeOverlay();
-  resetFastrrCheckoutSession();
-  restoreCheckoutPageAfterShiprocketFailure();
-  if (message) showToast(message);
+function blockFastrrParentNavigation(url, reason) {
+  console.info("[Shiprocket] blocked parent redirect during checkout:", reason || url || "unknown");
 }
 
 function handleFastrrRedirectRequest(url) {
   if (!url) return;
 
   if (fastrrCheckoutSucceeded) {
-    if (isFastrrMyOrdersUrl(url) || isFastrrReturnUrl(url) || isFastrrSellerDomainUrl(url)) {
-      finishFastrrCheckoutSuccess();
-      return;
-    }
-  }
-
-  if (fastrrCheckoutActive && isFastrrMyOrdersUrl(url)) {
-    handleFastrrCheckoutFailure("Checkout could not be completed. Please try again.");
+    finishFastrrCheckoutSuccess();
     return;
   }
 
-  if (fastrrCheckoutActive && (isFastrrReturnUrl(url) || isFastrrSellerDomainUrl(url))) {
-    closeFastrrIframeOverlay();
-    resetFastrrCheckoutSession();
-    restoreCheckoutPageAfterShiprocketFailure();
+  if (fastrrCheckoutActive) {
+    if (isFastrrMyOrdersUrl(url)) {
+      blockFastrrParentNavigation(url, "my-orders before payment success");
+    } else {
+      blockFastrrParentNavigation(url, "stay on Shiprocket checkout overlay");
+    }
     return;
   }
 
@@ -240,10 +232,6 @@ function processFastrrParentMessage(payload) {
     } else if (action === "headlessClose" || action === "headless-close") {
       if (fastrrCheckoutSucceeded) {
         finishFastrrCheckoutSuccess();
-      } else {
-        closeFastrrIframeOverlay();
-        resetFastrrCheckoutSession();
-        restoreCheckoutPageAfterShiprocketFailure();
       }
     } else if (action === "redirectTo" && item.data && item.data.url) {
       handleFastrrRedirectRequest(item.data.url);
@@ -256,10 +244,6 @@ function processFastrrParentMessage(payload) {
   } else if (trigger === "headless-close") {
     if (fastrrCheckoutSucceeded) {
       finishFastrrCheckoutSuccess();
-    } else {
-      closeFastrrIframeOverlay();
-      resetFastrrCheckoutSession();
-      restoreCheckoutPageAfterShiprocketFailure();
     }
   } else if (trigger === "reload-iframe" && payload.data) {
     const iframe = document.getElementById("headless-iframe");
@@ -442,6 +426,14 @@ function ensureFastrrParentBridge() {
   });
 }
 
+function userCloseFastrrCheckout(restoreCheckoutForm) {
+  closeFastrrIframeOverlay();
+  resetFastrrCheckoutSession();
+  if (restoreCheckoutForm !== false) {
+    restoreCheckoutPageAfterShiprocketFailure();
+  }
+}
+
 function closeFastrrIframeOverlay() {
   const container = document.getElementById("headless-container");
   if (container) container.remove();
@@ -450,7 +442,7 @@ function closeFastrrIframeOverlay() {
 }
 
 function onFastrrEscapeClose(event) {
-  if (event.key === "Escape") closeFastrrIframeOverlay();
+  if (event.key === "Escape") userCloseFastrrCheckout();
 }
 
 function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
@@ -477,7 +469,7 @@ function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
   closeBtn.id = "fastrr-overlay-close";
   closeBtn.setAttribute("aria-label", "Close checkout");
   closeBtn.innerHTML = "&times;";
-  closeBtn.addEventListener("click", closeFastrrIframeOverlay);
+  closeBtn.addEventListener("click", () => userCloseFastrrCheckout());
 
   const content = document.createElement("div");
   content.className = "headless-modal-content";
@@ -511,7 +503,7 @@ function openFastrrIframeOverlay(widgetUrl, sellerDomain) {
     const tabBtn = loading.querySelector("#fastrr-open-tab");
     const closeFallback = loading.querySelector("#fastrr-close-overlay");
     if (tabBtn) tabBtn.addEventListener("click", () => window.open(widgetUrl, "_blank", "noopener"));
-    if (closeFallback) closeFallback.addEventListener("click", closeFastrrIframeOverlay);
+    if (closeFallback) closeFallback.addEventListener("click", () => userCloseFastrrCheckout());
   };
 
   iframe.addEventListener("load", () => {
@@ -569,14 +561,15 @@ function fastrrB64Json(value) {
   return window.btoa(encodeURIComponent(JSON.stringify(value)));
 }
 
-function buildFastrrWidgetUrl(cartProducts, sellerDomain, returnUrl) {
+function buildFastrrWidgetUrl(cartProducts, sellerDomain) {
   const domain = getFastrrSellerDomain(sellerDomain);
   const products = Array.isArray(cartProducts) ? cartProducts : [];
   const checkoutType = products.length === 1 ? "product" : "cart";
   const channel = fastrrB64Json({
     shop_name: "company-logo",
     shop_url: domain,
-    redirectUrl: returnUrl || getFastrrReturnUrl(),
+    // Keep failures inside Fastrr UI — do not bounce parent back to product/checkout page.
+    redirectUrl: `${FASTRR_UI_ORIGIN}/`,
     credInstalled: false,
     gpayInstalled: "YES",
   });
@@ -597,7 +590,7 @@ function openFastrrHeadlessPopup(cartProducts, widgetUrl, sellerDomain) {
 
   let url = "";
   if (Array.isArray(cartProducts) && cartProducts.length) {
-    url = buildFastrrWidgetUrl(cartProducts, domain, fastrrCheckoutReturnUrl || getFastrrReturnUrl());
+    url = buildFastrrWidgetUrl(cartProducts, domain);
   }
   if (!url) url = widgetUrl || "";
   if (!url) return Promise.resolve(false);
@@ -664,6 +657,8 @@ async function startShiprocketCheckout(items, total) {
       const opened = openFastrrIframeOverlay(widgetUrl, sellerDomain);
       if (opened) return true;
     }
+    resetFastrrCheckoutSession();
+    restoreCheckoutPageAfterShiprocketFailure();
     console.error("[Shiprocket] checkout_url missing in response:", data);
     throw new Error("Checkout URL missing");
   } catch (err) {

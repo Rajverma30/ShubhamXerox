@@ -44,6 +44,7 @@ from config import (
     FASTRR_SELLER_DOMAIN,
     SHIPROCKET_API_KEY,
     SHIPROCKET_API_SECRET,
+    SHIPROCKET_CHECKOUT_UI_BASE_URL,
 )
 from utils.shiprocket_checkout import (
     ShiprocketCheckoutError,
@@ -2057,7 +2058,7 @@ async def create_shiprocket_checkout_session(
             external_order_id=order_id,
             subtotal=float(req.total or 0),
             success_url=f"{SITE_BASE_URL}/my-orders",
-            channel_return_url=return_url,
+            channel_return_url=f"{SHIPROCKET_CHECKOUT_UI_BASE_URL.rstrip('/')}/",
             cancel_url=f"{SITE_BASE_URL}/cart",
             catalog_by_id=catalog_by_id,
             cart_products=cart_products,
