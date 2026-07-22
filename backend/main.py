@@ -2189,7 +2189,9 @@ async def create_shiprocket_checkout_session(
             continue
         prepared = dict(catalog_row)
         prepared["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, str(pid))
-        prepared["img_url"] = _normalize_product_image_url(prepared.get("img"), base_url)
+        prepared["img_url"] = _normalize_product_image_url(
+            prepared.get("img"), base_url, product_id=pid
+        )
         serialized = serialize_product(prepared, base_url)
         qty = int(item.get("quantity") or item.get("qty") or 1)
         cart_products.append(build_fastrr_cart_line_from_serialized_product(serialized, qty))
@@ -2259,7 +2261,11 @@ async def shiprocket_checkout_diagnostics():
         row = dict(products[0])
         pid = str(row.get("id"))
         row["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, pid)
-        row["img_url"] = _normalize_product_image_url(row.get("img"), SITE_BASE_URL or "https://www.shubhamxerox.in")
+        row["img_url"] = _normalize_product_image_url(
+            row.get("img"),
+            SITE_BASE_URL or "https://www.shubhamxerox.in",
+            product_id=pid,
+        )
         serialized = serialize_product(row, SITE_BASE_URL or "https://www.shubhamxerox.in")
         sample = build_fastrr_cart_line_from_serialized_product(serialized, 1)
     key_configured = bool(SHIPROCKET_API_KEY)
@@ -2413,19 +2419,43 @@ async def confirm_shiprocket_checkout(
     }
 
 
+def _invalidate_product_caches() -> None:
+    """Clear list/catalog/slug caches so admin add/edit appears in Fastrr sync quickly."""
+    PRODUCTS_CACHE.clear()
+    DB_EXTRA_PRODUCTS_CACHE.clear()
+    DB_PRODUCT_IMAGES_CACHE.clear()
+    CATALOG_PRODUCTS_CACHE.clear()
+    PRODUCT_SLUG_CACHE["expires_at"] = 0.0
+    PRODUCT_SLUG_CACHE["id_to_slug"] = {}
+    PRODUCT_SLUG_CACHE["slug_to_id"] = {}
+
+
 def _prepare_shiprocket_catalog_products() -> List[Dict[str, Any]]:
-    image_map = _load_db_product_images_map()
+    # Lightweight metadata only — do not pull every base64 `img` into this response.
+    # Fastrr needs public HTTP image URLs; base64 is mapped to /product-og-image/{id}.jpg.
     base_url = SITE_BASE_URL or "https://www.shubhamxerox.in"
     _refresh_product_slug_cache()
     slug_map = PRODUCT_SLUG_CACHE.get("id_to_slug", {})
+    image_map = _load_db_product_images_map()
     prepared: List[Dict[str, Any]] = []
     for row in _merge_catalog_products():
-        enriched = _attach_db_image(dict(row), image_map)
-        product_id = enriched.get("id")
+        product_id = row.get("id")
         if product_id is None:
             continue
+        enriched = dict(row)
+        # Prefer a cheap presence check from image map over embedding huge base64 blobs.
+        if not _select_main_product_image(enriched.get("img")):
+            mapped = image_map.get(str(product_id))
+            if mapped:
+                enriched["img"] = mapped
         enriched["slug"] = slug_map.get(str(product_id), str(product_id))
-        enriched["img_url"] = _normalize_product_image_url(enriched.get("img"), base_url)
+        enriched["img_url"] = _normalize_product_image_url(
+            enriched.get("img"),
+            base_url,
+            product_id=product_id,
+        )
+        # Never leak base64 into the Shiprocket catalog JSON payload.
+        enriched.pop("img", None)
         prepared.append(enriched)
     return prepared
 
@@ -2474,7 +2504,7 @@ async def shiprocket_checkout_debug():
         row = dict(products[0])
         pid = str(row.get("id"))
         row["slug"] = PRODUCT_SLUG_CACHE.get("id_to_slug", {}).get(pid, pid)
-        row["img_url"] = _normalize_product_image_url(row.get("img"), base_url)
+        row["img_url"] = _normalize_product_image_url(row.get("img"), base_url, product_id=pid)
         first_product = serialize_product(row, base_url)
     return {
         "api_key_configured": bool(SHIPROCKET_API_KEY),
@@ -2499,7 +2529,8 @@ async def shiprocket_checkout_products(
     except HTTPException as exc:
         _log_shiprocket_catalog_debug(request, route, status=exc.status_code, items_returned=0)
         raise
-    response.headers["Cache-Control"] = "private, max-age=300"
+    # Fresh catalog for Fastrr after admin add/edit (do not cache for 5 minutes).
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     base_url = SITE_BASE_URL or _sitemap_base_url(request)
     products = _prepare_shiprocket_catalog_products()
     payload = build_products_payload(products, base_url=base_url, limit=limit, page=page)
@@ -2522,7 +2553,7 @@ async def shiprocket_checkout_collections(request: Request, response: Response):
     except HTTPException as exc:
         _log_shiprocket_catalog_debug(request, route, status=exc.status_code, items_returned=0)
         raise
-    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     products = _prepare_shiprocket_catalog_products()
     payload = build_collections_payload(products)
     collections = payload.get("collections") or []
@@ -2551,7 +2582,7 @@ async def shiprocket_checkout_collection_products(
     except HTTPException as exc:
         _log_shiprocket_catalog_debug(request, route, status=exc.status_code, items_returned=0)
         raise
-    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     base_url = SITE_BASE_URL or _sitemap_base_url(request)
     products = _prepare_shiprocket_catalog_products()
     category = resolve_collection_category(collection_id, products)
@@ -2611,10 +2642,7 @@ async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = De
     payload = _product_db_payload(req.model_dump(by_alias=True, exclude_none=True))
     payload["id"] = _next_product_id()
     res = sb.table("products").insert(payload).execute()
-    PRODUCTS_CACHE.clear()
-    DB_EXTRA_PRODUCTS_CACHE.clear()
-    DB_PRODUCT_IMAGES_CACHE.clear()
-    CATALOG_PRODUCTS_CACHE.clear()
+    _invalidate_product_caches()
     return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
 
 def _remove_static_catalog_row(product_id: int) -> bool:
@@ -2709,10 +2737,7 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
     if not saved:
         saved = upsert_payload
 
-    PRODUCTS_CACHE.clear()
-    DB_EXTRA_PRODUCTS_CACHE.clear()
-    DB_PRODUCT_IMAGES_CACHE.clear()
-    CATALOG_PRODUCTS_CACHE.clear()
+    _invalidate_product_caches()
     return {"product": saved}
 
 @app.delete("/admin/products/{product_id}")
@@ -2725,9 +2750,7 @@ async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends
         _save_deleted_static_product_ids(deleted)
     else:
         sb.table("products").delete().eq("id", product_id).execute()
-    PRODUCTS_CACHE.clear()
-    DB_EXTRA_PRODUCTS_CACHE.clear()
-    DB_PRODUCT_IMAGES_CACHE.clear()
+    _invalidate_product_caches()
     return {"status": "ok", "deleted_from": "catalog" if is_catalog else "database"}
 
 
@@ -2748,9 +2771,7 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
     if db_ids:
         sb.table("products").delete().in_("id", db_ids).execute()
 
-    PRODUCTS_CACHE.clear()
-    DB_EXTRA_PRODUCTS_CACHE.clear()
-    DB_PRODUCT_IMAGES_CACHE.clear()
+    _invalidate_product_caches()
     return {"status": "ok", "catalog_deleted": catalog_ids, "database_deleted": db_ids}
 
 
@@ -2806,9 +2827,7 @@ async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dic
     if not req.product_ids:
         return {"status": "ok"}
     sb.table("products").update({"category": req.category}).in_("id", req.product_ids).execute()
-    PRODUCTS_CACHE.clear()
-    DB_EXTRA_PRODUCTS_CACHE.clear()
-    DB_PRODUCT_IMAGES_CACHE.clear()
+    _invalidate_product_caches()
     return {"status": "ok"}
 
 def _orders_table_for(order_type: str) -> str:
@@ -3245,13 +3264,23 @@ def _select_main_product_image(src: Any) -> str:
             return item
     return ""
 
-def _normalize_product_image_url(src: Any, base_url: str) -> str:
+def _normalize_product_image_url(
+    src: Any,
+    base_url: str,
+    *,
+    product_id: Optional[Any] = None,
+) -> str:
+    """Return a public HTTP(S) image URL for Shiprocket/Fastrr (never raw base64)."""
     path = _select_main_product_image(src)
     if not path:
         return f"{base_url}/images/logo.png"
     if path.startswith(("http://", "https://")):
         return path
+    # Admin/Supabase products often store base64 in `img`. Fastrr cannot fetch data: URLs,
+    # so expose the JPEG OG endpoint instead of silently falling back to the site logo.
     if path.startswith("data:"):
+        if product_id is not None and str(product_id).strip() != "":
+            return f"{base_url}/product-og-image/{quote(str(product_id), safe='')}.jpg"
         return f"{base_url}/images/logo.png"
     if "./MPPSC" in path or "./Products -" in path:
         path = f"/images/books_new/{path.split('/')[-1]}"

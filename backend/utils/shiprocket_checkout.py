@@ -240,8 +240,10 @@ def build_fastrr_checkout_url(
         "cart_products": lines,
         "order_id": external_order_id,
         "fastrr_setup_hint": (
-            "If Fastrr shows 'Something went wrong', verify in Shiprocket Fastrr dashboard: "
-            f"Domain Name = {seller_domain}, catalog URLs synced, and products exist in Fastrr catalog."
+            "If Fastrr shows 'Something went wrong' with HTTP 402, that is walletThresholdBreach — "
+            "recharge / raise Shiprocket Fastrr wallet threshold (not a catalog URL bug). "
+            "Also verify Domain Name, catalog URLs, and that products appear in "
+            f"/shiprocket-checkout/products after sync. Seller domain={seller_domain}."
         ),
     }
 
