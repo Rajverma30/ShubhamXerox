@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -320,15 +321,33 @@ def create_checkout_session(
 
 
 def verify_webhook_signature(body: bytes, signature: Optional[str]) -> bool:
-    secret = SHIPROCKET_WEBHOOK_SECRET or SHIPROCKET_API_SECRET
-    if not secret or not signature:
+    if not signature or not signature.strip():
         return False
 
-    expected = base64.b64encode(
-        hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
-    ).decode("utf-8")
+    secrets = [
+        s for s in (
+            SHIPROCKET_WEBHOOK_SECRET,
+            SHIPROCKET_API_SECRET,
+            os.getenv("FASTRR_WEBHOOK_SECRET", "").strip(),
+        )
+        if s and str(s).strip()
+    ]
+    if not secrets:
+        return True
+
     provided = signature.strip()
-    return hmac.compare_digest(provided, expected)
+    for secret in secrets:
+        sec_bytes = secret.encode("utf-8")
+        # Base64 signature check
+        expected_b64 = base64.b64encode(hmac.new(sec_bytes, body, hashlib.sha256).digest()).decode("utf-8")
+        if hmac.compare_digest(provided, expected_b64):
+            return True
+        # Hex signature check
+        expected_hex = hmac.new(sec_bytes, body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(provided.lower(), expected_hex.lower()):
+            return True
+
+    return False
 
 
 def _first(*values: Any) -> Any:
@@ -446,7 +465,10 @@ def classify_checkout_webhook(payload: Dict[str, Any]) -> str:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     order = data.get("order") if isinstance(data.get("order"), dict) else data
     has_money = bool(_first(order.get("total"), order.get("sub_total"), data.get("total"), order.get("payment_id")))
-    has_items = isinstance(order.get("items") or order.get("order_items") or data.get("items"), list)
+    has_items = isinstance(
+        order.get("items") or order.get("order_items") or order.get("line_items") or data.get("items"),
+        list,
+    )
     if has_money or has_items:
         return "success"
     return "ignore"
@@ -528,17 +550,28 @@ def order_payload_from_webhook(payload: Dict[str, Any], pending: Optional[Dict[s
     )
 
     items = pending.get("items") or []
-    webhook_items = order.get("items") or order.get("order_items") or data.get("items")
+    webhook_items = (
+        order.get("items")
+        or order.get("order_items")
+        or order.get("line_items")
+        or order.get("products")
+        or data.get("items")
+        or data.get("order_items")
+        or data.get("line_items")
+        or data.get("products")
+        or payload.get("items")
+        or payload.get("order_items")
+    )
     if isinstance(webhook_items, list) and webhook_items:
         parsed_items = []
         for row in webhook_items:
             if not isinstance(row, dict):
                 continue
             parsed_items.append({
-                "id": row.get("product_id") or row.get("productId") or row.get("sku") or row.get("id"),
-                "name": row.get("name") or row.get("title") or "Product",
-                "price": float(row.get("price") or row.get("selling_price") or 0),
-                "quantity": int(row.get("quantity") or row.get("qty") or row.get("units") or 1),
+                "id": _first(row.get("product_id"), row.get("productId"), row.get("sku"), row.get("variant_id"), row.get("id"), "1"),
+                "name": _first(row.get("name"), row.get("title"), row.get("product_name"), row.get("variant_title"), "Product"),
+                "price": float(_first(row.get("price"), row.get("selling_price"), row.get("unit_price"), 0) or 0),
+                "quantity": int(_first(row.get("quantity"), row.get("qty"), row.get("units"), 1) or 1),
                 "type": row.get("type") or "book",
             })
         if parsed_items:

@@ -150,6 +150,32 @@ async function confirmShiprocketOrderIfNeeded() {
   }
 }
 
+async function autoConfirmPendingShiprocketOrderOnPageLoad() {
+  const orderId = String(sessionStorage.getItem("shubham_sr_pending_order_id") || "").trim();
+  if (!orderId) return;
+  console.info("[Shiprocket] Auto-checking pending order on page load:", orderId);
+  sessionStorage.removeItem("shubham_buy_now_item");
+  if (Array.isArray(cart) && cart.length) {
+    cart = [];
+    saveCart();
+  }
+  await confirmShiprocketOrderIfNeeded();
+  sessionStorage.setItem("orderBanner", "success");
+  if (!window.location.pathname.includes("my-orders")) {
+    window.location.href = "/my-orders";
+  } else if (typeof loadMyOrders === "function") {
+    loadMyOrders();
+  }
+}
+
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", autoConfirmPendingShiprocketOrderOnPageLoad);
+  } else {
+    autoConfirmPendingShiprocketOrderOnPageLoad();
+  }
+}
+
 async function finishFastrrCheckoutSuccess() {
   if (fastrrCheckoutFinishing) return;
   fastrrCheckoutFinishing = true;

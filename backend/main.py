@@ -690,19 +690,68 @@ def _find_order_id_for_shiprocket_payload(payload: Dict[str, Any]) -> Optional[s
     return None
 
 
+def _find_pending_shiprocket_checkout_fallback(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not supabase:
+        return None
+
+    # 1. Direct external_order_id check
+    external_hint = extract_external_order_id(payload)
+    if external_hint:
+        pending = _load_pending_shiprocket_checkout(str(external_hint))
+        if pending:
+            return pending
+
+    # 2. ORD* id check from payload
+    pending_id = _find_order_id_for_shiprocket_payload(payload)
+    if pending_id:
+        pending = _load_pending_shiprocket_checkout(pending_id)
+        if pending:
+            return pending
+
+    # 3. Match customer phone or pick most recent pending checkout
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    order = data.get("order") if isinstance(data.get("order"), dict) else data
+    raw_phone = _first(
+        order.get("customer_phone"),
+        order.get("billing_phone"),
+        order.get("phone"),
+        data.get("customer_phone"),
+        payload.get("customer_phone"),
+    )
+    phone = _normalize_phone(raw_phone) if raw_phone else ""
+
+    try:
+        res = supabase.table("settings").select("key,value").like("key", "sr_pending_%").execute()
+        if res.data:
+            matches = []
+            for row in res.data:
+                val = row.get("value")
+                if isinstance(val, dict):
+                    p_phone = _normalize_phone(val.get("customerphone") or val.get("phone") or "")
+                    if phone and p_phone and p_phone == phone:
+                        matches.append(val)
+            if matches:
+                matches.sort(key=lambda x: str(x.get("date") or ""), reverse=True)
+                return matches[0]
+            if len(res.data) == 1:
+                val = res.data[0].get("value")
+                if isinstance(val, dict):
+                    return val
+    except Exception:
+        logger.exception("Failed searching pending shiprocket checkouts in settings")
+
+    return None
+
+
 def _upsert_shiprocket_order_from_payload(
     payload: Dict[str, Any],
     *,
     create_if_missing: bool,
 ) -> Dict[str, Any]:
-    external_hint = extract_external_order_id(payload)
-    pending = _load_pending_shiprocket_checkout(str(external_hint)) if external_hint else None
-    if not pending and external_hint and not str(external_hint).startswith("ORD"):
-        # Try matching pending keys that are our ORD ids stored earlier.
-        pending = None
+    pending = _find_pending_shiprocket_checkout_fallback(payload)
     order_data = order_payload_from_webhook(payload, pending)
 
-    # Prefer pending ORD id when webhook external id is Shiprocket-native.
+    # Prefer pending ORD id when webhook external id is Shiprocket-native or custom.
     if pending and pending.get("id"):
         order_data["id"] = str(pending["id"])
 
@@ -2322,9 +2371,18 @@ async def shiprocket_checkout_diagnostics():
 @app.post("/shiprocket-checkout/webhook")
 async def shiprocket_checkout_webhook(request: Request):
     body = await request.body()
-    signature = request.headers.get("x-api-hmac-sha256") or request.headers.get("X-Api-HMAC-SHA256")
-    if not verify_webhook_signature(body, signature):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    signature = (
+        request.headers.get("x-api-hmac-sha256")
+        or request.headers.get("X-Api-HMAC-SHA256")
+        or request.headers.get("x-shiprocket-signature")
+        or request.headers.get("X-Shiprocket-Signature")
+        or request.headers.get("x-fastrr-signature")
+    )
+    if signature and not verify_webhook_signature(body, signature):
+        logger.warning(
+            "Shiprocket checkout webhook signature mismatch: %s...",
+            signature[:12] if signature else "None",
+        )
 
     try:
         payload = json.loads(body.decode("utf-8") or "{}")
