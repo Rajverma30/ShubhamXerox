@@ -32,6 +32,30 @@ _MAX_ATTEMPTS = 3
 _REQUEST_TIMEOUT_SECONDS = 10
 
 
+def _mask_secret(value: str) -> str:
+    text = value or ""
+    if not text:
+        return "(empty)"
+    if len(text) <= 8:
+        return f"{text[:2]}***{text[-1:]}(len={len(text)})"
+    return f"{text[:4]}...{text[-4:]}(len={len(text)})"
+
+
+def _credential_source() -> Dict[str, str]:
+    """Report which env names are set (not values) vs which resolved config is used."""
+    import os
+
+    return {
+        "env_FASTRR_API_KEY_set": str(bool(os.getenv("FASTRR_API_KEY", "").strip())),
+        "env_FASTRR_WEBHOOK_SECRET_set": str(bool(os.getenv("FASTRR_WEBHOOK_SECRET", "").strip())),
+        "env_SHIPROCKET_API_KEY_set": str(bool(os.getenv("SHIPROCKET_API_KEY", "").strip())),
+        "env_SHIPROCKET_API_SECRET_set": str(bool(os.getenv("SHIPROCKET_API_SECRET", "").strip())),
+        "env_SHIPROCKET_WEBHOOK_SECRET_set": str(bool(os.getenv("SHIPROCKET_WEBHOOK_SECRET", "").strip())),
+        "resolved_FASTRR_API_KEY": _mask_secret(FASTRR_API_KEY or ""),
+        "resolved_FASTRR_WEBHOOK_SECRET": _mask_secret(FASTRR_WEBHOOK_SECRET or ""),
+    }
+
+
 def _iso_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
@@ -107,16 +131,31 @@ def _post_webhook(url: str, payload: Dict[str, Any], *, entity: str, entity_id: 
         return False
 
     raw_body = _encode_body(payload)
+    signature = generate_signature(raw_body)
     headers = {
         "Content-Type": "application/json",
         "X-Api-Key": FASTRR_API_KEY,
-        "X-Api-HMAC-SHA256": generate_signature(raw_body),
+        "X-Api-HMAC-SHA256": signature,
     }
+
+    # Auth audit (masked). Confirms exact values/source used for this outbound POST.
+    logger.info(
+        "fastrr_sync_auth_audit entity=%s id=%s url=%s body_bytes=%s "
+        "header_X-Api-Key=%s header_X-Api-HMAC-SHA256=%s uses_data_raw_body=1 uses_json_kwarg=0 %s",
+        entity,
+        entity_id,
+        url,
+        len(raw_body),
+        _mask_secret(FASTRR_API_KEY or ""),
+        _mask_secret(signature),
+        " ".join(f"{k}={v}" for k, v in _credential_source().items()),
+    )
 
     last_error: Optional[str] = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         started = time.monotonic()
         try:
+            # IMPORTANT: data=raw_body (exact signed bytes). Never json=payload.
             response = requests.post(
                 url,
                 data=raw_body,
