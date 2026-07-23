@@ -42,6 +42,7 @@ from config import (
     SITE_BASE_URL,
     API_BASE_URL,
     FASTRR_SELLER_DOMAIN,
+    ENABLE_FASTRR_AUTO_SYNC,
     SHIPROCKET_API_KEY,
     SHIPROCKET_API_SECRET,
     SHIPROCKET_CHECKOUT_UI_BASE_URL,
@@ -63,6 +64,12 @@ from utils.shiprocket_catalog import (
     resolve_collection_category,
     serialize_product,
     verify_catalog_request,
+)
+from utils.fastrr_sync import (
+    build_collection_payload,
+    build_product_payload,
+    sync_collection,
+    sync_product,
 )
 from utils.otp import generate_and_hash_otp, hash_otp
 from utils.email_service import send_otp_email
@@ -2430,6 +2437,99 @@ def _invalidate_product_caches() -> None:
     PRODUCT_SLUG_CACHE["slug_to_id"] = {}
 
 
+def _enrich_row_for_fastrr_sync(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach slug + public image URL so push payloads match catalog pull shape."""
+    if not isinstance(row, dict):
+        return {}
+    enriched = dict(row)
+    product_id = enriched.get("id")
+    base_url = SITE_BASE_URL or "https://www.shubhamxerox.in"
+    try:
+        _refresh_product_slug_cache()
+        slug_map = PRODUCT_SLUG_CACHE.get("id_to_slug", {})
+        if product_id is not None:
+            pid = str(product_id)
+            enriched["slug"] = slug_map.get(pid, enriched.get("slug") or pid)
+            if not _select_main_product_image(enriched.get("img")):
+                mapped = _load_db_product_images_map().get(pid)
+                if mapped:
+                    enriched["img"] = mapped
+            enriched["img_url"] = _normalize_product_image_url(
+                enriched.get("img") or enriched.get("img_url"),
+                base_url,
+                product_id=product_id,
+            )
+    except Exception:
+        logger.exception("fastrr_enrich_failed product_id=%s", product_id)
+        if product_id is not None and not enriched.get("slug"):
+            enriched["slug"] = str(product_id)
+    return enriched
+
+
+def _background_sync_product(
+    row: Dict[str, Any],
+    status: str = "active",
+    categories: Optional[List[str]] = None,
+) -> None:
+    """Background worker: sync product, then related collection(s)."""
+    enriched = _enrich_row_for_fastrr_sync(row)
+    product_payload = build_product_payload(enriched, status=status)
+    sync_product(product_payload)
+
+    image_src = str((product_payload.get("image") or {}).get("src") or "")
+    category_names = []
+    primary = str(enriched.get("category") or "").strip()
+    if primary:
+        category_names.append(primary)
+    for extra in categories or []:
+        name = str(extra or "").strip()
+        if name and name not in category_names:
+            category_names.append(name)
+    for idx, category_name in enumerate(category_names):
+        # Only the product's current category gets this product's image.
+        sync_collection(
+            build_collection_payload(
+                category=category_name,
+                image_src=image_src if idx == 0 and category_name == primary else "",
+            )
+        )
+
+
+def _background_sync_collection(category: str, image_src: str = "") -> None:
+    sync_collection(build_collection_payload(category=category, image_src=image_src or ""))
+
+
+def _schedule_fastrr_product_sync(
+    background_tasks: BackgroundTasks,
+    row: Optional[Dict[str, Any]],
+    *,
+    status: str = "active",
+    also_categories: Optional[List[str]] = None,
+) -> None:
+    if not ENABLE_FASTRR_AUTO_SYNC or not row:
+        return
+    background_tasks.add_task(
+        _background_sync_product,
+        dict(row),
+        status,
+        list(also_categories or []),
+    )
+
+
+def _schedule_fastrr_collection_sync(
+    background_tasks: BackgroundTasks,
+    category: Optional[str],
+    *,
+    image_src: str = "",
+) -> None:
+    if not ENABLE_FASTRR_AUTO_SYNC:
+        return
+    category_name = str(category or "").strip()
+    if not category_name:
+        return
+    background_tasks.add_task(_background_sync_collection, category_name, str(image_src or "").strip())
+
+
 def _prepare_shiprocket_catalog_products() -> List[Dict[str, Any]]:
     # Lightweight metadata only — do not pull every base64 `img` into this response.
     # Fastrr needs public HTTP image URLs; base64 is mapped to /product-og-image/{id}.jpg.
@@ -2637,13 +2737,21 @@ async def admin_list_products(
     return {"products": rows, "has_more": has_more, "limit": limit, "offset": offset}
 
 @app.post("/admin/products")
-async def admin_add_product(req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
+async def admin_add_product(
+    req: AdminProductUpsert,
+    background_tasks: BackgroundTasks,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
     sb = _require_supabase()
     payload = _product_db_payload(req.model_dump(by_alias=True, exclude_none=True))
     payload["id"] = _next_product_id()
     res = sb.table("products").insert(payload).execute()
     _invalidate_product_caches()
-    return {"product": (res.data or [None])[0] if isinstance(res.data, list) else res.data}
+    saved = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+    if not saved:
+        saved = payload
+    _schedule_fastrr_product_sync(background_tasks, saved if isinstance(saved, dict) else payload)
+    return {"product": saved}
 
 def _remove_static_catalog_row(product_id: int) -> bool:
     path = os.path.join(FRONTEND_DIR, "assets", "products.json")
@@ -2710,17 +2818,31 @@ def _update_static_catalog_row(product_id: int, updates: Dict[str, Any]) -> bool
 
 
 @app.put("/admin/products/{product_id}")
-async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin: Dict[str, Any] = Depends(verify_admin)):
+async def admin_update_product(
+    product_id: int,
+    req: AdminProductUpsert,
+    background_tasks: BackgroundTasks,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
     sb = _require_supabase()
     payload = req.model_dump(by_alias=True, exclude_none=True)
     static_row = _load_static_product(str(product_id))
+    previous_category = None
     if static_row:
+        previous_category = str(static_row.get("category") or "").strip() or None
         for key in PRODUCT_DB_FIELDS:
             if key == "id":
                 continue
             if payload.get(key) in (None, "") and static_row.get(key) not in (None, ""):
                 payload[key] = static_row[key]
         _remove_static_catalog_row(product_id)
+    else:
+        try:
+            existing = sb.table("products").select("category").eq("id", product_id).limit(1).execute()
+            if existing.data:
+                previous_category = str((existing.data[0] or {}).get("category") or "").strip() or None
+        except Exception:
+            logger.exception("Failed to load previous category for product %s", product_id)
 
     upsert_payload = _product_db_payload(payload, product_id=product_id)
     try:
@@ -2738,24 +2860,51 @@ async def admin_update_product(product_id: int, req: AdminProductUpsert, _admin:
         saved = upsert_payload
 
     _invalidate_product_caches()
+    also_categories = []
+    new_category = str((saved or {}).get("category") or upsert_payload.get("category") or "").strip()
+    if previous_category and previous_category != new_category:
+        also_categories.append(previous_category)
+    _schedule_fastrr_product_sync(
+        background_tasks,
+        saved if isinstance(saved, dict) else upsert_payload,
+        also_categories=also_categories,
+    )
     return {"product": saved}
 
 @app.delete("/admin/products/{product_id}")
-async def admin_delete_product(product_id: int, _admin: Dict[str, Any] = Depends(verify_admin)):
+async def admin_delete_product(
+    product_id: int,
+    background_tasks: BackgroundTasks,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
     sb = _require_supabase()
     is_catalog = _is_static_catalog_product_id(product_id)
+    deleted_row: Optional[Dict[str, Any]] = None
     if is_catalog:
+        deleted_row = _load_static_product(str(product_id))
         deleted = _load_deleted_static_product_ids()
         deleted.add(int(product_id))
         _save_deleted_static_product_ids(deleted)
     else:
+        try:
+            existing = sb.table("products").select("*").eq("id", product_id).limit(1).execute()
+            if existing.data:
+                deleted_row = existing.data[0]
+        except Exception:
+            logger.exception("Failed to load product %s before delete", product_id)
         sb.table("products").delete().eq("id", product_id).execute()
     _invalidate_product_caches()
+    if deleted_row:
+        _schedule_fastrr_product_sync(background_tasks, deleted_row, status="deleted")
     return {"status": "ok", "deleted_from": "catalog" if is_catalog else "database"}
 
 
 @app.post("/admin/products/bulk-delete")
-async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
+async def admin_bulk_delete_products(
+    req: BulkDeleteRequest,
+    background_tasks: BackgroundTasks,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
     sb = _require_supabase()
     if not req.product_ids:
         return {"status": "ok"}
@@ -2763,6 +2912,18 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
     static_ids = _get_static_catalog_id_set()
     catalog_ids = [int(pid) for pid in req.product_ids if int(pid) in static_ids]
     db_ids = [int(pid) for pid in req.product_ids if int(pid) not in static_ids]
+
+    deleted_rows: List[Dict[str, Any]] = []
+    for pid in catalog_ids:
+        row = _load_static_product(str(pid))
+        if row:
+            deleted_rows.append(row)
+    if db_ids:
+        try:
+            existing = sb.table("products").select("*").in_("id", db_ids).execute()
+            deleted_rows.extend(existing.data or [])
+        except Exception:
+            logger.exception("Failed to load products before bulk delete")
 
     if catalog_ids:
         deleted = _load_deleted_static_product_ids()
@@ -2772,6 +2933,8 @@ async def admin_bulk_delete_products(req: BulkDeleteRequest, _admin: Dict[str, A
         sb.table("products").delete().in_("id", db_ids).execute()
 
     _invalidate_product_caches()
+    for row in deleted_rows:
+        _schedule_fastrr_product_sync(background_tasks, row, status="deleted")
     return {"status": "ok", "catalog_deleted": catalog_ids, "database_deleted": db_ids}
 
 
@@ -2822,12 +2985,42 @@ async def get_catalog_images(response: Response):
     return {"images": images}
 
 @app.post("/admin/products/bulk-update-category")
-async def admin_bulk_update_category(req: BulkUpdateCategoryRequest, _admin: Dict[str, Any] = Depends(verify_admin)):
+async def admin_bulk_update_category(
+    req: BulkUpdateCategoryRequest,
+    background_tasks: BackgroundTasks,
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
     sb = _require_supabase()
     if not req.product_ids:
         return {"status": "ok"}
+
+    previous_categories: set = set()
+    rows_after: List[Dict[str, Any]] = []
+    try:
+        existing = sb.table("products").select("*").in_("id", req.product_ids).execute()
+        for row in existing.data or []:
+            previous = str(row.get("category") or "").strip()
+            if previous:
+                previous_categories.add(previous)
+            updated = dict(row)
+            updated["category"] = req.category
+            rows_after.append(updated)
+    except Exception:
+        logger.exception("Failed to load products before bulk category update")
+
     sb.table("products").update({"category": req.category}).in_("id", req.product_ids).execute()
     _invalidate_product_caches()
+
+    previous_list = [c for c in previous_categories if c != str(req.category or "").strip()]
+    for index, row in enumerate(rows_after):
+        _schedule_fastrr_product_sync(
+            background_tasks,
+            row,
+            also_categories=previous_list if index == 0 else None,
+        )
+    # If no rows were loaded (lookup failed), still push the target collection.
+    if not rows_after:
+        _schedule_fastrr_collection_sync(background_tasks, req.category)
     return {"status": "ok"}
 
 def _orders_table_for(order_type: str) -> str:

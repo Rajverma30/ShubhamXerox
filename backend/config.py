@@ -89,6 +89,33 @@ FASTRR_SELLER_DOMAIN = (
     or "shubhamxerox.in"
 )
 
+# Outbound Fastrr catalog webhook sync (push on admin create/update/delete).
+# Prefer FASTRR_* names; fall back to existing Shiprocket aliases.
+FASTRR_API_KEY = _env_first(
+    "FASTRR_API_KEY",
+    "SHIPROCKET_API_KEY",
+    "SHIPROCKET_CHECKOUT_API_KEY",
+    "X_API_KEY",
+) or SHIPROCKET_API_KEY
+FASTRR_WEBHOOK_SECRET = _env_first(
+    "FASTRR_WEBHOOK_SECRET",
+    "SHIPROCKET_WEBHOOK_SECRET",
+) or SHIPROCKET_WEBHOOK_SECRET
+ENABLE_FASTRR_AUTO_SYNC = os.getenv("ENABLE_FASTRR_AUTO_SYNC", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+FASTRR_PRODUCT_WEBHOOK_URL = os.getenv(
+    "FASTRR_PRODUCT_WEBHOOK_URL",
+    "https://fastrr-api-dev.pickrr.com/wh/v1/custom/product",
+).strip()
+FASTRR_COLLECTION_WEBHOOK_URL = os.getenv(
+    "FASTRR_COLLECTION_WEBHOOK_URL",
+    "https://fastrr-api-dev.pickrr.com/wh/v1/custom/collection",
+).strip()
+
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "43200"))
 ADMIN_DEFAULT_PASSWORD = os.getenv("ADMIN_DEFAULT_PASSWORD", "1234")
