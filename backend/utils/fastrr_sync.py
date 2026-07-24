@@ -24,7 +24,6 @@ from config import (
     FASTRR_COLLECTION_WEBHOOK_URL,
     FASTRR_PRODUCT_WEBHOOK_URL,
     FASTRR_WEBHOOK_SECRET,
-    SHIPROCKET_API_SECRET,
 )
 
 logger = logging.getLogger("shubhamxerox.fastrr_sync")
@@ -54,7 +53,6 @@ def _credential_source() -> Dict[str, str]:
         "env_SHIPROCKET_WEBHOOK_SECRET_set": str(bool(os.getenv("SHIPROCKET_WEBHOOK_SECRET", "").strip())),
         "resolved_FASTRR_API_KEY": _mask_secret(FASTRR_API_KEY or ""),
         "resolved_FASTRR_WEBHOOK_SECRET": _mask_secret(FASTRR_WEBHOOK_SECRET or ""),
-        "resolved_SHIPROCKET_API_SECRET": _mask_secret(SHIPROCKET_API_SECRET or ""),
     }
 
 
@@ -82,21 +80,17 @@ def _price_rupees(value: Any) -> float:
 
 
 def generate_signature(raw_body: bytes | str) -> str:
-    """Base64(HMAC_SHA256(raw_request_body, b64decode(FASTRR_WEBHOOK_SECRET))).
-
-    Decodes FASTRR_WEBHOOK_SECRET from Base64 if valid, returning standard Base64 digest.
-    """
-    raw_secret = (FASTRR_WEBHOOK_SECRET or "").strip()
-    try:
-        secret = base64.b64decode(raw_secret, validate=True)
-    except Exception:
-        secret = raw_secret.encode("utf-8")
+    secret = (FASTRR_WEBHOOK_SECRET or "").encode("utf-8")
 
     if isinstance(raw_body, str):
-        body_bytes = raw_body.encode("utf-8")
-    else:
-        body_bytes = raw_body
-    digest = hmac.new(secret, body_bytes, hashlib.sha256).digest()
+        raw_body = raw_body.encode("utf-8")
+
+    digest = hmac.new(
+        secret,
+        raw_body,
+        hashlib.sha256,
+    ).digest()
+
     return base64.b64encode(digest).decode("utf-8")
 
 
