@@ -2929,6 +2929,116 @@ async def admin_update_product(
     )
     return {"product": saved}
 
+@app.get("/admin/categories")
+async def admin_get_categories(_admin: Dict[str, Any] = Depends(verify_admin)):
+    sb = _require_supabase()
+    deleted_cats = set()
+    site_cats = list(defaultSiteCategories)
+    try:
+        res_del = sb.table("settings").select("value").eq("key", "deleted_categories").execute()
+        if res_del.data:
+            raw_del = res_del.data[0].get("value", [])
+            if isinstance(raw_del, list):
+                deleted_cats = set(raw_del)
+            elif isinstance(raw_del, dict):
+                deleted_cats = set(raw_del.get("categories", []))
+    except Exception:
+        logger.exception("Failed to load deleted categories from settings")
+
+    try:
+        res_cats = sb.table("settings").select("value").eq("key", "site_categories").execute()
+        if res_cats.data:
+            raw_cats = res_cats.data[0].get("value", [])
+            if isinstance(raw_cats, list):
+                site_cats = raw_cats
+            elif isinstance(raw_cats, dict):
+                site_cats = raw_cats.get("categories", [])
+    except Exception:
+        pass
+
+    return {"categories": site_cats, "deleted_categories": list(deleted_cats)}
+
+
+@app.delete("/admin/categories/{category_name}")
+async def admin_delete_category(
+    category_name: str,
+    reassign_to: str = "General",
+    _admin: Dict[str, Any] = Depends(verify_admin),
+):
+    sb = _require_supabase()
+    category_name = unquote(category_name).strip()
+    if not category_name:
+        raise HTTPException(status_code=400, detail="Invalid category name")
+
+    # 1. Update deleted_categories in settings
+    deleted_cats = set()
+    try:
+        res_del = sb.table("settings").select("value").eq("key", "deleted_categories").execute()
+        if res_del.data:
+            raw_del = res_del.data[0].get("value", [])
+            if isinstance(raw_del, list):
+                deleted_cats = set(raw_del)
+            elif isinstance(raw_del, dict):
+                deleted_cats = set(raw_del.get("categories", []))
+    except Exception:
+        pass
+    deleted_cats.add(category_name)
+
+    try:
+        sb.table("settings").upsert({
+            "key": "deleted_categories",
+            "value": {"categories": list(deleted_cats)}
+        }).execute()
+    except Exception:
+        logger.exception("Failed to upsert deleted_categories into settings")
+
+    # 2. Update site_categories in settings
+    site_cats = []
+    try:
+        res_cats = sb.table("settings").select("value").eq("key", "site_categories").execute()
+        if res_cats.data:
+            raw_cats = res_cats.data[0].get("value", [])
+            if isinstance(raw_cats, list):
+                site_cats = raw_cats
+            elif isinstance(raw_cats, dict):
+                site_cats = raw_cats.get("categories", [])
+    except Exception:
+        pass
+    if category_name in site_cats:
+        site_cats = [c for c in site_cats if c != category_name]
+        try:
+            sb.table("settings").upsert({
+                "key": "site_categories",
+                "value": {"categories": site_cats}
+            }).execute()
+        except Exception:
+            logger.exception("Failed to upsert site_categories into settings")
+
+    # 3. Reassign DB products in Supabase
+    try:
+        sb.table("products").update({"category": reassign_to}).eq("category", category_name).execute()
+    except Exception:
+        logger.exception("Failed to reassign DB products under category %s to %s", category_name, reassign_to)
+
+    # 4. Reassign static catalog products in products.json
+    path = os.path.join(FRONTEND_DIR, "assets", "products.json")
+    rows = _read_static_catalog_rows_raw()
+    changed = False
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("category") or "").strip() == category_name:
+            row["category"] = reassign_to
+            changed = True
+    if changed:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(rows, f, ensure_ascii=False, indent=2)
+        except Exception:
+            logger.exception("Failed to update category in products.json")
+
+    _invalidate_product_caches()
+    return {"status": "ok", "deleted_category": category_name, "reassigned_to": reassign_to}
+
+
 @app.delete("/admin/products/{product_id}")
 async def admin_delete_product(
     product_id: int,
@@ -2938,19 +3048,29 @@ async def admin_delete_product(
     sb = _require_supabase()
     is_catalog = _is_static_catalog_product_id(product_id)
     deleted_row: Optional[Dict[str, Any]] = None
+
     if is_catalog:
         deleted_row = _load_static_product(str(product_id))
+    try:
+        existing = sb.table("products").select("*").eq("id", product_id).limit(1).execute()
+        if existing.data and not deleted_row:
+            deleted_row = existing.data[0]
+    except Exception:
+        logger.exception("Failed to load product %s before delete", product_id)
+
+    # Delete from Supabase DB unconditionally
+    try:
+        sb.table("products").delete().eq("id", product_id).execute()
+    except Exception:
+        logger.exception("Failed to delete product %s from Supabase products table", product_id)
+
+    # If it was a static catalog row, strip it permanently from products.json & update deleted set
+    if is_catalog:
+        _remove_static_catalog_row(product_id)
         deleted = _load_deleted_static_product_ids()
         deleted.add(int(product_id))
         _save_deleted_static_product_ids(deleted)
-    else:
-        try:
-            existing = sb.table("products").select("*").eq("id", product_id).limit(1).execute()
-            if existing.data:
-                deleted_row = existing.data[0]
-        except Exception:
-            logger.exception("Failed to load product %s before delete", product_id)
-        sb.table("products").delete().eq("id", product_id).execute()
+
     _invalidate_product_caches()
     if deleted_row:
         _schedule_fastrr_product_sync(background_tasks, deleted_row, status="deleted")
@@ -2967,33 +3087,42 @@ async def admin_bulk_delete_products(
     if not req.product_ids:
         return {"status": "ok"}
 
+    all_ids = [int(pid) for pid in req.product_ids]
     static_ids = _get_static_catalog_id_set()
-    catalog_ids = [int(pid) for pid in req.product_ids if int(pid) in static_ids]
-    db_ids = [int(pid) for pid in req.product_ids if int(pid) not in static_ids]
+    catalog_ids = [pid for pid in all_ids if pid in static_ids]
 
     deleted_rows: List[Dict[str, Any]] = []
     for pid in catalog_ids:
         row = _load_static_product(str(pid))
         if row:
             deleted_rows.append(row)
-    if db_ids:
-        try:
-            existing = sb.table("products").select("*").in_("id", db_ids).execute()
-            deleted_rows.extend(existing.data or [])
-        except Exception:
-            logger.exception("Failed to load products before bulk delete")
 
+    try:
+        existing = sb.table("products").select("*").in_("id", all_ids).execute()
+        for r in (existing.data or []):
+            if r not in deleted_rows:
+                deleted_rows.append(r)
+    except Exception:
+        logger.exception("Failed to load products before bulk delete")
+
+    # Delete all specified IDs from Supabase DB
+    try:
+        sb.table("products").delete().in_("id", all_ids).execute()
+    except Exception:
+        logger.exception("Failed to delete products from Supabase DB in bulk delete")
+
+    # Strip static rows from products.json and update deleted_static_product_ids
     if catalog_ids:
+        for pid in catalog_ids:
+            _remove_static_catalog_row(pid)
         deleted = _load_deleted_static_product_ids()
         deleted.update(catalog_ids)
         _save_deleted_static_product_ids(deleted)
-    if db_ids:
-        sb.table("products").delete().in_("id", db_ids).execute()
 
     _invalidate_product_caches()
     for row in deleted_rows:
         _schedule_fastrr_product_sync(background_tasks, row, status="deleted")
-    return {"status": "ok", "catalog_deleted": catalog_ids, "database_deleted": db_ids}
+    return {"status": "ok", "catalog_deleted": catalog_ids, "database_deleted": all_ids}
 
 
 @app.get("/catalog/deleted-ids")

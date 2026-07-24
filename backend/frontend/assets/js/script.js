@@ -1020,7 +1020,13 @@ function generateSkeletonHTML(count = 4) {
 
 function getAllProductCategories() {
   let safeSiteCategories = Array.isArray(siteCategories) ? siteCategories : defaultSiteCategories;
-  return [...new Set([...safeSiteCategories, ...products.map(p => p.category).filter(Boolean)])].sort();
+  let deletedCats = [];
+  try {
+    deletedCats = JSON.parse(localStorage.getItem('shubham_deleted_categories') || '[]');
+  } catch (e) {}
+  const deletedSet = new Set(deletedCats);
+  const activeProductsCats = products.map(p => p.category).filter(c => c && !deletedSet.has(c));
+  return [...new Set([...safeSiteCategories.filter(c => !deletedSet.has(c)), ...activeProductsCats])].sort();
 }
 
 function injectPublicNavbarCategories() {
@@ -1675,7 +1681,14 @@ const newPublishers = {
   "GAGAN PRATAP Sir All Books": "https://img.clevup.in/285520/cat/291313_cat-1747539300152.jpg?height=92&format=webp"
 };
 let __categoriesChanged = false;
+let __deletedCategories = [];
+try {
+  __deletedCategories = JSON.parse(localStorage.getItem('shubham_deleted_categories') || '[]');
+} catch (e) {}
+const __deletedSet = new Set(__deletedCategories);
+
 for (const [catName, catImg] of Object.entries(newPublishers)) {
+  if (__deletedSet.has(catName)) continue;
   if (!siteCategories.includes(catName)) {
     siteCategories.push(catName);
     __categoriesChanged = true;
@@ -3821,15 +3834,44 @@ function applyAdminCategoryPrefill() {
   categoryInput.value = prefillCategory;
 }
 
-window.removeAdminCategory = function (cat) {
+window.removeAdminCategory = async function (cat) {
+  const shouldDelete = await showConfirmDialog(`Are you sure you want to delete category "${cat}"? Products in this category will be reassigned to General.`, 'Delete Category');
+  if (!shouldDelete) return;
+
+  showGlobalLoader(true, `Deleting category "${cat}"...`);
+  try {
+    await apiFetch(`/admin/categories/${encodeURIComponent(cat)}`, { method: "DELETE" });
+  } catch (err) {
+    console.warn("Backend category delete notification warning:", err);
+  }
+
+  let deletedCats = [];
+  try {
+    deletedCats = JSON.parse(localStorage.getItem('shubham_deleted_categories') || '[]');
+  } catch (e) {}
+  if (!deletedCats.includes(cat)) {
+    deletedCats.push(cat);
+    localStorage.setItem('shubham_deleted_categories', JSON.stringify(deletedCats));
+  }
+
   siteCategories = siteCategories.filter(c => c !== cat);
   localStorage.setItem('shubham_categories', JSON.stringify(siteCategories));
   if (categoryMeta[cat]) {
     delete categoryMeta[cat];
     localStorage.setItem('shubham_category_meta', JSON.stringify(categoryMeta));
   }
+
+  (products || []).forEach(p => {
+    if (p && String(p.category || '').trim() === cat) {
+      p.category = 'General';
+    }
+  });
+  saveProductsToCache(products);
+
+  showGlobalLoader(false);
   renderAdminCategories();
-  showToast(`Category removed`);
+  populateNavbarCategoriesMenu();
+  showToast(`Category "${cat}" removed`);
 };
 
 window.openEditCategory = function (cat) {
