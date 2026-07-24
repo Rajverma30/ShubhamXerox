@@ -24,6 +24,7 @@ from config import (
     FASTRR_COLLECTION_WEBHOOK_URL,
     FASTRR_PRODUCT_WEBHOOK_URL,
     FASTRR_WEBHOOK_SECRET,
+    SHIPROCKET_API_SECRET,
 )
 
 logger = logging.getLogger("shubhamxerox.fastrr_sync")
@@ -53,6 +54,7 @@ def _credential_source() -> Dict[str, str]:
         "env_SHIPROCKET_WEBHOOK_SECRET_set": str(bool(os.getenv("SHIPROCKET_WEBHOOK_SECRET", "").strip())),
         "resolved_FASTRR_API_KEY": _mask_secret(FASTRR_API_KEY or ""),
         "resolved_FASTRR_WEBHOOK_SECRET": _mask_secret(FASTRR_WEBHOOK_SECRET or ""),
+        "resolved_SHIPROCKET_API_SECRET": _mask_secret(SHIPROCKET_API_SECRET or ""),
     }
 
 
@@ -80,11 +82,11 @@ def _price_rupees(value: Any) -> float:
 
 
 def generate_signature(raw_body: bytes | str) -> str:
-    """Base64(HMAC_SHA256(raw_request_body, FASTRR_WEBHOOK_SECRET)).
+    """Base64(HMAC_SHA256(raw_request_body, SHIPROCKET_API_SECRET)).
 
-    Hash the exact bytes being sent — do not hash parsed JSON.
+    Hash the exact bytes being sent using SHIPROCKET_API_SECRET.
     """
-    secret = (FASTRR_WEBHOOK_SECRET or "").encode("utf-8")
+    secret = (SHIPROCKET_API_SECRET or "").encode("utf-8")
     if isinstance(raw_body, str):
         body_bytes = raw_body.encode("utf-8")
     else:
