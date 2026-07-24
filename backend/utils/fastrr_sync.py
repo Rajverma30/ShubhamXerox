@@ -4,6 +4,7 @@ Does not touch checkout. Gated by ENABLE_FASTRR_AUTO_SYNC.
 HMAC signs the exact request body bytes being POSTed.
 """
 
+import secrets
 from __future__ import annotations
 
 import base64
@@ -91,8 +92,8 @@ def generate_signature(raw_body: bytes | str) -> str:
         body_bytes = raw_body.encode("utf-8")
     else:
         body_bytes = raw_body
-    digest = hmac.new(secret, body_bytes, hashlib.sha256).digest()
-    return base64.b64encode(digest).decode("utf-8")
+    digest = hmac.new(secret, body_bytes, hashlib.sha256).hexdigest()
+    return digest
 
 
 def _encode_body(payload: Dict[str, Any]) -> bytes:
