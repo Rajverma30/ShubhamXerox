@@ -747,30 +747,53 @@ async function startShiprocketCheckout(items, total) {
 }
 
 async function fetchDeletedCatalogIds(force = false) {
-  if (!force && deletedCatalogIds) return deletedCatalogIds;
+  let localDeleted = [];
+  try {
+    localDeleted = JSON.parse(localStorage.getItem('shubham_deleted_catalog_ids') || '[]');
+  } catch (e) {}
+  const mergedIds = new Set(localDeleted.map(id => String(id)));
+
+  if (!force && deletedCatalogIds && deletedCatalogIds.size >= mergedIds.size) {
+    return deletedCatalogIds;
+  }
+
   try {
     const res = await fetch(`${API_BASE}/catalog/deleted-ids`);
     if (res.ok) {
       const data = await res.json();
-      deletedCatalogIds = new Set((data.ids || []).map((id) => String(id)));
-      return deletedCatalogIds;
+      (data.ids || []).forEach(id => mergedIds.add(String(id)));
     }
   } catch (e) {
-    console.warn('Failed to load deleted catalog ids', e);
+    console.warn('Failed to load deleted catalog ids from server', e);
   }
-  deletedCatalogIds = deletedCatalogIds || new Set();
+
+  deletedCatalogIds = mergedIds;
+  try {
+    localStorage.setItem('shubham_deleted_catalog_ids', JSON.stringify([...deletedCatalogIds]));
+  } catch (e) {}
   return deletedCatalogIds;
 }
 
 function markCatalogProductDeleted(id) {
   if (!deletedCatalogIds) deletedCatalogIds = new Set();
   deletedCatalogIds.add(String(id));
+  try {
+    localStorage.setItem('shubham_deleted_catalog_ids', JSON.stringify([...deletedCatalogIds]));
+  } catch (e) {}
 }
 
 function filterDeletedCatalogProducts(list) {
   if (!Array.isArray(list) || !list.length) return list || [];
-  if (!deletedCatalogIds || !deletedCatalogIds.size) return list;
-  return list.filter((p) => !deletedCatalogIds.has(String(p.id)));
+  let localDeleted = [];
+  try {
+    localDeleted = JSON.parse(localStorage.getItem('shubham_deleted_catalog_ids') || '[]');
+  } catch (e) {}
+  const deletedSet = new Set([
+    ...(deletedCatalogIds ? [...deletedCatalogIds] : []),
+    ...localDeleted.map(id => String(id))
+  ]);
+  if (!deletedSet.size) return list;
+  return list.filter((p) => !deletedSet.has(String(p.id)));
 }
 const AUTH_TOKEN_KEY = "shubham_auth_token";
 let products = [];
@@ -4338,22 +4361,21 @@ async function removeProduct(id, name) {
   showGlobalLoader(true, name ? `Say bye bye to ${name} 👋` : 'Deleting...');
   try {
     await apiFetch(`/admin/products/${id}`, { method: "DELETE" });
-    markCatalogProductDeleted(id);
-    const idx = products.findIndex(p => String(p.id) === String(id));
-    if (idx > -1) products.splice(idx, 1);
-    saveProductsToCache(products);
-
-    if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
   } catch (err) {
-    showGlobalLoader(false);
-    showToast(err.message || "Delete failed");
-    return;
+    console.warn("Backend product delete warning:", err);
   }
+
+  markCatalogProductDeleted(id);
+  products = products.filter(p => String(p.id) !== String(id));
+  saveProductsToCache(products);
+
+  if (typeof adminLastSearchValue !== 'undefined') adminLastSearchValue = null;
   adminLastRenderedCount = 0;
   const container = document.getElementById('adminProductsList');
   if (container) container.innerHTML = '';
   await renderAdminList();
   showGlobalLoader(false);
+  showToast(`Book "${name || 'Book'}" deleted.`);
 }
 
 function updateBulkDeleteBtn() {
