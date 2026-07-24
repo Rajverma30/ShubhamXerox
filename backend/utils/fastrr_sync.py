@@ -82,11 +82,16 @@ def _price_rupees(value: Any) -> float:
 
 
 def generate_signature(raw_body: bytes | str) -> str:
-    """Hex(HMAC_SHA256(raw_request_body, FASTRR_WEBHOOK_SECRET)).
+    """Hex(HMAC_SHA256(raw_request_body, b64decode(FASTRR_WEBHOOK_SECRET))).
 
-    Hash the exact bytes being sent using FASTRR_WEBHOOK_SECRET, returning 64-char hex digest.
+    Decodes FASTRR_WEBHOOK_SECRET from Base64 if valid, returning 64-char hex digest.
     """
-    secret = (FASTRR_WEBHOOK_SECRET or "").encode("utf-8")
+    raw_secret = (FASTRR_WEBHOOK_SECRET or "").strip()
+    try:
+        secret = base64.b64decode(raw_secret, validate=True)
+    except Exception:
+        secret = raw_secret.encode("utf-8")
+
     if isinstance(raw_body, str):
         body_bytes = raw_body.encode("utf-8")
     else:
