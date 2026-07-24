@@ -82,9 +82,9 @@ def _price_rupees(value: Any) -> float:
 
 
 def generate_signature(raw_body: bytes | str) -> str:
-    """Hex(HMAC_SHA256(raw_request_body, b64decode(FASTRR_WEBHOOK_SECRET))).
+    """Base64(HMAC_SHA256(raw_request_body, b64decode(FASTRR_WEBHOOK_SECRET))).
 
-    Decodes FASTRR_WEBHOOK_SECRET from Base64 if valid, returning 64-char hex digest.
+    Decodes FASTRR_WEBHOOK_SECRET from Base64 if valid, returning standard Base64 digest.
     """
     raw_secret = (FASTRR_WEBHOOK_SECRET or "").strip()
     try:
@@ -96,7 +96,8 @@ def generate_signature(raw_body: bytes | str) -> str:
         body_bytes = raw_body.encode("utf-8")
     else:
         body_bytes = raw_body
-    return hmac.new(secret, body_bytes, hashlib.sha256).hexdigest()
+    digest = hmac.new(secret, body_bytes, hashlib.sha256).digest()
+    return base64.b64encode(digest).decode("utf-8")
 
 
 def _encode_body(payload: Dict[str, Any]) -> bytes:
