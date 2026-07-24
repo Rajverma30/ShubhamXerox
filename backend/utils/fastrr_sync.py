@@ -82,17 +82,16 @@ def _price_rupees(value: Any) -> float:
 
 
 def generate_signature(raw_body: bytes | str) -> str:
-    """Base64(HMAC_SHA256(raw_request_body, SHIPROCKET_API_SECRET)).
+    """Hex(HMAC_SHA256(raw_request_body, SHIPROCKET_API_SECRET)).
 
-    Hash the exact bytes being sent using SHIPROCKET_API_SECRET.
+    Hash the exact bytes being sent using SHIPROCKET_API_SECRET, returning 64-char hex digest.
     """
     secret = (SHIPROCKET_API_SECRET or "").encode("utf-8")
     if isinstance(raw_body, str):
         body_bytes = raw_body.encode("utf-8")
     else:
         body_bytes = raw_body
-    digest = hmac.new(secret, body_bytes, hashlib.sha256).digest()
-    return base64.b64encode(digest).decode("utf-8")
+    return hmac.new(secret, body_bytes, hashlib.sha256).hexdigest()
 
 
 def _encode_body(payload: Dict[str, Any]) -> bytes:
