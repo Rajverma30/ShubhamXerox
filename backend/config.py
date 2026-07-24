@@ -44,7 +44,7 @@ def _env_first(*names: str) -> str:
 # Accept common aliases — exact name must still exist in Railway Variables.
 # Fallback keys only if Railway env is empty (move to Railway Variables when possible).
 _SHIPROCKET_API_KEY_FALLBACK = "rdPDPq4KGC3caj3Q"
-_SHIPROCKET_API_SECRET_FALLBACK = "L5T7KIM8855YFcJp87f9TCJDWqfEjADa"
+_SHIPROCKET_API_SECRET_FALLBACK = "FYttb1JEV3KL0iaqcA30FkNE1665aPThcHX37J4sWvo="
 SHIPROCKET_API_KEY = _env_first(
     "SHIPROCKET_API_KEY",
     "FASTRR_API_KEY",
