@@ -1989,7 +1989,7 @@ async function syncCatalogOverridesFromServer() {
     });
 
     if (changed) {
-      products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      products = filterDeletedCatalogProducts([...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0)));
       rebuildProductSlugIndex(products);
       saveProductsToCache(products);
     }
@@ -2019,7 +2019,7 @@ async function syncCatalogImagesFromServer() {
     });
 
     if (changed) {
-      products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+      products = filterDeletedCatalogProducts([...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0)));
       rebuildProductSlugIndex(products);
       saveProductsToCache(products);
       return true;
@@ -2044,7 +2044,7 @@ async function syncProductsWithServer(limit = 500) {
       byId.set(id, existing ? mergeCatalogWithDbRow(existing, row) : row);
     });
 
-    products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+    products = filterDeletedCatalogProducts([...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0)));
     rebuildProductSlugIndex(products);
     saveProductsToCache(products);
     productsServerHasMore = !!res?.has_more;
@@ -2083,7 +2083,7 @@ async function mergeExtraCategoryProductsFromServer() {
   }
 
   if (changed) {
-    products = [...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+    products = filterDeletedCatalogProducts([...byId.values()].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0)));
     rebuildProductSlugIndex(products);
     saveProductsToCache(products);
   }
@@ -2214,7 +2214,7 @@ async function fetchProducts() {
 
   // If static JSON failed or was empty but we have SSR, use SSR
   if (!hasLocalCache && ssrProducts.length > 0) {
-    products = sortProductsByLatest(ssrProducts);
+    products = filterDeletedCatalogProducts(sortProductsByLatest(ssrProducts));
     rebuildProductSlugIndex(products);
     hasLocalCache = true;
     isProductsLoading = false;
@@ -2309,12 +2309,12 @@ async function fetchProducts() {
         
         const mergedProducts = Array.from(byId.values());
         const newProducts = sortProductsByLatest(mergedProducts);
+        products = filterDeletedCatalogProducts(newProducts);
         try {
-          saveProductsToCache(newProducts);
+          saveProductsToCache(products);
         } catch (cacheErr) {
           console.warn('LocalStorage quota exceeded or cache save failed:', cacheErr);
         }
-        products = newProducts;
         rebuildProductSlugIndex(products);
         preloadFirstFoldProductImages(products, 4);
       } else {
